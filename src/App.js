@@ -3,6 +3,13 @@ import { Box, Text, useInput, useApp, useStdout } from 'ink';
 import { ConfigManager, SUPPORTED_CLIS } from './ConfigManager.js';
 import { ManagerConfig } from './ManagerConfig.js';
 import { CcrConfigManager, ROUTER_RULES } from './CcrConfigManager.js';
+import { THEME, PAGE_META, MCP_WINDOWS } from './theme.js';
+
+import MCPPage from './pages/MCPPage.js';
+import SkillsPage from './pages/SkillsPage.js';
+import TrashPage from './pages/TrashPage.js';
+import CCRPage from './pages/CCRPage.js';
+import SettingsPage from './pages/SettingsPage.js';
 
 const PAGES = {
   MCP: 'mcp',
@@ -12,50 +19,9 @@ const PAGES = {
   SETTINGS: 'settings'
 };
 
-const MCP_WINDOWS = {
-  LIST: 0,
-  DETAILS: 1,
-  PARAMS: 2
-};
-
 const CLI_NAMES = {
   [SUPPORTED_CLIS.CLAUDE]: 'Claude Code',
   [SUPPORTED_CLIS.GEMINI]: 'Gemini Code Assist'
-};
-
-// ─── 页面主题色配置 ─────────────────────────────────────────────────────────
-const PAGE_THEMES = {
-  [PAGES.MCP]:      { accent: 'green',        bright: 'brightGreen',  icon: '◆' },
-  [PAGES.SKILLS]:   { accent: 'blue',         bright: 'brightBlue',   icon: '◇' },
-  [PAGES.TRASH]:    { accent: 'red',          bright: 'brightRed',    icon: '▪' },
-  [PAGES.CCR]:      { accent: 'magenta',      bright: 'brightMagenta',icon: '◈' },
-  [PAGES.SETTINGS]: { accent: 'cyan',         bright: 'brightCyan',   icon: '◉' }
-};
-
-const SENSITIVE_RE = /token|key|secret|auth|password|bearer|credential/i;
-function maskValue(k, v) {
-  const s = String(v);
-  if (SENSITIVE_RE.test(k)) return s.slice(0, 4) + '***';
-  return s.length > 32 ? s.slice(0, 32) + '…' : s;
-}
-
-function maskApiKey(key) {
-  if (!key || key.length < 8) return key;
-  return key.slice(0, 4) + '****' + key.slice(-4);
-}
-
-// ─── 状态图标 ──────────────────────────────────────────────────────────────
-const ICONS = {
-  enabled:  '🟢',
-  disabled: '🔴',
-  neutral:  '⚪',
-  selected: '▸',
-  unselected: ' ',
-  arrow:    '→',
-  check:    '✓',
-  cross:    '✗',
-  dot:      '●',
-  dotEmpty: '○'
 };
 
 export default function App() {
@@ -370,12 +336,33 @@ export default function App() {
 
   const terminalWidth = stdout?.columns || 120;
   const terminalHeight = stdout?.rows || 30;
-  const theme = PAGE_THEMES[page];
+  const meta = PAGE_META[page];
 
   return (
     <Box flexDirection="column" width={terminalWidth} height={terminalHeight}>
-      <HeaderBar page={page} theme={theme} />
-      <StatusLine error={error} message={message} />
+      {/* ── Top Bar ───────────────────────────────────────────── */}
+      <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
+        <Text bold color={meta.color}>{meta.label}</Text>
+        <Text color="gray">{'  '}</Text>
+        {Object.values(PAGE_META).map((p, i) => (
+          <Box key={p.label} flexDirection="row">
+            <Text color={p.num === meta.num ? meta.color : 'gray'}>
+              {p.num === meta.num ? `[${p.num}]` : ` ${p.num} `}
+            </Text>
+            {i < 4 && <Text color="gray">{'│'}</Text>}
+          </Box>
+        ))}
+        <Box flexGrow={1} />
+        {error && <Text color={THEME.dangerBright}>✗ {error}</Text>}
+        {!error && message && <Text color={THEME.successBright}>✓ {message}</Text>}
+      </Box>
+
+      {/* ── Divider ───────────────────────────────────────────── */}
+      <Box height={1} paddingX={1}>
+        <Text color="gray">{'─'.repeat(terminalWidth - 2)}</Text>
+      </Box>
+
+      {/* ── Content ───────────────────────────────────────────── */}
       <Box flexGrow={1} flexDirection="row" overflow="hidden">
         {page === PAGES.MCP && (
           <MCPPage
@@ -427,682 +414,21 @@ export default function App() {
           <SettingsPage availableCLIs={availableCLIs} />
         )}
       </Box>
-      <FooterBar page={page} theme={theme} activeWindow={activeWindow} ccrActiveWindow={ccrActiveWindow} />
-    </Box>
-  );
-}
 
-// ─── Header Bar ────────────────────────────────────────────────────────────
-function HeaderBar({ page, theme }) {
-  const pages = [
-    { key: PAGES.MCP,      num: '1', label: 'MCP' },
-    { key: PAGES.SKILLS,   num: '2', label: 'Skills' },
-    { key: PAGES.TRASH,    num: '3', label: 'Trash' },
-    { key: PAGES.CCR,      num: '4', label: 'CCR' },
-    { key: PAGES.SETTINGS, num: '5', label: 'Settings' }
-  ];
+      {/* ── Divider ───────────────────────────────────────────── */}
+      <Box height={1} paddingX={1}>
+        <Text color="gray">{'─'.repeat(terminalWidth - 2)}</Text>
+      </Box>
 
-  return (
-    <Box
-      borderStyle="single"
-      borderColor={theme.accent}
-      paddingX={1}
-      height={3}
-      flexDirection="row"
-      alignItems="center"
-    >
-      <Text bold color={theme.bright}> {theme.icon} MCP Manager </Text>
-      <Text color="gray">│</Text>
-      {pages.map((p, i) => (
-        <Box key={p.key} flexDirection="row">
-          <Text> </Text>
-          {page === p.key ? (
-            <Text bold color={theme.bright} backgroundColor="gray">
-              {' '}{p.num}:{p.label}{' '}
-            </Text>
-          ) : (
-            <Text color="gray">{p.num}:{p.label}</Text>
-          )}
-          {i < pages.length - 1 && <Text color="gray"> │</Text>}
-        </Box>
-      ))}
-      <Box flexGrow={1} />
-      <Text color="gray" dimColor>v1.1.0 </Text>
-    </Box>
-  );
-}
-
-// ─── Status Line ───────────────────────────────────────────────────────────
-function StatusLine({ error, message }) {
-  return (
-    <Box height={1} paddingX={1}>
-      {error && (
-        <Text color="red" bold>
-          {' '}{ICONS.cross} {error}
+      {/* ── Bottom Bar ────────────────────────────────────────── */}
+      <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
+        <Text color="gray" dimColor>
+          {page === PAGES.MCP && `Tab/←→ focus  │  ↑↓ nav  │  ↵ action  │  d delete  │  r refresh  │  q quit`}
+          {page === PAGES.SKILLS && `↑↓ nav  │  ↵ toggle  │  r refresh  │  q quit`}
+          {page === PAGES.TRASH && `↑↓ nav  │  ↵ restore  │  r refresh  │  q quit`}
+          {page === PAGES.CCR && `Tab/←→ focus  │  ↑↓ nav  │  ↵ edit  │  s keys  │  r refresh  │  q quit`}
+          {page === PAGES.SETTINGS && `r refresh  │  q quit`}
         </Text>
-      )}
-      {!error && message && (
-        <Text color="green" bold>
-          {' '}{ICONS.check} {message}
-        </Text>
-      )}
-    </Box>
-  );
-}
-
-// ─── Footer Bar ────────────────────────────────────────────────────────────
-function FooterBar({ page, theme, activeWindow, ccrActiveWindow }) {
-  let hint = '';
-  if (page === PAGES.MCP) {
-    const focus = activeWindow === MCP_WINDOWS.LIST ? 'List' : activeWindow === MCP_WINDOWS.DETAILS ? 'Details' : 'CLI';
-    hint = `${focus} | Tab/←→ switch focus | ↑↓ nav | Enter action | d delete | r refresh | q quit`;
-  } else if (page === PAGES.SKILLS) {
-    hint = '↑↓ nav | Enter toggle | r refresh | q quit';
-  } else if (page === PAGES.TRASH) {
-    hint = '↑↓ nav | Enter restore | r refresh | q quit';
-  } else if (page === PAGES.CCR) {
-    const focus = ccrActiveWindow === 0 ? 'Providers' : ccrActiveWindow === 1 ? 'Details' : 'Router';
-    hint = `${focus} | Tab/←→ switch focus | ↑↓ nav | Enter edit/clear | s show keys | r refresh | q quit`;
-  } else {
-    hint = 'r refresh | q quit';
-  }
-
-  return (
-    <Box
-      borderStyle="single"
-      borderColor={theme.accent}
-      paddingX={1}
-      height={1}
-      flexDirection="row"
-      alignItems="center"
-    >
-      <Text bold color={theme.bright}> {theme.icon} </Text>
-      <Text color="gray" dimColor>{hint}</Text>
-      <Box flexGrow={1} />
-      <Text color="gray" dimColor>Manager </Text>
-    </Box>
-  );
-}
-
-// ─── MCP Page ──────────────────────────────────────────────────────────────
-function MCPPage({ mcpServers, selectedItem, selectedIndex, cliSelectedIndex, detailMenuIndex, detailMenu, activeWindow, availableCLIs, terminalWidth, terminalHeight }) {
-  const mcpList = Object.keys(mcpServers).sort();
-  const serverInfo = selectedItem ? mcpServers[selectedItem] : null;
-
-  const leftWidth = Math.floor(terminalWidth * 0.24);
-  const middleWidth = Math.floor(terminalWidth * 0.48);
-  const rightWidth = terminalWidth - leftWidth - middleWidth;
-
-  const listVisible = Math.max(3, terminalHeight - 9);
-  const scrollOffset = Math.max(0, Math.min(
-    selectedIndex - Math.floor(listVisible / 2),
-    Math.max(0, mcpList.length - listVisible)
-  ));
-  const visibleList = mcpList.slice(scrollOffset, scrollOffset + listVisible);
-
-  const accent = 'green';
-  const bright = 'brightGreen';
-
-  return (
-    <>
-      {/* Left: MCP list */}
-      <Box
-        width={leftWidth}
-        borderStyle="single"
-        borderColor={activeWindow === MCP_WINDOWS.LIST ? bright : 'gray'}
-        flexDirection="column"
-        paddingX={1}
-      >
-        <Box flexDirection="row" alignItems="center">
-          <Text bold color={bright}>MCP </Text>
-          <Text color="gray" dimColor>({mcpList.length})</Text>
-        </Box>
-        <Box flexDirection="column" marginTop={1}>
-          {scrollOffset > 0 && (
-            <Text color="gray" dimColor>  ··· {scrollOffset} above</Text>
-          )}
-          {visibleList.map((name, i) => {
-            const realIdx = scrollOffset + i;
-            const active = realIdx === selectedIndex;
-            const disabled = mcpServers[name]?.clis[Object.keys(mcpServers[name].clis)[0]]?.config?.disabled;
-            return (
-              <Text
-                key={name}
-                bold={active}
-                color={active ? bright : disabled ? 'gray' : 'white'}
-                wrap="truncate"
-              >
-                {active ? ICONS.selected + ' ' : '  '}
-                {disabled ? ICONS.neutral : ICONS.dot}
-                {' '}{name}
-              </Text>
-            );
-          })}
-          {scrollOffset + listVisible < mcpList.length && (
-            <Text color="gray" dimColor>  ··· {mcpList.length - scrollOffset - listVisible} below</Text>
-          )}
-        </Box>
-      </Box>
-
-      {/* Middle: Details */}
-      <Box
-        width={middleWidth}
-        borderStyle="single"
-        borderColor={activeWindow === MCP_WINDOWS.DETAILS ? bright : 'gray'}
-        flexDirection="column"
-        paddingX={1}
-      >
-        <Text bold color={bright}>Details</Text>
-        <Box flexDirection="column" marginTop={1}>
-          {serverInfo ? (
-            <MCPDetails
-              serverInfo={serverInfo}
-              selectedItem={selectedItem}
-              detailMenu={detailMenu}
-              detailMenuIndex={detailMenuIndex}
-              activeWindow={activeWindow}
-            />
-          ) : (
-            <Text color="gray" dimColor>Select an MCP server</Text>
-          )}
-        </Box>
-      </Box>
-
-      {/* Right: CLI Assignment */}
-      <Box
-        width={rightWidth}
-        borderStyle="single"
-        borderColor={activeWindow === MCP_WINDOWS.PARAMS ? bright : 'gray'}
-        flexDirection="column"
-        paddingX={1}
-      >
-        <Text bold color={bright}>CLI</Text>
-        {serverInfo ? (
-          <Box flexDirection="column" marginTop={1}>
-            {availableCLIs.map((cli, index) => {
-              const hasCli = !!serverInfo.clis[cli];
-              const isSelected = activeWindow === MCP_WINDOWS.PARAMS && index === cliSelectedIndex;
-              return (
-                <Box key={cli} flexDirection="column">
-                  <Text bold={isSelected} color={isSelected ? bright : 'white'}>
-                    {isSelected ? ICONS.selected + ' ' : '  '}
-                    {hasCli ? ICONS.enabled : ICONS.neutral}
-                    {' '}{CLI_NAMES[cli]}
-                  </Text>
-                  {isSelected && (
-                    <Text color="yellow" dimColor>   [Enter] {hasCli ? 'remove' : 'add'}</Text>
-                  )}
-                </Box>
-              );
-            })}
-          </Box>
-        ) : (
-          <Text color="gray" dimColor marginTop={1}>Select MCP</Text>
-        )}
-      </Box>
-    </>
-  );
-}
-
-function MCPDetails({ serverInfo, selectedItem, detailMenu, detailMenuIndex, activeWindow }) {
-  const firstCli = Object.keys(serverInfo.clis)[0];
-  const config = serverInfo.clis[firstCli]?.config || {};
-  const isDisabled = !!config.disabled;
-  const configPaths = Object.keys(serverInfo.clis)
-    .map(cli =>
-      cli === SUPPORTED_CLIS.CLAUDE ? '~/.claude.json' :
-      cli === SUPPORTED_CLIS.GEMINI ? '~/.gemini/settings.json' : cli
-    )
-    .join(', ');
-
-  const configEntries = Object.entries(config).filter(([k]) => k !== 'disabled');
-
-  return (
-    <Box flexDirection="column">
-      <Text bold color="white" underline>{selectedItem}</Text>
-      <Box marginY={1} flexDirection="row">
-        <Text color="gray">Status: </Text>
-        {isDisabled ? (
-          <Text bold color="red">{ICONS.disabled} Disabled</Text>
-        ) : (
-          <Text bold color="green">{ICONS.enabled} Active</Text>
-        )}
-      </Box>
-      <Box flexDirection="row">
-        <Text color="gray">Config: </Text>
-        <Text color="white">{configPaths}</Text>
-      </Box>
-      <Box marginY={1} borderStyle="single" borderColor="gray" paddingX={1}>
-        {configEntries.map(([key, value]) => {
-          if (Array.isArray(value)) {
-            return (
-              <Box key={key} flexDirection="column">
-                <Text color="gray">{key}:</Text>
-                {value.map((item, i) => (
-                  <Text key={i} color="white" wrap="truncate">{'  › '}{String(item)}</Text>
-                ))}
-              </Box>
-            );
-          }
-          if (typeof value === 'object' && value !== null) {
-            return (
-              <Box key={key} flexDirection="column">
-                <Text color="gray">{key}:</Text>
-                {Object.entries(value).map(([k, v]) => (
-                  <Text key={k} color="white" wrap="truncate">{'  › '}{k}: <Text color="gray">{maskValue(k, v)}</Text></Text>
-                ))}
-              </Box>
-            );
-          }
-          return (
-            <Text key={key} wrap="truncate">
-              <Text color="gray">{key}: </Text>
-              <Text color="white">{String(value)}</Text>
-            </Text>
-          );
-        })}
-      </Box>
-      <Box flexDirection="column" marginTop={1}>
-        {detailMenu.map((item, i) => {
-          const active = activeWindow === MCP_WINDOWS.DETAILS && i === detailMenuIndex;
-          return (
-            <Text key={item.action} bold={active} color={active ? 'yellow' : 'gray'}>
-              {active ? ICONS.arrow + ' ' : '  '}{item.label}
-            </Text>
-          );
-        })}
-      </Box>
-    </Box>
-  );
-}
-
-// ─── Skills Page ───────────────────────────────────────────────────────────
-function SkillsPage({ skills, selectedItem, selectedIndex, terminalWidth, terminalHeight }) {
-  const skillsList = Object.keys(skills).sort();
-  const skill = selectedItem ? skills[selectedItem] : null;
-  const leftWidth = Math.floor(terminalWidth * 0.35);
-  const listVisible = Math.max(3, terminalHeight - 9);
-  const scrollOffset = Math.max(0, Math.min(
-    selectedIndex - Math.floor(listVisible / 2),
-    Math.max(0, skillsList.length - listVisible)
-  ));
-  const visibleList = skillsList.slice(scrollOffset, scrollOffset + listVisible);
-
-  const accent = 'blue';
-  const bright = 'brightBlue';
-
-  return (
-    <>
-      <Box width={leftWidth} borderStyle="single" borderColor={bright} flexDirection="column" paddingX={1}>
-        <Box flexDirection="row" alignItems="center">
-          <Text bold color={bright}>Skills </Text>
-          <Text color="gray" dimColor>({skillsList.length})</Text>
-        </Box>
-        <Box flexDirection="column" marginTop={1}>
-          {scrollOffset > 0 && <Text color="gray" dimColor>  ··· {scrollOffset} above</Text>}
-          {visibleList.map((key, i) => {
-            const realIdx = scrollOffset + i;
-            const s = skills[key];
-            const active = realIdx === selectedIndex;
-            return (
-              <Text key={key} bold={active} color={active ? bright : s.disabled ? 'gray' : 'white'} wrap="truncate">
-                {active ? ICONS.selected + ' ' : '  '}
-                {s.disabled ? ICONS.neutral : ICONS.enabled}
-                {' '}{s.name}
-              </Text>
-            );
-          })}
-          {scrollOffset + listVisible < skillsList.length && (
-            <Text color="gray" dimColor>  ··· {skillsList.length - scrollOffset - listVisible} below</Text>
-          )}
-        </Box>
-      </Box>
-
-      <Box flexGrow={1} borderStyle="single" borderColor="gray" flexDirection="column" paddingX={1}>
-        <Text bold color={bright}>Details</Text>
-        {skill ? (
-          <Box flexDirection="column" marginTop={1}>
-            <Text bold color="white" underline>{skill.name}</Text>
-            <Box marginY={1} flexDirection="row">
-              <Text color="gray">Status: </Text>
-              {skill.disabled ? (
-                <Text bold color="red">{ICONS.disabled} Disabled</Text>
-              ) : (
-                <Text bold color="green">{ICONS.enabled} Enabled</Text>
-              )}
-            </Box>
-            <Box flexDirection="row">
-              <Text color="gray">Version: </Text>
-              <Text color="white">{skill.version}</Text>
-            </Box>
-            <Box flexDirection="row">
-              <Text color="gray">Marketplace: </Text>
-              <Text color="white">{skill.marketplace}</Text>
-            </Box>
-            {skill.installedAt && (
-              <Box flexDirection="row">
-                <Text color="gray">Installed: </Text>
-                <Text color="gray">{new Date(skill.installedAt).toLocaleDateString()}</Text>
-              </Box>
-            )}
-            <Box marginTop={1}>
-              <Text bold color="yellow">{ICONS.arrow} {skill.disabled ? 'Enable' : 'Disable'}</Text>
-            </Box>
-          </Box>
-        ) : (
-          <Text color="gray" dimColor marginTop={1}>Select a skill</Text>
-        )}
-      </Box>
-    </>
-  );
-}
-
-// ─── Trash Page ────────────────────────────────────────────────────────────
-function TrashPage({ trash, selectedItem, selectedIndex, terminalWidth, terminalHeight }) {
-  const trashList = Object.keys(trash).sort();
-  const item = selectedItem ? trash[selectedItem] : null;
-  const leftWidth = Math.floor(terminalWidth * 0.35);
-  const listVisible = Math.max(3, terminalHeight - 9);
-  const scrollOffset = Math.max(0, Math.min(
-    selectedIndex - Math.floor(listVisible / 2),
-    Math.max(0, trashList.length - listVisible)
-  ));
-  const visibleList = trashList.slice(scrollOffset, scrollOffset + listVisible);
-
-  const accent = 'red';
-  const bright = 'brightRed';
-
-  return (
-    <>
-      <Box width={leftWidth} borderStyle="single" borderColor={bright} flexDirection="column" paddingX={1}>
-        <Box flexDirection="row" alignItems="center">
-          <Text bold color={bright}>Trash </Text>
-          <Text color="gray" dimColor>({trashList.length})</Text>
-        </Box>
-        <Box flexDirection="column" marginTop={1}>
-          {scrollOffset > 0 && <Text color="gray" dimColor>  ··· {scrollOffset} above</Text>}
-          {visibleList.map((name, i) => {
-            const realIdx = scrollOffset + i;
-            const active = realIdx === selectedIndex;
-            return (
-              <Text key={name} bold={active} color={active ? bright : 'gray'} wrap="truncate">
-                {active ? ICONS.selected + ' ' : '  '}
-                {ICONS.neutral} {name}
-              </Text>
-            );
-          })}
-          {scrollOffset + listVisible < trashList.length && (
-            <Text color="gray" dimColor>  ··· {trashList.length - scrollOffset - listVisible} below</Text>
-          )}
-        </Box>
-      </Box>
-
-      <Box flexGrow={1} borderStyle="single" borderColor="gray" flexDirection="column" paddingX={1}>
-        <Text bold color={bright}>Details</Text>
-        {item ? (
-          <Box flexDirection="column" marginTop={1}>
-            <Text bold color="white" underline>{selectedItem}</Text>
-            <Box marginY={1} flexDirection="row">
-              <Text color="gray">Deleted: </Text>
-              <Text color="gray">{new Date(item.deletedAt).toLocaleString()}</Text>
-            </Box>
-            <Box flexDirection="row">
-              <Text color="gray">From: </Text>
-              <Text color="white">{item.fromCLIs.map(c => CLI_NAMES[c] || c).join(', ')}</Text>
-            </Box>
-            <Box marginTop={1}>
-              <Text bold color="yellow">{ICONS.arrow} Restore</Text>
-            </Box>
-          </Box>
-        ) : (
-          <Text color="gray" dimColor marginTop={1}>Select an item</Text>
-        )}
-      </Box>
-    </>
-  );
-}
-
-// ─── CCR Page ──────────────────────────────────────────────────────────────
-function CCRPage({ ccrManager, ccrData, ccrActiveWindow, ccrSelectedProvider, ccrSelectedRouterRule, ccrShowKeys, ccrEditMode, ccrEditSelected, terminalWidth, terminalHeight }) {
-  const providers = ccrData.providers || [];
-  const router = ccrData.router || {};
-  const selectedProvider = providers[ccrSelectedProvider];
-
-  const leftWidth = Math.floor(terminalWidth * 0.25);
-  const middleWidth = Math.floor(terminalWidth * 0.45);
-  const rightWidth = terminalWidth - leftWidth - middleWidth;
-
-  const listVisible = Math.max(3, terminalHeight - 9);
-  const scrollOffset = Math.max(0, Math.min(
-    ccrSelectedProvider - Math.floor(listVisible / 2),
-    Math.max(0, providers.length - listVisible)
-  ));
-  const visibleProviders = providers.slice(scrollOffset, scrollOffset + listVisible);
-
-  const editOptions = ccrManager?.getAllProviderModelOptions() || [];
-  const editVisible = Math.max(3, terminalHeight - 9);
-  const editScrollOffset = Math.max(0, Math.min(
-    ccrEditSelected - Math.floor(editVisible / 2),
-    Math.max(0, editOptions.length - editVisible)
-  ));
-  const visibleEditOptions = editOptions.slice(editScrollOffset, editScrollOffset + editVisible);
-
-  const accent = 'magenta';
-  const bright = 'brightMagenta';
-
-  if (ccrEditMode) {
-    return (
-      <Box flexGrow={1} borderStyle="single" borderColor="yellow" flexDirection="column" paddingX={1}>
-        <Box flexDirection="row" alignItems="center">
-          <Text bold color="yellow">{ICONS.arrow} </Text>
-          <Text bold color="yellow">Select Provider/Model for {ROUTER_RULES[ccrSelectedRouterRule]?.label}</Text>
-        </Box>
-        <Text color="gray" dimColor>↑↓ navigate | Enter confirm | Esc cancel</Text>
-        <Box flexDirection="column" marginTop={1}>
-          {editScrollOffset > 0 && (
-            <Text color="gray" dimColor>  ··· {editScrollOffset} above</Text>
-          )}
-          {visibleEditOptions.map((opt, i) => {
-            const realIdx = editScrollOffset + i;
-            const active = realIdx === ccrEditSelected;
-            return (
-              <Text key={opt.label} bold={active} color={active ? 'yellow' : 'white'} wrap="truncate">
-                {active ? ICONS.selected + ' ' : '  '}{opt.label}
-              </Text>
-            );
-          })}
-          {editScrollOffset + editVisible < editOptions.length && (
-            <Text color="gray" dimColor>  ··· {editOptions.length - editScrollOffset - editVisible} below</Text>
-          )}
-        </Box>
-      </Box>
-    );
-  }
-
-  if (!ccrManager || !ccrManager.isAvailable()) {
-    return (
-      <Box flexGrow={1} borderStyle="single" borderColor="gray" flexDirection="column" paddingX={2} paddingY={1}>
-        <Text bold color={bright}>{ICONS.dot} CCR Router</Text>
-        <Text> </Text>
-        <Text color="gray">CCR config not found at ~/.claude-code-router/config.json</Text>
-        <Text color="gray">Install and configure CCR first:</Text>
-        <Text color="yellow">  npm install -g @musistudio/claude-code-router</Text>
-        <Text color="yellow">  ccr ui</Text>
-      </Box>
-    );
-  }
-
-  return (
-    <>
-      {/* Left: Provider list */}
-      <Box
-        width={leftWidth}
-        borderStyle="single"
-        borderColor={ccrActiveWindow === 0 ? bright : 'gray'}
-        flexDirection="column"
-        paddingX={1}
-      >
-        <Box flexDirection="row" alignItems="center">
-          <Text bold color={bright}>Providers </Text>
-          <Text color="gray" dimColor>({providers.length})</Text>
-        </Box>
-        <Box flexDirection="column" marginTop={1}>
-          {scrollOffset > 0 && (
-            <Text color="gray" dimColor>  ··· {scrollOffset} above</Text>
-          )}
-          {visibleProviders.map((p, i) => {
-            const realIdx = scrollOffset + i;
-            const active = realIdx === ccrSelectedProvider;
-            return (
-              <Text key={p.name} bold={active} color={active ? bright : 'white'} wrap="truncate">
-                {active ? ICONS.selected + ' ' : '  '}
-                {ICONS.dot} {p.name}
-              </Text>
-            );
-          })}
-          {scrollOffset + listVisible < providers.length && (
-            <Text color="gray" dimColor>  ··· {providers.length - scrollOffset - listVisible} below</Text>
-          )}
-        </Box>
-      </Box>
-
-      {/* Middle: Provider details */}
-      <Box
-        width={middleWidth}
-        borderStyle="single"
-        borderColor={ccrActiveWindow === 1 ? bright : 'gray'}
-        flexDirection="column"
-        paddingX={1}
-      >
-        <Text bold color={bright}>Provider Details</Text>
-        <Box flexDirection="column" marginTop={1}>
-          {selectedProvider ? (
-            <>
-              <Text bold color="white" underline>{selectedProvider.name}</Text>
-              <Box marginY={1} flexDirection="column">
-                <Box flexDirection="row">
-                  <Text color="gray">API Base: </Text>
-                  <Text color="white">{selectedProvider.api_base_url}</Text>
-                </Box>
-                <Box flexDirection="row">
-                  <Text color="gray">API Key: </Text>
-                  <Text color="white">{ccrShowKeys ? selectedProvider.api_key : maskApiKey(selectedProvider.api_key)}</Text>
-                  <Text color="yellow" dimColor> [s]</Text>
-                </Box>
-              </Box>
-              <Box borderStyle="single" borderColor="gray" paddingX={1} flexDirection="column">
-                <Text color="gray">Models ({selectedProvider.models?.length || 0}):</Text>
-                {(selectedProvider.models || []).map((m, i) => (
-                  <Text key={i} color="white" wrap="truncate">{'  › '}{m}</Text>
-                ))}
-              </Box>
-            </>
-          ) : (
-            <Text color="gray" dimColor>Select a provider</Text>
-          )}
-        </Box>
-      </Box>
-
-      {/* Right: Router rules */}
-      <Box
-        width={rightWidth}
-        borderStyle="single"
-        borderColor={ccrActiveWindow === 2 ? bright : 'gray'}
-        flexDirection="column"
-        paddingX={1}
-      >
-        <Text bold color={bright}>Router Rules</Text>
-        <Box flexDirection="column" marginTop={1}>
-          {ROUTER_RULES.map((rule, i) => {
-            const active = i === ccrSelectedRouterRule && ccrActiveWindow === 2;
-            const value = router[rule.key] || '';
-            const { provider, model } = ccrManager.parseRouterValue(value);
-            return (
-              <Box key={rule.key} flexDirection="column" marginBottom={1}>
-                <Text bold={active} color={active ? bright : 'white'} wrap="truncate">
-                  {active ? ICONS.selected + ' ' : '  '}
-                  {rule.label}
-                </Text>
-                <Text color="gray" dimColor wrap="truncate">{'    '}{rule.desc}</Text>
-                {value ? (
-                  <Box flexDirection="row">
-                    <Text color="gray">{'    '}{ICONS.arrow} </Text>
-                    <Text color="green" bold>{provider}</Text>
-                    {model && <Text color="white">,{model}</Text>}
-                  </Box>
-                ) : (
-                  <Text color="gray" dimColor>{'    '}(not set)</Text>
-                )}
-                {active && (
-                  <Text color="yellow" dimColor>{'    '}[Enter] {value ? 'clear' : 'set'}</Text>
-                )}
-              </Box>
-            );
-          })}
-        </Box>
-      </Box>
-    </>
-  );
-}
-
-// ─── Settings Page ─────────────────────────────────────────────────────────
-function SettingsPage({ availableCLIs }) {
-  const accent = 'cyan';
-  const bright = 'brightCyan';
-
-  return (
-    <Box flexGrow={1} borderStyle="single" borderColor={bright} flexDirection="column" paddingX={2} paddingY={1}>
-      <Text bold color={bright}>{ICONS.dot} Settings</Text>
-      <Text> </Text>
-
-      <Box flexDirection="column" marginBottom={1}>
-        <Text bold color="yellow">Detected CLIs</Text>
-        {availableCLIs.map((cli, index) => (
-          <Box key={cli} flexDirection="row">
-            <Text color="gray">{'  › '}</Text>
-            <Text color={bright}>{CLI_NAMES[cli]}</Text>
-          </Box>
-        ))}
-      </Box>
-
-      <Box flexDirection="column" marginBottom={1}>
-        <Text bold color="yellow">Config Paths</Text>
-        {availableCLIs.includes(SUPPORTED_CLIS.CLAUDE) && (
-          <Box flexDirection="row">
-            <Text color="gray">{'  › '}</Text>
-            <Text color="white">~/.claude.json</Text>
-          </Box>
-        )}
-        {availableCLIs.includes(SUPPORTED_CLIS.GEMINI) && (
-          <Box flexDirection="row">
-            <Text color="gray">{'  › '}</Text>
-            <Text color="white">~/.gemini/settings.json</Text>
-          </Box>
-        )}
-        <Box flexDirection="row">
-          <Text color="gray">{'  › '}</Text>
-          <Text color="white">~/.claude-code-router/config.json</Text>
-        </Box>
-      </Box>
-
-      <Box flexDirection="column" marginBottom={1}>
-        <Text bold color="yellow">Manager</Text>
-        <Box flexDirection="row">
-          <Text color="gray">{'  › '}</Text>
-          <Text color="white">~/.gwyy_ms_Manager.json</Text>
-        </Box>
-        <Box flexDirection="row">
-          <Text color="gray">{'  › '}</Text>
-          <Text color="white">~/.claude-backups/</Text>
-        </Box>
-      </Box>
-
-      <Box flexDirection="column">
-        <Text bold color="yellow">Version</Text>
-        <Box flexDirection="row">
-          <Text color="gray">{'  › '}</Text>
-          <Text color="white">v1.1.0</Text>
-        </Box>
       </Box>
     </Box>
   );
