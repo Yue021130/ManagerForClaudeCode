@@ -5,3 +5,8 @@ dist/
 .env
 .claude-backups/
 .serena/
+.agents/
+.claude/
+.idea/
+.trae/
+skills-lock.json
