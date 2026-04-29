@@ -2,12 +2,13 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { THEME, MCP_WINDOWS } from '../theme.js';
 import { SUPPORTED_CLIS } from '../ConfigManager.js';
+import { CLI_NAMES } from '../constants/cliNames.js';
 import { maskValue } from '../theme.js';
-
-const CLI_NAMES = {
-  [SUPPORTED_CLIS.CLAUDE]: 'Claude Code',
-  [SUPPORTED_CLIS.GEMINI]: 'Gemini Code Assist'
-};
+import SidebarLayout from '../components/SidebarLayout.js';
+import ScrollableList from '../components/ScrollableList.js';
+import DetailPanel from '../components/DetailPanel.js';
+import StatusBadge from '../components/StatusBadge.js';
+import SectionHeader from '../components/SectionHeader.js';
 
 export default function MCPPage({
   mcpServers,
@@ -23,112 +24,58 @@ export default function MCPPage({
 }) {
   const mcpList = Object.keys(mcpServers).sort();
   const serverInfo = selectedItem ? mcpServers[selectedItem] : null;
-
-  const leftWidth = Math.floor(terminalWidth * 0.28);
-  const middleWidth = Math.floor(terminalWidth * 0.44);
-  const rightWidth = terminalWidth - leftWidth - middleWidth;
-
-  const contentHeight = terminalHeight - 5;
-  const listVisible = Math.max(5, contentHeight);
-  const scrollOffset = Math.max(0, Math.min(
-    selectedIndex - Math.floor(listVisible / 2),
-    Math.max(0, mcpList.length - listVisible)
-  ));
-  const visibleList = mcpList.slice(scrollOffset, scrollOffset + listVisible);
+  const leftWidth = Math.floor(terminalWidth * 0.32);
 
   return (
-    <>
-      {/* Left: List */}
-      <Box width={leftWidth} flexDirection="column" paddingX={1}>
-        <Box marginBottom={1}>
-          <Text color="gray" dimColor>MCP Servers</Text>
-          <Text color="gray">{'  '}{mcpList.length}</Text>
-        </Box>
-        {scrollOffset > 0 && <Text color="gray" dimColor>↑ {scrollOffset}</Text>}
-        {visibleList.map((name, i) => {
-          const realIdx = scrollOffset + i;
-          const active = realIdx === selectedIndex;
-          const disabled = mcpServers[name]?.clis[Object.keys(mcpServers[name].clis)[0]]?.config?.disabled;
-          return (
-            <Box key={name} flexDirection="row">
-              <Text color={active ? THEME.successBright : 'gray'}>{active ? '▸ ' : '  '}</Text>
-              <Text color={active ? THEME.fg : disabled ? THEME.muted : THEME.fg} dimColor={disabled && !active} wrap="truncate">
-                {name}
-              </Text>
-              <Box flexGrow={1} />
-              <Text color={disabled ? THEME.danger : THEME.success}>{disabled ? '○' : '●'}</Text>
-            </Box>
-          );
-        })}
-        {scrollOffset + listVisible < mcpList.length && (
-          <Text color="gray" dimColor>↓ {mcpList.length - scrollOffset - listVisible}</Text>
-        )}
-      </Box>
-
-      {/* Divider */}
-      <Box width={1} flexDirection="column" paddingY={1}>
-        <Text color="gray">│</Text>
-      </Box>
-
-      {/* Middle: Details */}
-      <Box width={middleWidth} flexDirection="column" paddingX={1}>
-        <Box marginBottom={1}>
-          <Text color="gray" dimColor>Details</Text>
-          {activeWindow === MCP_WINDOWS.DETAILS && <Text color={THEME.warnBright}>{'  '}●</Text>}
-        </Box>
-        {serverInfo ? (
-          <MCPDetails
-            serverInfo={serverInfo}
-            selectedItem={selectedItem}
-            detailMenu={detailMenu}
-            detailMenuIndex={detailMenuIndex}
-            activeWindow={activeWindow}
-          />
-        ) : (
-          <Text color="gray" dimColor>Select a server</Text>
-        )}
-      </Box>
-
-      {/* Divider */}
-      <Box width={1} flexDirection="column" paddingY={1}>
-        <Text color="gray">│</Text>
-      </Box>
-
-      {/* Right: CLI */}
-      <Box width={rightWidth} flexDirection="column" paddingX={1}>
-        <Box marginBottom={1}>
-          <Text color="gray" dimColor>CLI</Text>
-          {activeWindow === MCP_WINDOWS.PARAMS && <Text color={THEME.warnBright}>{'  '}●</Text>}
-        </Box>
-        {serverInfo ? (
-          <Box flexDirection="column">
-            {availableCLIs.map((cli, index) => {
-              const hasCli = !!serverInfo.clis[cli];
-              const isSelected = activeWindow === MCP_WINDOWS.PARAMS && index === cliSelectedIndex;
-              return (
-                <Box key={cli} flexDirection="row">
-                  <Text color={isSelected ? THEME.successBright : 'gray'}>{isSelected ? '▸ ' : '  '}</Text>
-                  <Text color={isSelected ? THEME.fg : THEME.muted}>{CLI_NAMES[cli]}</Text>
-                  <Box flexGrow={1} />
-                  <Text color={hasCli ? THEME.success : THEME.muted}>{hasCli ? '●' : '○'}</Text>
-                  {isSelected && (
-                    <Box marginLeft={1}>
-                      <Text color={THEME.warn} dimColor>[↵]</Text>
-                    </Box>
-                  )}
-                </Box>
-              );
-            })}
-          </Box>
-        ) : (
-          <Text color="gray" dimColor>Select a server</Text>
-        )}
-      </Box>
-    </>
+    <SidebarLayout
+      leftWidth={leftWidth}
+      leftContent={
+        <ScrollableList
+          title="MCP Servers"
+          items={mcpList}
+          selectedIndex={selectedIndex}
+          terminalHeight={terminalHeight}
+          width={leftWidth}
+          activeColor={THEME.successBright}
+          renderItem={(name, index, isActive) => {
+            const disabled = mcpServers[name]?.clis[Object.keys(mcpServers[name].clis)[0]]?.config?.disabled;
+            return (
+              <>
+                <Text color={isActive ? THEME.fg : disabled ? THEME.muted : THEME.fg} dimColor={disabled && !isActive} wrap="truncate">
+                  {name}
+                </Text>
+                <Box flexGrow={1} />
+                <Text color={disabled ? THEME.danger : THEME.success}>{disabled ? '○' : '●'}</Text>
+              </>
+            );
+          }}
+        />
+      }
+      rightContent={
+        <DetailPanel
+          title="Details"
+          isFocused={activeWindow !== MCP_WINDOWS.LIST}
+          emptyMessage="Select a server"
+          flexGrow
+        >
+          {serverInfo && (
+            <MCPDetailContent
+              serverInfo={serverInfo}
+              selectedItem={selectedItem}
+              detailMenu={detailMenu}
+              detailMenuIndex={detailMenuIndex}
+              activeWindow={activeWindow}
+              availableCLIs={availableCLIs}
+              cliSelectedIndex={cliSelectedIndex}
+            />
+          )}
+        </DetailPanel>
+      }
+    />
   );
 }
 
-function MCPDetails({ serverInfo, selectedItem, detailMenu, detailMenuIndex, activeWindow }) {
+function MCPDetailContent({ serverInfo, selectedItem, detailMenu, detailMenuIndex, activeWindow, availableCLIs, cliSelectedIndex }) {
   const firstCli = Object.keys(serverInfo.clis)[0];
   const config = serverInfo.clis[firstCli]?.config || {};
   const isDisabled = !!config.disabled;
@@ -143,49 +90,74 @@ function MCPDetails({ serverInfo, selectedItem, detailMenu, detailMenuIndex, act
 
   return (
     <Box flexDirection="column">
+      {/* Header */}
       <Text bold color={THEME.fg}>{selectedItem}</Text>
       <Box marginY={1} flexDirection="row">
-        <Text color="gray">Status </Text>
-        {isDisabled ? (
-          <Text color={THEME.dangerBright}>Disabled</Text>
-        ) : (
-          <Text color={THEME.successBright}>Active</Text>
-        )}
+        <Text color={THEME.muted}>Status </Text>
+        <StatusBadge disabled={isDisabled} />
       </Box>
-      <Text color="gray" dimColor>{configPaths}</Text>
-      <Box marginY={1} />
-      {configEntries.map(([key, value]) => {
-        if (Array.isArray(value)) {
+      <Text color={THEME.muted} dimColor>{configPaths}</Text>
+
+      {/* Configuration Section */}
+      <SectionHeader title="Configuration" />
+      {configEntries.length === 0 ? (
+        <Text color={THEME.muted} dimColor>No configuration</Text>
+      ) : (
+        configEntries.map(([key, value]) => {
+          if (Array.isArray(value)) {
+            return (
+              <Box key={key} flexDirection="column" marginBottom={1}>
+                <Text color={THEME.muted}>{key}</Text>
+                {value.map((item, i) => (
+                  <Text key={i} color={THEME.fg} wrap="truncate">  {String(item)}</Text>
+                ))}
+              </Box>
+            );
+          }
+          if (typeof value === 'object' && value !== null) {
+            return (
+              <Box key={key} flexDirection="column" marginBottom={1}>
+                <Text color={THEME.muted}>{key}</Text>
+                {Object.entries(value).map(([k, v]) => (
+                  <Text key={k} color={THEME.fg} wrap="truncate">  {k}: {maskValue(k, v)}</Text>
+                ))}
+              </Box>
+            );
+          }
           return (
-            <Box key={key} flexDirection="column" marginBottom={1}>
-              <Text color="gray">{key}</Text>
-              {value.map((item, i) => (
-                <Text key={i} color="white" wrap="truncate">  {String(item)}</Text>
-              ))}
-            </Box>
+            <Text key={key} wrap="truncate" color={THEME.fg}>
+              <Text color={THEME.muted}>{key}: </Text>{String(value)}
+            </Text>
           );
-        }
-        if (typeof value === 'object' && value !== null) {
-          return (
-            <Box key={key} flexDirection="column" marginBottom={1}>
-              <Text color="gray">{key}</Text>
-              {Object.entries(value).map(([k, v]) => (
-                <Text key={k} color="white" wrap="truncate">  {k}: {maskValue(k, v)}</Text>
-              ))}
-            </Box>
-          );
-        }
+        })
+      )}
+
+      {/* Associated CLIs Section */}
+      <SectionHeader title="Associated CLIs" />
+      {availableCLIs.map((cli, index) => {
+        const hasCli = !!serverInfo.clis[cli];
+        const isSelected = activeWindow === MCP_WINDOWS.PARAMS && index === cliSelectedIndex;
         return (
-          <Text key={key} wrap="truncate" color="white">
-            <Text color="gray">{key}: </Text>{String(value)}
-          </Text>
+          <Box key={cli} flexDirection="row" marginBottom={1}>
+            <Text color={isSelected ? THEME.successBright : THEME.muted}>{isSelected ? '▸ ' : '  '}</Text>
+            <Text color={isSelected ? THEME.fg : THEME.muted}>{CLI_NAMES[cli]}</Text>
+            <Box flexGrow={1} />
+            <Text color={hasCli ? THEME.success : THEME.muted}>{hasCli ? '●' : '○'}</Text>
+            {isSelected && (
+              <Box marginLeft={1}>
+                <Text color={THEME.warn} dimColor>[↵]</Text>
+              </Box>
+            )}
+          </Box>
         );
       })}
-      <Box marginTop={1} />
+
+      {/* Actions Section */}
+      <SectionHeader title="Actions" />
       {detailMenu.map((item, i) => {
         const active = activeWindow === MCP_WINDOWS.DETAILS && i === detailMenuIndex;
         return (
-          <Text key={item.action} color={active ? THEME.warnBright : 'gray'}>
+          <Text key={item.action} color={active ? THEME.warnBright : THEME.muted}>
             {active ? '▸ ' : '  '}{item.label}
           </Text>
         );

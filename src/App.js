@@ -4,6 +4,7 @@ import { ConfigManager, SUPPORTED_CLIS } from './ConfigManager.js';
 import { ManagerConfig } from './ManagerConfig.js';
 import { CcrConfigManager, ROUTER_RULES } from './CcrConfigManager.js';
 import { THEME, PAGE_META, MCP_WINDOWS } from './theme.js';
+import { CLI_NAMES } from './constants/cliNames.js';
 
 import MCPPage from './pages/MCPPage.js';
 import SkillsPage from './pages/SkillsPage.js';
@@ -17,11 +18,6 @@ const PAGES = {
   TRASH: 'trash',
   CCR: 'ccr',
   SETTINGS: 'settings'
-};
-
-const CLI_NAMES = {
-  [SUPPORTED_CLIS.CLAUDE]: 'Claude Code',
-  [SUPPORTED_CLIS.GEMINI]: 'Gemini Code Assist'
 };
 
 export default function App() {
@@ -146,7 +142,7 @@ export default function App() {
     if (input === '2') { setPage(PAGES.SKILLS); setActiveWindow(0); setSelectedIndex(0); return; }
     if (input === '3') { setPage(PAGES.TRASH); setActiveWindow(0); setSelectedIndex(0); return; }
     if (input === '4') { setPage(PAGES.CCR); setCcrActiveWindow(0); setCcrSelectedProvider(0); setCcrSelectedRouterRule(0); setCcrEditMode(false); return; }
-    if (input === '5') { setPage(PAGES.SETTINGS); return; }
+    if (input === '5') { setPage(PAGES.SETTINGS); setActiveWindow(0); setSelectedIndex(0); return; }
 
     if (page === PAGES.MCP && activeWindow === MCP_WINDOWS.LIST) {
       if (key.upArrow) { setSelectedIndex(prev => Math.max(0, prev - 1)); return; }
