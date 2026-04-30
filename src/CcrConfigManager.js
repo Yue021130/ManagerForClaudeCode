@@ -2,10 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+// CCR (Claude Code Router) 配置文件路径
 const CCR_CONFIG_PATH = path.join(os.homedir(), '.claude-code-router', 'config.json');
 const CCR_BACKUP_DIR = path.join(os.homedir(), '.claude-backups');
 
-// Router 规则类型
+// Router 支持的规则类型 — key 对应 config.json 中 Router 对象的字段名
 export const ROUTER_RULES = [
   { key: 'default', label: 'Default', desc: '默认路由' },
   { key: 'background', label: 'Background', desc: '后台任务' },
@@ -15,6 +16,14 @@ export const ROUTER_RULES = [
   { key: 'image', label: 'Image', desc: '图像/多模态' }
 ];
 
+/**
+ * CcrConfigManager — Claude Code Router 配置管理
+ *
+ * CCR 是第三方工具，允许用户为不同任务类型指定不同的 AI 模型路由。
+ * 配置文件格式：{ Providers: [...], Router: { default: "provider,model", ... } }
+ *
+ * Router 值格式："ProviderName" 或 "ProviderName,model"
+ */
 export class CcrConfigManager {
   constructor() {
     this.config = null;
@@ -24,7 +33,7 @@ export class CcrConfigManager {
 
   load() {
     if (!fs.existsSync(this.configPath)) {
-      this.config = null;
+      this.config = null;   // null 表示 CCR 未安装
       return;
     }
     try {
@@ -39,6 +48,7 @@ export class CcrConfigManager {
     this.load();
   }
 
+  // 返回 false 时，页面显示 "CCR 未安装" 提示
   isAvailable() {
     return this.config !== null;
   }
@@ -64,20 +74,19 @@ export class CcrConfigManager {
     return router[ruleKey] || '';
   }
 
-  // 解析 Router 规则值 "ProviderName,model" → { provider, model }
+  // 解析路由值 "ProviderName,model" → { provider, model }
   parseRouterValue(value) {
     if (!value) return { provider: '', model: '' };
     const parts = value.split(',');
     return { provider: parts[0] || '', model: parts[1] || '' };
   }
 
-  // 获取某个 Provider 下的所有模型
   getProviderModels(providerName) {
     const provider = this.getProvider(providerName);
     return provider?.models || [];
   }
 
-  // 获取所有可用的 "Provider,model" 组合
+  // 获取所有 Provider+Model 组合列表，供编辑时的选择菜单
   getAllProviderModelOptions() {
     const options = [];
     for (const provider of this.getProviders()) {
@@ -100,7 +109,7 @@ export class CcrConfigManager {
     return options;
   }
 
-  // 设置 Router 规则
+  // 设置路由规则 — 写入 "Provider,model" 到 Router[ruleKey]
   setRouterRule(ruleKey, providerName, model) {
     if (!this.config) throw new Error('CCR config not loaded');
     if (!this.config.Router) this.config.Router = {};
@@ -110,7 +119,7 @@ export class CcrConfigManager {
     return this.save();
   }
 
-  // 清空 Router 规则
+  // 清空路由规则
   clearRouterRule(ruleKey) {
     if (!this.config) throw new Error('CCR config not loaded');
     if (!this.config.Router) this.config.Router = {};
@@ -138,7 +147,6 @@ export class CcrConfigManager {
       if (fs.existsSync(this.configPath)) {
         fs.copyFileSync(this.configPath, backupPath);
       }
-      // 只保留最近 10 个 CCR 备份
       const backups = fs.readdirSync(CCR_BACKUP_DIR)
         .filter(f => f.startsWith('ccr-config-'))
         .sort()
