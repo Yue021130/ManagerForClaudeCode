@@ -1,39 +1,35 @@
 # MCP Skills Manager
 
-> 项目开发中....
+> 统一管理 Claude Code、Gemini 等 CLI 的 MCP 服务器、Skills 和 CCR 路由规则
 
-一个基于 React + Ink 的终端 CLI 工具，用于管理 Claude Code 的 MCP 服务器和 Skills。
+一个基于 React + Ink 的终端 CLI 工具。在多 CLI 环境下，一份 MCP 配置往往需要手动同步到多个配置文件 — 这个工具解决了这个问题。
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D16-green)
 ![License](https://img.shields.io/badge/license-ISC-orange)
 
-## ✨ 功能特性
+## 功能特性
 
-🎯 **双标签界面**
-- MCP 服务器管理 - 查看、启用/禁用、删除 MCP 服务器
-- Skills 管理（开发中）
+**五大功能页面：**
 
-🚀 **核心功能**
-- ✅ 查看所有 MCP 服务器（支持 22+ 服务器）
-- ✅ 启用/禁用 MCP 服务器（通过 `disabled` 字段）
-- ✅ 删除 MCP 服务器
-- ✅ 自动备份配置（保留最近 10 个备份到 `~/.claude-backups/`）
-- ✅ 实时同步到 `~/.claude.json`
-- ✅ 彩色状态指示（🟢 已启用 / ⚪ 已禁用）
+| 页面 | 功能 |
+|------|------|
+| MCP | 查看/启用/禁用/删除 MCP 服务器，跨 CLI 同步配置 |
+| Skills | 查看/启用/禁用 Claude Code 插件（Skills） |
+| Trash | 回收站 — 已删除 MCP 可恢复 |
+| CCR | 管理 Claude Code Router 的 Provider 和路由规则 |
+| Settings | 查看检测到的 CLI、配置文件路径、版本信息 |
 
-🎨 **美观界面**
-- 类似 Claude Code CLI 的终端界面
-- 流畅的键盘导航
-- 实时状态反馈
-- 统计信息显示
+**核心能力：**
+- 自动检测已安装的 CLI（Claude Code / Gemini Code Assist）
+- 跨 CLI 同步 MCP 配置 — 一份配置自动复制到所有 CLI
+- 回收站机制 — 删除的 MCP 配置可恢复
+- 自动备份 — 每次修改操作前备份到 `~/.claude-backups/`（保留最近 10 份）
+- API Key 脱敏显示
 
-## 📦 安装
+## 安装
 
 ```bash
-# 克隆或下载项目
-cd skills-manager-demo
-
 # 安装依赖
 npm install
 
@@ -41,130 +37,108 @@ npm install
 npm run build
 ```
 
-## 🚀 使用
-
-### 启动应用
+## 使用
 
 ```bash
-# 方式 1: 使用 npm script（自动编译 + 运行）
+# 启动应用
 npm start
 
-# 方式 2: 直接运行已编译的文件
+# 或直接运行
 node dist/cli.js
 
-# 方式 3: 开发模式（自动监听文件变化）
+# 开发模式（自动监听文件变化）
 npm run dev
-# 然后在另一个终端运行
-node dist/cli.js
 ```
 
-### 全局安装（可选）
-
+全局安装（可选）：
 ```bash
 npm link
-# 现在可以在任何地方运行
-skills-manager
+mcp-manager
 ```
 
-## ⌨️ 快捷键
+## 快捷键
 
-| 按键           | 功能              |
-|----------------|-------------------|
-| `↑` / `↓`      | 选择项目          |
-| `Enter` / `Space` | 启用/禁用 MCP 服务器 |
-| `d` / `Delete` | 删除项目          |
-| `r`            | 刷新配置          |
-| `Tab` / `1` / `2` | 切换标签       |
-| `q`            | 退出              |
+| 按键 | 功能 |
+|------|------|
+| `↑` / `↓` | 导航列表 |
+| `Tab` / `←` / `→` | 切换面板焦点（MCP / CCR 页面） |
+| `Enter` / `Space` | 执行操作 |
+| `1` `2` `3` `4` `5` | 切换页面 |
+| `d` | 删除选中项（MCP 页面） |
+| `s` | 显示/隐藏 API Key（CCR 页面） |
+| `r` | 刷新配置 |
+| `q` | 退出 |
 
-## 📁 配置文件
-
-**配置文件位置**: `~/.claude.json`
-
-**备份文件位置**: `~/.claude-backups/`
-
-配置示例：
-```json
-{
-  "mcpServers": {
-    "github": {
-      "type": "http",
-      "url": "https://api.githubcopilot.com/mcp/",
-      "disabled": false
-    },
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/desktop"],
-      "disabled": true
-    }
-  }
-}
-```
-
-## 🔍 MCP 服务器状态
-
-- 🟢 **已启用** - 服务器正常运行（`disabled: false` 或未设置）
-- ⚪ **已禁用** - 服务器被禁用（`disabled: true`）
-
-## 🛠 技术栈
-
-- **React 19** - UI 组件库
-- **Ink 6.8** - React for CLIs（终端渲染引擎）
-- **Chalk 5.6** - 终端颜色输出
-- **Babel 7** - JSX 编译
-- **Node.js ES Modules** - 现代 JavaScript
-
-## 📂 项目结构
+## 项目结构
 
 ```
-skills-manager-demo/
-├── source/              # 源代码目录
-│   ├── App.js          # 主应用组件
-│   ├── ConfigManager.js # 配置管理器
-│   └── cli.js          # CLI 入口
-├── dist/               # 编译输出目录（Babel 生成）
-├── package.json        # 项目配置
-├── README.md           # 文档
-└── .gitignore          # Git 忽略文件
+src/
+├── cli.js                      # CLI 入口 — 挂载 React 应用到终端
+├── App.js                      # 根组件 — 全局状态 + 键盘路由 + 页面调度
+├── ConfigManager.js            # 核心服务 — MCP/Skills CRUD + 跨 CLI 聚合 + 备份
+├── ManagerConfig.js            # 本工具配置 — 回收站管理
+├── CcrConfigManager.js         # CCR 路由 — Provider 和 Router 规则管理
+├── theme.js                    # 色彩方案 + 页面元信息 + 数据脱敏
+├── constants/
+│   └── cliNames.js             # CLI ID → 显示名称映射
+├── hooks/
+│   └── useScrollableList.js    # 虚拟滚动 Hook
+├── pages/
+│   ├── MCPPage.js              # MCP 服务器管理页
+│   ├── SkillsPage.js           # Skills 管理页
+│   ├── TrashPage.js            # 回收站页
+│   ├── CCRPage.js              # CCR 路由管理页
+│   └── SettingsPage.js         # 系统信息页
+└── components/
+    ├── SidebarLayout.js        # 左右分栏布局
+    ├── ScrollableList.js       # 带虚拟滚动的列表
+    ├── DetailPanel.js          # 详情面板容器
+    ├── StatusBadge.js          # 启用/禁用状态标签
+    ├── SectionHeader.js        # 区块分割线
+    ├── ActionHint.js           # 操作提示
+    └── VerticalDivider.js      # 竖线分隔符
 ```
 
-## 🗺 开发计划
+> 详细架构说明见 [ARCHITECTURE.md](./ARCHITECTURE.md)
 
-- [x] MCP 服务器管理
-- [x] 启用/禁用功能
-- [x] 删除功能
-- [x] 配置备份
-- [x] 美观的终端界面
-- [ ] Skills 管理
+## 配置文件
+
+| 路径 | 说明 |
+|------|------|
+| `~/.claude.json` | Claude Code 的 MCP 服务器配置 |
+| `~/.claude/plugins/installed_plugins.json` | Claude Code 的 Skills 插件记录 |
+| `~/.gemini/settings.json` | Gemini Code Assist 配置 |
+| `~/.claude-code-router/config.json` | CCR 路由配置 |
+| `~/.gwyy_ms_Manager.json` | 本工具自身配置（回收站等） |
+| `~/.claude-backups/` | 自动备份目录（保留最近 10 份） |
+
+## 技术栈
+
+- **React 19** — UI 框架
+- **Ink 6.8** — React for CLIs（终端渲染引擎）
+- **Chalk 5.6** — 终端颜色
+- **Babel 7** — JSX 编译
+- **Node.js ES Modules** — 模块系统
+
+## 开发计划
+
+- [x] MCP 服务器管理（查看/启用/禁用/删除/跨CLI同步）
+- [x] Skills 管理（查看/启用/禁用）
+- [x] 回收站（删除恢复）
+- [x] CCR 路由管理
+- [x] 配置备份机制
 - [ ] 添加新 MCP 服务器（交互式表单）
 - [ ] 编辑 MCP 服务器配置
-- [ ] 搜索/过滤功能
-- [ ] 批量操作（启用/禁用多个服务器）
-- [ ] 支持其他 CLI (GitHub Copilot, Cursor, Continue 等)
+- [ ] 搜索/过滤
+- [ ] 批量操作
+- [ ] MCP 服务器连接测试
 - [ ] 导入/导出配置
-- [ ] MCP 服务器测试连接
-- [ ] 使用统计
+- [ ] 支持更多 CLI（Cursor、Continue 等）
 
-## 🐛 已知问题
+## 注意事项
 
-1. Skills 功能尚未实现（当前 Claude Code 配置中没有 `skills` 字段）
-2. 只能禁用 MCP 服务器，不能真正"卸载"（保留配置）
+此工具会修改 `~/.claude.json` 等配置文件。工具内置自动备份功能，备份保存在 `~/.claude-backups/` 目录。手动修改前建议也做好备份。
 
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 📄 License
+## License
 
 ISC
-
-## 🙏 致谢
-
-- [Ink](https://github.com/vadimdemedes/ink) - 让我们可以用 React 构建 CLI
-- [Chalk](https://github.com/chalk/chalk) - 终端颜色输出
-- Claude Code - 灵感来源
-
----
-
-**注意**: 此工具会修改 `~/.claude.json` 文件，请确保在使用前备份重要配置。工具已内置自动备份功能，备份保存在 `~/.claude-backups/` 目录。
-
