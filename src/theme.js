@@ -2,8 +2,9 @@
  * 全局主题与常量定义
  *
  * THEME    — 终端色彩方案（基于 Ink/chalk 的 16 位色名）
- * PAGE_META — 5 个页面的元信息（编号/名称/颜色），顶部 Tab Bar 渲染用
- * MCP_WINDOWS — MCP 页面的 3 个子窗口索引常量，避免魔术数字
+ * PAGES    — 页面标识常量
+ * PAGE_META — 4 个页面的元信息（编号/名称/颜色），顶部 Tab Bar 渲染用
+ * MCP_WINDOWS — MCP 页面的 2 个子窗口索引常量，避免魔术数字
  * maskValue / maskApiKey — 敏感信息脱敏工具
  */
 
@@ -26,26 +27,24 @@ export const THEME = {
 };
 
 export const PAGES = {
+  CCR: 'ccr',
   MCP: 'mcp',
   SKILLS: 'skills',
-  TRASH: 'trash',
-  CCR: 'ccr',
   SETTINGS: 'settings'
 };
 
+// 按键 0-3 与页面的映射：CCR 是核心功能，排在第一位
 export const PAGE_META = {
+  [PAGES.CCR]:      { num: 0, label: 'CCR',      color: THEME.magentaBright },
   [PAGES.MCP]:      { num: 1, label: 'MCP',      color: THEME.successBright },
   [PAGES.SKILLS]:   { num: 2, label: 'Skills',   color: THEME.infoBright },
-  [PAGES.TRASH]:    { num: 3, label: 'Trash',    color: THEME.dangerBright },
-  [PAGES.CCR]:      { num: 4, label: 'CCR',      color: THEME.magentaBright },
-  [PAGES.SETTINGS]: { num: 5, label: 'Settings', color: THEME.accentBright }
+  [PAGES.SETTINGS]: { num: 3, label: 'Settings', color: THEME.accentBright }
 };
 
-// MCP 页面三栏布局：列表 | 详情 | 关联CLI
+// MCP 页面两栏布局：列表 | 详情
 export const MCP_WINDOWS = {
   LIST: 0,
-  DETAILS: 1,
-  PARAMS: 2
+  DETAILS: 1
 };
 
 // 用于判断字段名是否可能包含敏感信息

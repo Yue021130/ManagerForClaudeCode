@@ -1,8 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { THEME, MCP_WINDOWS } from '../theme.js';
-import { SUPPORTED_CLIS } from '../ConfigManager.js';
-import { CLI_NAMES } from '../constants/cliNames.js';
 import { maskValue } from '../theme.js';
 import SidebarLayout from '../components/SidebarLayout.js';
 import ScrollableList from '../components/ScrollableList.js';
@@ -14,11 +12,10 @@ export default function MCPPage({
   mcpServers,
   selectedItem,
   selectedIndex,
-  cliSelectedIndex,
   detailMenuIndex,
   detailMenu,
   activeWindow,
-  availableCLIs,
+  pendingDelete,
   terminalWidth,
   terminalHeight
 }) {
@@ -27,65 +24,66 @@ export default function MCPPage({
   const leftWidth = Math.floor(terminalWidth * 0.32);
 
   return (
-    <SidebarLayout
-      leftWidth={leftWidth}
-      leftContent={
-        <ScrollableList
-          title="MCP Servers"
-          items={mcpList}
-          selectedIndex={selectedIndex}
-          terminalHeight={terminalHeight}
-          width={leftWidth}
-          activeColor={THEME.successBright}
-          renderItem={(name, index, isActive) => {
-            const disabled = mcpServers[name]?.clis[Object.keys(mcpServers[name].clis)[0]]?.config?.disabled;
-            return (
-              <>
-                <Text color={isActive ? THEME.fg : disabled ? THEME.muted : THEME.fg} dimColor={disabled && !isActive} wrap="truncate">
-                  {name}
-                </Text>
-                <Box flexGrow={1} />
-                <Text color={disabled ? THEME.danger : THEME.success}>{disabled ? '○' : '●'}</Text>
-              </>
-            );
-          }}
-        />
-      }
-      rightContent={
-        <DetailPanel
-          title="Details"
-          isFocused={activeWindow !== MCP_WINDOWS.LIST}
-          emptyMessage="Select a server"
-          flexGrow
-        >
-          {serverInfo && (
-            <MCPDetailContent
-              serverInfo={serverInfo}
-              selectedItem={selectedItem}
-              detailMenu={detailMenu}
-              detailMenuIndex={detailMenuIndex}
-              activeWindow={activeWindow}
-              availableCLIs={availableCLIs}
-              cliSelectedIndex={cliSelectedIndex}
-            />
-          )}
-        </DetailPanel>
-      }
-    />
+    <Box flexDirection="column" flexGrow={1}>
+      <SidebarLayout
+        leftWidth={leftWidth}
+        leftContent={
+          <ScrollableList
+            title="MCP Servers"
+            items={mcpList}
+            selectedIndex={selectedIndex}
+            terminalHeight={terminalHeight}
+            width={leftWidth}
+            activeColor={THEME.successBright}
+            renderItem={(name, index, isActive) => {
+              const disabled = !mcpServers[name]?.enabled;
+              return (
+                <>
+                  <Text color={isActive ? THEME.fg : disabled ? THEME.muted : THEME.fg} dimColor={disabled && !isActive} wrap="truncate">
+                    {name}
+                  </Text>
+                  <Box flexGrow={1} />
+                  <Text color={disabled ? THEME.danger : THEME.success}>{disabled ? '○' : '●'}</Text>
+                </>
+              );
+            }}
+          />
+        }
+        rightContent={
+          <DetailPanel
+            title="Details"
+            isFocused={activeWindow !== MCP_WINDOWS.LIST}
+            emptyMessage="Select a server"
+            flexGrow
+          >
+            {serverInfo && (
+              <MCPDetailContent
+                serverInfo={serverInfo}
+                selectedItem={selectedItem}
+                detailMenu={detailMenu}
+                detailMenuIndex={detailMenuIndex}
+                activeWindow={activeWindow}
+              />
+            )}
+          </DetailPanel>
+        }
+      />
+
+      {/* 删除确认条 — pendingDelete 非空时显示，按键由 App.js 的模态逻辑处理 */}
+      {pendingDelete !== null && (
+        <Box height={1} paddingX={1}>
+          <Text color={THEME.dangerBright}>
+            Delete &quot;{pendingDelete}&quot;? <Text color={THEME.successBright}>y</Text> = yes / <Text color={THEME.muted}>n</Text> = no
+          </Text>
+        </Box>
+      )}
+    </Box>
   );
 }
 
-function MCPDetailContent({ serverInfo, selectedItem, detailMenu, detailMenuIndex, activeWindow, availableCLIs, cliSelectedIndex }) {
-  const firstCli = Object.keys(serverInfo.clis)[0];
-  const config = serverInfo.clis[firstCli]?.config || {};
-  const isDisabled = !!config.disabled;
-  const configPaths = Object.keys(serverInfo.clis)
-    .map(cli =>
-      cli === SUPPORTED_CLIS.CLAUDE ? '~/.claude.json' :
-      cli === SUPPORTED_CLIS.GEMINI ? '~/.gemini/settings.json' : cli
-    )
-    .join(', ');
-
+function MCPDetailContent({ serverInfo, selectedItem, detailMenu, detailMenuIndex, activeWindow }) {
+  const config = serverInfo.config || {};
+  const isDisabled = !serverInfo.enabled;
   const configEntries = Object.entries(config).filter(([k]) => k !== 'disabled');
 
   return (
@@ -96,7 +94,7 @@ function MCPDetailContent({ serverInfo, selectedItem, detailMenu, detailMenuInde
         <Text color={THEME.muted}>Status </Text>
         <StatusBadge disabled={isDisabled} />
       </Box>
-      <Text color={THEME.muted} dimColor>{configPaths}</Text>
+      <Text color={THEME.muted} dimColor>~/.claude.json</Text>
 
       {/* Configuration Section */}
       <SectionHeader title="Configuration" />
@@ -131,26 +129,6 @@ function MCPDetailContent({ serverInfo, selectedItem, detailMenu, detailMenuInde
           );
         })
       )}
-
-      {/* Associated CLIs Section */}
-      <SectionHeader title="Associated CLIs" />
-      {availableCLIs.map((cli, index) => {
-        const hasCli = !!serverInfo.clis[cli];
-        const isSelected = activeWindow === MCP_WINDOWS.PARAMS && index === cliSelectedIndex;
-        return (
-          <Box key={cli} flexDirection="row" marginBottom={1}>
-            <Text color={isSelected ? THEME.successBright : THEME.muted}>{isSelected ? '▸ ' : '  '}</Text>
-            <Text color={isSelected ? THEME.fg : THEME.muted}>{CLI_NAMES[cli]}</Text>
-            <Box flexGrow={1} />
-            <Text color={hasCli ? THEME.success : THEME.muted}>{hasCli ? '●' : '○'}</Text>
-            {isSelected && (
-              <Box marginLeft={1}>
-                <Text color={THEME.warn} dimColor>[↵]</Text>
-              </Box>
-            )}
-          </Box>
-        );
-      })}
 
       {/* Actions Section */}
       <SectionHeader title="Actions" />

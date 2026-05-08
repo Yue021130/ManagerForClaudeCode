@@ -1,25 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput, useApp, useStdout } from 'ink';
-import { ConfigManager, SUPPORTED_CLIS } from './ConfigManager.js';
-import { ManagerConfig } from './ManagerConfig.js';
+import { ConfigManager } from './ConfigManager.js';
 import { CcrConfigManager, ROUTER_RULES } from './CcrConfigManager.js';
-import { THEME, PAGE_META, MCP_WINDOWS } from './theme.js';
-import { CLI_NAMES } from './constants/cliNames.js';
+import { THEME, PAGES, PAGE_META, MCP_WINDOWS } from './theme.js';
 
+import CCRPage from './pages/CCRPage.js';
 import MCPPage from './pages/MCPPage.js';
 import SkillsPage from './pages/SkillsPage.js';
-import TrashPage from './pages/TrashPage.js';
-import CCRPage from './pages/CCRPage.js';
 import SettingsPage from './pages/SettingsPage.js';
-
-// ── 页面标识常量 ─────────────────────────────────────────
-const PAGES = {
-  MCP: 'mcp',
-  SKILLS: 'skills',
-  TRASH: 'trash',
-  CCR: 'ccr',
-  SETTINGS: 'settings'
-};
 
 /**
  * App — 应用根组件
@@ -28,37 +16,33 @@ const PAGES = {
  *
  * 【状态分层】
  * - 导航层：page, activeWindow
- * - 选择层：selectedIndex, cliSelectedIndex, detailMenuIndex
- * - 数据层：mcpServers, skills, trash, ccrData
- * - 服务层：configManager, managerConfig, ccrManager（三个 Manager 实例）
- * - UI反馈：error, message
+ * - 选择层：selectedIndex, detailMenuIndex
+ * - 数据层：mcpServers, skills, ccrData
+ * - 服务层：configManager, ccrManager（两个 Manager 实例）
+ * - UI反馈：error, message, pendingDelete（删除确认）
  *
  * 【键盘输入流】
  * useInput → 判断 page → 判断 activeWindow → 分发到具体处理逻辑 → 调用 Manager → setState → 重渲染
  *
  * 【页面切换】
- * 数字键 1-5 直接切页，5 个 Page 组件按 page 条件渲染
- * MCP 页面还有子窗口切换（Tab/←→ 在 LIST/DETAILS/PARAMS 间轮转）
+ * 数字键 0-3 直接切页（CCR 是核心，占据 0 号位且为启动默认页）
+ * MCP 页面有子窗口切换（Tab/←→ 在 LIST/DETAILS 间轮转）
  */
 export default function App() {
   const { exit } = useApp();
   const { stdout } = useStdout();
 
   // ── 导航状态 ──────────────────────────────────────────
-  const [page, setPage] = useState(PAGES.MCP);
+  const [page, setPage] = useState(PAGES.CCR);                          // 默认直达核心页
   const [activeWindow, setActiveWindow] = useState(MCP_WINDOWS.LIST);   // MCP 子窗口
   const [selectedIndex, setSelectedIndex] = useState(0);                // 主列表选中项
-  const [cliSelectedIndex, setCliSelectedIndex] = useState(0);          // CLI 参数面板选中项
   const [detailMenuIndex, setDetailMenuIndex] = useState(0);            // 操作菜单选中项
 
   // ── 服务实例（useEffect 初始化，整个生命周期只创建一次） ──
   const [configManager, setConfigManager] = useState(null);
-  const [managerConfig, setManagerConfig] = useState(null);
   const [ccrManager, setCcrManager] = useState(null);
-  const [availableCLIs, setAvailableCLIs] = useState([]);
   const [mcpServers, setMcpServers] = useState({});
   const [skills, setSkills] = useState({});
-  const [trash, setTrash] = useState({});
   const [ccrData, setCcrData] = useState({ providers: [], router: {} });
 
   // ── CCR 专属状态 ──────────────────────────────────────
@@ -72,20 +56,17 @@ export default function App() {
   // ── 反馈状态 ──────────────────────────────────────────
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);             // 待确认删除的 MCP 名称
 
-  // 初始化：一次创建三个 Manager 实例，加载所有数据
+  // 初始化：创建两个 Manager 实例，加载所有数据
   useEffect(() => {
     try {
       const manager = new ConfigManager();
-      const mConfig = new ManagerConfig();
       const ccr = new CcrConfigManager();
       setConfigManager(manager);
-      setManagerConfig(mConfig);
       setCcrManager(ccr);
-      setAvailableCLIs(manager.getAvailableCLIs());
       setMcpServers(manager.getMcpServers());
       setSkills(manager.getSkills());
-      setTrash(mConfig.getTrash());
       refreshCcrData(ccr);
     } catch (err) {
       setError(err.message);
@@ -94,11 +75,10 @@ export default function App() {
 
   // 刷新所有数据（"r" 键触发）
   const refreshData = () => {
-    if (configManager && managerConfig) {
+    if (configManager) {
       configManager.reload();
       setMcpServers(configManager.getMcpServers());
       setSkills(configManager.getSkills());
-      setTrash(managerConfig.getTrash());
     }
     if (ccrManager) {
       refreshCcrData(ccrManager);
@@ -119,7 +99,6 @@ export default function App() {
     switch (page) {
       case PAGES.MCP: return Object.keys(mcpServers).sort();
       case PAGES.SKILLS: return Object.keys(skills).sort();
-      case PAGES.TRASH: return Object.keys(trash).sort();
       case PAGES.CCR: return ccrData.providers.map(p => p.name);
       default: return [];
     }
@@ -131,14 +110,11 @@ export default function App() {
   // 生成详情面板的操作菜单项（根据选中 MCP 的状态动态显示）
   const getDetailMenu = (name) => {
     if (!name || !mcpServers[name]) return [];
-    const serverInfo = mcpServers[name];
-    const firstCli = Object.keys(serverInfo.clis)[0];
-    const isDisabled = serverInfo.clis[firstCli]?.config?.disabled;
-    const items = [];
-    if (availableCLIs.length > 1) items.push({ label: 'Sync to all CLIs', action: 'sync' });
-    items.push({ label: 'Delete (move to trash)', action: 'delete' });
-    items.push({ label: isDisabled ? 'Enable' : 'Disable', action: 'toggle' });
-    return items;
+    const isDisabled = !mcpServers[name].enabled;
+    return [
+      { label: 'Delete', action: 'delete' },
+      { label: isDisabled ? 'Enable' : 'Disable', action: 'toggle' }
+    ];
   };
 
   const detailMenu = getDetailMenu(selectedItem);
@@ -150,6 +126,25 @@ export default function App() {
     if (message) setMessage(null);
     if (error) setError(null);
 
+    // ── 删除确认（模态）：y 确认 / n 或 Esc 取消，其余按键全部拦截 ──
+    if (pendingDelete !== null) {
+      if (input === 'y') {
+        try {
+          configManager.deleteMcpServer(pendingDelete);
+          refreshData();
+          setSelectedIndex(prev => Math.max(0, prev - 1));
+          setDetailMenuIndex(0);
+          setMessage(`已删除 ${pendingDelete}`);
+        } catch (err) {
+          setError(err.message);
+        }
+        setPendingDelete(null);
+      } else if (input === 'n' || key.escape) {
+        setPendingDelete(null);
+      }
+      return;
+    }
+
     // 全局退出
     if (input === 'q') { exit(); return; }
 
@@ -157,9 +152,9 @@ export default function App() {
     if (key.tab || key.leftArrow || key.rightArrow) {
       if (page === PAGES.MCP) {
         if (key.leftArrow) {
-          setActiveWindow(prev => prev === 0 ? MCP_WINDOWS.PARAMS : prev - 1);
+          setActiveWindow(prev => prev === 0 ? MCP_WINDOWS.DETAILS : prev - 1);
         } else {
-          setActiveWindow(prev => (prev + 1) % 3);
+          setActiveWindow(prev => (prev + 1) % 2);
         }
       } else if (page === PAGES.CCR) {
         if (ccrEditMode) return;
@@ -172,19 +167,18 @@ export default function App() {
       return;
     }
 
-    // ── 数字键切页（1-5） ──
-    if (input === '1') { setPage(PAGES.MCP); setActiveWindow(MCP_WINDOWS.LIST); setSelectedIndex(0); return; }
-    if (input === '2') { setPage(PAGES.SKILLS); setActiveWindow(0); setSelectedIndex(0); return; }
-    if (input === '3') { setPage(PAGES.TRASH); setActiveWindow(0); setSelectedIndex(0); return; }
-    if (input === '4') { setPage(PAGES.CCR); setCcrActiveWindow(0); setCcrSelectedProvider(0); setCcrSelectedRouterRule(0); setCcrEditMode(false); return; }
-    if (input === '5') { setPage(PAGES.SETTINGS); setActiveWindow(0); setSelectedIndex(0); return; }
+    // ── 数字键切页（0-3） ──
+    if (input === '0') { setPage(PAGES.CCR); setCcrActiveWindow(0); setCcrSelectedProvider(0); setCcrSelectedRouterRule(0); setCcrEditMode(false); return; }
+    if (input === '1') { setPage(PAGES.MCP); setActiveWindow(MCP_WINDOWS.LIST); setSelectedIndex(0); setDetailMenuIndex(0); return; }
+    if (input === '2') { setPage(PAGES.SKILLS); setSelectedIndex(0); return; }
+    if (input === '3') { setPage(PAGES.SETTINGS); return; }
 
     // ── 列表导航（↑↓） ──
     if (page === PAGES.MCP && activeWindow === MCP_WINDOWS.LIST) {
       if (key.upArrow) { setSelectedIndex(prev => Math.max(0, prev - 1)); return; }
       if (key.downArrow) { setSelectedIndex(prev => Math.min(currentList.length - 1, prev + 1)); return; }
     }
-    if (page !== PAGES.MCP && page !== PAGES.CCR && activeWindow === 0) {
+    if (page === PAGES.SKILLS) {
       if (key.upArrow) { setSelectedIndex(prev => Math.max(0, prev - 1)); return; }
       if (key.downArrow) { setSelectedIndex(prev => Math.min(currentList.length - 1, prev + 1)); return; }
     }
@@ -261,103 +255,24 @@ export default function App() {
       if (key.downArrow) { setDetailMenuIndex(prev => Math.min(detailMenu.length - 1, prev + 1)); return; }
       if (key.return && selectedItem) {
         const action = detailMenu[detailMenuIndex]?.action;
-        try {
-          if (action === 'sync') {
-            configManager.syncMcpServerToAll(selectedItem);
-            refreshData();
-            setMessage(`已同步 ${selectedItem} 到所有 CLI`);
-          } else if (action === 'delete') {
-            const serverInfo = mcpServers[selectedItem];
-            const fromCLIs = Object.keys(serverInfo.clis);
-            const config = serverInfo.clis[fromCLIs[0]].config;
-            configManager.deleteMcpServer(selectedItem);
-            managerConfig.moveToTrash(selectedItem, config, fromCLIs);
-            refreshData();
-            setSelectedIndex(prev => Math.max(0, prev - 1));
-            setDetailMenuIndex(0);
-            setMessage(`已将 ${selectedItem} 移入回收站`);
-          } else if (action === 'toggle') {
-            const serverInfo = mcpServers[selectedItem];
-            for (const cli of Object.keys(serverInfo.clis)) {
-              configManager.toggleMcpServer(selectedItem, cli);
-            }
+        if (action === 'delete') {
+          setPendingDelete(selectedItem);
+        } else if (action === 'toggle') {
+          try {
+            configManager.toggleMcpServer(selectedItem);
             refreshData();
             setMessage(`已切换 ${selectedItem} 状态`);
+          } catch (err) {
+            setError(err.message);
           }
-        } catch (err) {
-          setError(err.message);
         }
         return;
       }
     }
 
-    // ── MCP 参数面板（关联 CLI 列表） ────────────────────
-    if (page === PAGES.MCP && activeWindow === MCP_WINDOWS.PARAMS) {
-      if (key.upArrow) { setCliSelectedIndex(prev => Math.max(0, prev - 1)); return; }
-      if (key.downArrow) { setCliSelectedIndex(prev => Math.min(availableCLIs.length - 1, prev + 1)); return; }
-      if (key.return && selectedItem) {
-        const serverInfo = mcpServers[selectedItem];
-        const selectedCli = availableCLIs[cliSelectedIndex];
-        try {
-          if (serverInfo.clis[selectedCli]) {
-            // 该 CLI 已有此 MCP → 移除
-            const remaining = Object.keys(serverInfo.clis).filter(c => c !== selectedCli);
-            if (remaining.length === 0) {
-              setError('取消后将无CLI，请用 Delete 删除');
-              return;
-            }
-            configManager.deleteMcpServer(selectedItem, selectedCli);
-            setMessage(`已从 ${CLI_NAMES[selectedCli]} 移除 ${selectedItem}`);
-          } else {
-            // 该 CLI 无此 MCP → 添加
-            const sourceCli = Object.keys(serverInfo.clis)[0];
-            configManager.syncMcpServerTo(selectedItem, sourceCli, selectedCli);
-            setMessage(`已添加 ${selectedItem} 到 ${CLI_NAMES[selectedCli]}`);
-          }
-          refreshData();
-        } catch (err) {
-          setError(err.message);
-        }
-        return;
-      }
-    }
-
-    // ── MCP 快速删除（d 键） ─────────────────────────────
-    if (page === PAGES.MCP && input === 'd' && activeWindow === MCP_WINDOWS.LIST && selectedItem) {
-      try {
-        const serverInfo = mcpServers[selectedItem];
-        const fromCLIs = Object.keys(serverInfo.clis);
-        const config = serverInfo.clis[fromCLIs[0]].config;
-        configManager.deleteMcpServer(selectedItem);
-        managerConfig.moveToTrash(selectedItem, config, fromCLIs);
-        refreshData();
-        setSelectedIndex(prev => Math.max(0, prev - 1));
-        setMessage(`已将 ${selectedItem} 移入回收站`);
-      } catch (err) {
-        setError(err.message);
-      }
-      return;
-    }
-
-    // ── 回收站恢复 ──────────────────────────────────────
-    if (page === PAGES.TRASH && selectedItem && key.return) {
-      try {
-        const trashItem = trash[selectedItem];
-        for (const cli of trashItem.fromCLIs) {
-          if (availableCLIs.includes(cli)) {
-            if (!configManager.managers[cli]) configManager.managers[cli] = { config: { mcpServers: {} } };
-            if (!configManager.managers[cli].config.mcpServers) configManager.managers[cli].config.mcpServers = {};
-            configManager.managers[cli].config.mcpServers[selectedItem] = trashItem.config;
-            configManager.saveConfig(cli);
-          }
-        }
-        managerConfig.restoreFromTrash(selectedItem);
-        refreshData();
-        setSelectedIndex(prev => Math.max(0, prev - 1));
-        setMessage(`已恢复 ${selectedItem}`);
-      } catch (err) {
-        setError(err.message);
-      }
+    // ── MCP 快速删除（d 键）— 进入确认态 ────────────────
+    if (page === PAGES.MCP && input === 'd' && selectedItem) {
+      setPendingDelete(selectedItem);
       return;
     }
 
@@ -394,7 +309,7 @@ export default function App() {
             <Text color={p.num === meta.num ? meta.color : 'gray'}>
               {p.num === meta.num ? `[${p.num}]` : ` ${p.num} `}
             </Text>
-            {i < 4 && <Text color="gray">{'│'}</Text>}
+            {i < 3 && <Text color="gray">{'│'}</Text>}
           </Box>
         ))}
         <Box flexGrow={1} />
@@ -408,38 +323,6 @@ export default function App() {
 
       {/* ── Content: 按 page 条件渲染对应页面组件 ────────── */}
       <Box flexGrow={1} flexDirection="row" overflow="hidden">
-        {page === PAGES.MCP && (
-          <MCPPage
-            mcpServers={mcpServers}
-            selectedItem={selectedItem}
-            selectedIndex={selectedIndex}
-            cliSelectedIndex={cliSelectedIndex}
-            detailMenuIndex={detailMenuIndex}
-            detailMenu={detailMenu}
-            activeWindow={activeWindow}
-            availableCLIs={availableCLIs}
-            terminalWidth={terminalWidth}
-            terminalHeight={terminalHeight}
-          />
-        )}
-        {page === PAGES.SKILLS && (
-          <SkillsPage
-            skills={skills}
-            selectedItem={selectedItem}
-            selectedIndex={selectedIndex}
-            terminalWidth={terminalWidth}
-            terminalHeight={terminalHeight}
-          />
-        )}
-        {page === PAGES.TRASH && (
-          <TrashPage
-            trash={trash}
-            selectedItem={selectedItem}
-            selectedIndex={selectedIndex}
-            terminalWidth={terminalWidth}
-            terminalHeight={terminalHeight}
-          />
-        )}
         {page === PAGES.CCR && (
           <CCRPage
             ccrManager={ccrManager}
@@ -454,8 +337,30 @@ export default function App() {
             terminalHeight={terminalHeight}
           />
         )}
+        {page === PAGES.MCP && (
+          <MCPPage
+            mcpServers={mcpServers}
+            selectedItem={selectedItem}
+            selectedIndex={selectedIndex}
+            detailMenuIndex={detailMenuIndex}
+            detailMenu={detailMenu}
+            activeWindow={activeWindow}
+            pendingDelete={pendingDelete}
+            terminalWidth={terminalWidth}
+            terminalHeight={terminalHeight}
+          />
+        )}
+        {page === PAGES.SKILLS && (
+          <SkillsPage
+            skills={skills}
+            selectedItem={selectedItem}
+            selectedIndex={selectedIndex}
+            terminalWidth={terminalWidth}
+            terminalHeight={terminalHeight}
+          />
+        )}
         {page === PAGES.SETTINGS && (
-          <SettingsPage availableCLIs={availableCLIs} />
+          <SettingsPage claudeDetected={configManager?.isAvailable()} />
         )}
       </Box>
 
@@ -466,10 +371,9 @@ export default function App() {
       {/* ── Bottom Bar: 快捷键提示 ──────────────────────── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
         <Text color="gray" dimColor>
-          {page === PAGES.MCP && `Tab/←→ focus  │  ↑↓ nav  │  ↵ action  │  d delete  │  r refresh  │  q quit`}
-          {page === PAGES.SKILLS && `↑↓ nav  │  ↵ toggle  │  r refresh  │  q quit`}
-          {page === PAGES.TRASH && `↑↓ nav  │  ↵ restore  │  r refresh  │  q quit`}
           {page === PAGES.CCR && `Tab/←→ focus  │  ↑↓ nav  │  ↵ edit  │  s keys  │  r refresh  │  q quit`}
+          {page === PAGES.MCP && `Tab/←→ focus  │  ↑↓ nav  │  ↵ action  │  d delete  │  y/n confirm  │  r refresh  │  q quit`}
+          {page === PAGES.SKILLS && `↑↓ nav  │  ↵ toggle  │  r refresh  │  q quit`}
           {page === PAGES.SETTINGS && `r refresh  │  q quit`}
         </Text>
       </Box>
