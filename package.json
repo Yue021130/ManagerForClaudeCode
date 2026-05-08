@@ -1,7 +1,7 @@
 {
-  "name": "mcp_skill-manager",
+  "name": "ManagerForClaudeCode",
   "version": "1.0.0",
-  "description": "MCP & Skills Manager - 统一管理多个 CLI 的 MCP 服务器和 Skills",
+  "description": "Claude Code Manager - CCR 路由 / MCP 服务器 / Skills 统一管理终端工具",
   "main": "dist/cli.js",
   "type": "module",
   "bin": {
@@ -40,4 +40,3 @@
     ]
   }
 }
-
