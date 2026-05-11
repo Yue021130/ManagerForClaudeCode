@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Text, useInput, useApp, useStdout } from 'ink';
+import { Box, Text, useInput, useApp } from 'ink';
 import { ConfigManager } from './ConfigManager.js';
 import { CcrConfigManager, ROUTER_RULES } from './CcrConfigManager.js';
 import { THEME, PAGES, PAGE_META, MCP_WINDOWS } from './theme.js';
+import { useTerminalSize } from './hooks/useTerminalSize.js';
 
 import CCRPage from './pages/CCRPage.js';
 import MCPPage from './pages/MCPPage.js';
@@ -30,7 +31,6 @@ import SettingsPage from './pages/SettingsPage.js';
  */
 export default function App() {
   const { exit } = useApp();
-  const { stdout } = useStdout();
 
   // ── 导航状态 ──────────────────────────────────────────
   const [page, setPage] = useState(PAGES.CCR);                          // 默认直达核心页
@@ -294,8 +294,8 @@ export default function App() {
   });
 
   // ── 渲染 ──────────────────────────────────────────────
-  const terminalWidth = stdout?.columns || 120;
-  const terminalHeight = stdout?.rows || 30;
+  // 尺寸来自 resize 订阅（useTerminalSize），窗口拉伸即时重排
+  const { width: terminalWidth, height: terminalHeight } = useTerminalSize();
   const meta = PAGE_META[page];
 
   return (
