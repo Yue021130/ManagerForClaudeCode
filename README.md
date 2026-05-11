@@ -78,7 +78,8 @@ src/
 ├── CcrConfigManager.js         # CCR 路由 — Provider 和 Router 规则管理
 ├── theme.js                    # 色彩方案 + 页面元信息 + 数据脱敏
 ├── hooks/
-│   └── useScrollableList.js    # 虚拟滚动 Hook
+│   ├── useScrollableList.js    # 虚拟滚动 Hook
+│   └── useTerminalSize.js      # 终端尺寸自适应 Hook（resize 订阅）
 ├── pages/
 │   ├── CCRPage.js              # CCR 路由管理页（核心）
 │   ├── MCPPage.js              # MCP 服务器管理页
