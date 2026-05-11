@@ -220,7 +220,10 @@ ConfigManager                CcrConfigManager
 | 模块 | 内容 |
 |------|------|
 | `hooks/useScrollableList` | 虚拟滚动计算：根据终端高度、选中索引计算可视窗口切片 |
+| `hooks/useTerminalSize` | 终端尺寸自适应：订阅 stdout 'resize' 事件，尺寸变化驱动全树重渲染 |
 | `theme.js` | 色彩方案、页面元信息（`PAGES` / `PAGE_META` / `MCP_WINDOWS`）、敏感数据脱敏函数 |
+
+**自适应原理：** `stdout.columns/rows` 是普通属性，只在渲染时读一次，终端 resize 本身不会触发 React 重渲染。`useTerminalSize` 把尺寸存入 state 并订阅 `resize` 事件，尺寸一变 → App 重渲染 → 所有以 `terminalWidth/Height` 为 props 的页面（分栏宽度、虚拟滚动窗口、分隔线长度）即时重排。
 
 ---
 
