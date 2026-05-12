@@ -20,12 +20,12 @@ export default function DetailPanel({
   return (
     <Box {...boxProps} flexDirection="column" paddingX={paddingX}>
       <Box marginBottom={1}>
-        <Text color={THEME.muted} dimColor>{title}</Text>
-        {/* 焦点窗口时显示 ● 指示器 */}
-        {isFocused && <Text color={THEME.warnBright}>{'  '}●</Text>}
+        <Text bold color={isFocused ? THEME.fg : THEME.muted} dimColor={!isFocused}>{title}</Text>
+        {/* 焦点窗口时显示强调色指示器 */}
+        {isFocused && <Text color={THEME.warnBright}>{'  ◉'}</Text>}
       </Box>
       {children ? children : (
-        <Text color={THEME.muted} dimColor>{emptyMessage}</Text>
+        <Text color={THEME.faint}>{emptyMessage}</Text>
       )}
     </Box>
   );
