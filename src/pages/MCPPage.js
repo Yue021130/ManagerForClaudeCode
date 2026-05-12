@@ -37,13 +37,16 @@ export default function MCPPage({
             activeColor={THEME.successBright}
             renderItem={(name, index, isActive) => {
               const disabled = !mcpServers[name]?.enabled;
+              const fg = isActive ? THEME.onAccent : disabled ? THEME.muted : THEME.fg;
               return (
                 <>
-                  <Text color={isActive ? THEME.fg : disabled ? THEME.muted : THEME.fg} dimColor={disabled && !isActive} wrap="truncate">
+                  <Text bold={isActive} color={fg} dimColor={disabled && !isActive} wrap="truncate">
                     {name}
                   </Text>
                   <Box flexGrow={1} />
-                  <Text color={disabled ? THEME.danger : THEME.success}>{disabled ? '○' : '●'}</Text>
+                  <Text bold={isActive} color={isActive ? THEME.onAccent : disabled ? THEME.danger : THEME.success}>
+                    {disabled ? '○' : '●'}
+                  </Text>
                 </>
               );
             }}
@@ -72,8 +75,8 @@ export default function MCPPage({
       {/* 删除确认条 — pendingDelete 非空时显示，按键由 App.js 的模态逻辑处理 */}
       {pendingDelete !== null && (
         <Box height={1} paddingX={1}>
-          <Text color={THEME.dangerBright}>
-            Delete &quot;{pendingDelete}&quot;? <Text color={THEME.successBright}>y</Text> = yes / <Text color={THEME.muted}>n</Text> = no
+          <Text bold backgroundColor={THEME.danger} color={THEME.onAccent}>
+            {` ⚠ Delete "${pendingDelete}"?  y confirm · n cancel `}
           </Text>
         </Box>
       )}
@@ -90,16 +93,16 @@ function MCPDetailContent({ serverInfo, selectedItem, detailMenu, detailMenuInde
     <Box flexDirection="column">
       {/* Header */}
       <Text bold color={THEME.fg}>{selectedItem}</Text>
-      <Box marginY={1} flexDirection="row">
+      <Box marginTop={1} flexDirection="row">
         <Text color={THEME.muted}>Status </Text>
         <StatusBadge disabled={isDisabled} />
       </Box>
-      <Text color={THEME.muted} dimColor>~/.claude.json</Text>
+      <Text color={THEME.faint}>~/.claude.json</Text>
 
       {/* Configuration Section */}
       <SectionHeader title="Configuration" />
       {configEntries.length === 0 ? (
-        <Text color={THEME.muted} dimColor>No configuration</Text>
+        <Text color={THEME.faint}>No configuration</Text>
       ) : (
         configEntries.map(([key, value]) => {
           if (Array.isArray(value)) {
@@ -136,7 +139,7 @@ function MCPDetailContent({ serverInfo, selectedItem, detailMenu, detailMenuInde
         const active = activeWindow === MCP_WINDOWS.DETAILS && i === detailMenuIndex;
         return (
           <Text key={item.action} color={active ? THEME.warnBright : THEME.muted}>
-            {active ? '▸ ' : '  '}{item.label}
+            {active ? '❯ ' : '  '}{item.label}
           </Text>
         );
       })}
