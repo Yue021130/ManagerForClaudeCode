@@ -23,16 +23,20 @@ export default function SkillsPage({ skills, selectedItem, selectedIndex, termin
           selectedIndex={selectedIndex}
           terminalHeight={terminalHeight}
           width={leftWidth}
+          activeColor={THEME.infoBright}
           renderItem={(key, index, isActive) => {
             const s = skills[key];
             const disabled = s.disabled;
+            const fg = isActive ? THEME.onAccent : disabled ? THEME.muted : THEME.fg;
             return (
               <>
-                <Text color={isActive ? THEME.fg : disabled ? THEME.muted : THEME.fg} dimColor={disabled && !isActive} wrap="truncate">
+                <Text bold={isActive} color={fg} dimColor={disabled && !isActive} wrap="truncate">
                   {s.name}
                 </Text>
                 <Box flexGrow={1} />
-                <Text color={disabled ? THEME.muted : THEME.success}>{disabled ? '○' : '●'}</Text>
+                <Text bold={isActive} color={isActive ? THEME.onAccent : disabled ? THEME.muted : THEME.success}>
+                  {disabled ? '○' : '●'}
+                </Text>
               </>
             );
           }}
@@ -43,14 +47,14 @@ export default function SkillsPage({ skills, selectedItem, selectedIndex, termin
           {skill && (
             <Box flexDirection="column">
               <Text bold color={THEME.fg}>{skill.name}</Text>
-              <Box marginY={1} flexDirection="row">
+              <Box marginTop={1} flexDirection="row">
                 <Text color={THEME.muted}>Status </Text>
                 <StatusBadge disabled={skill.disabled} />
               </Box>
               <Text color={THEME.fg}>Version {skill.version}</Text>
-              <Text color={THEME.muted} dimColor>{skill.marketplace}</Text>
+              <Text color={THEME.faint}>{skill.marketplace}</Text>
               {skill.installedAt && (
-                <Text color={THEME.muted} dimColor>{new Date(skill.installedAt).toLocaleDateString()}</Text>
+                <Text color={THEME.faint}>{new Date(skill.installedAt).toLocaleDateString()}</Text>
               )}
               <SectionHeader title="Actions" />
               <ActionHint label={skill.disabled ? 'Enable' : 'Disable'} />
