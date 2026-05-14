@@ -10,6 +10,22 @@ import MCPPage from './pages/MCPPage.js';
 import SkillsPage from './pages/SkillsPage.js';
 import SettingsPage from './pages/SettingsPage.js';
 
+// 各页面底部键帽提示：[按键, 说明]
+const FOOTER_HINTS = {
+  [PAGES.CCR]: [
+    ['Tab/←→', 'focus'], ['↑↓', 'nav'], ['↵', 'set/clear'], ['s', 'keys'], ['r', 'refresh'], ['q', 'quit']
+  ],
+  [PAGES.MCP]: [
+    ['Tab/←→', 'focus'], ['↑↓', 'nav'], ['↵', 'action'], ['d', 'delete'], ['y/n', 'confirm'], ['r', 'refresh'], ['q', 'quit']
+  ],
+  [PAGES.SKILLS]: [
+    ['↑↓', 'nav'], ['↵', 'toggle'], ['r', 'refresh'], ['q', 'quit']
+  ],
+  [PAGES.SETTINGS]: [
+    ['r', 'refresh'], ['q', 'quit']
+  ]
+};
+
 /**
  * App — 应用根组件
  *
@@ -300,25 +316,28 @@ export default function App() {
 
   return (
     <Box flexDirection="column" width={terminalWidth} height={terminalHeight}>
-      {/* ── Top Bar: 标题 + Tab 标签 + 消息 ──────────────── */}
+      {/* ── Top Bar: 页面胶囊 Tab + 消息 ─────────────────── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
-        <Text bold color={meta.color}>{meta.label}</Text>
-        <Text color="gray">{'  '}</Text>
-        {Object.values(PAGE_META).map((p, i) => (
-          <Box key={p.label} flexDirection="row">
-            <Text color={p.num === meta.num ? meta.color : 'gray'}>
-              {p.num === meta.num ? `[${p.num}]` : ` ${p.num} `}
+        {Object.values(PAGE_META).map(p => {
+          const active = p.num === meta.num;
+          return (
+            <Text
+              key={p.label}
+              bold={active}
+              backgroundColor={active ? p.color : undefined}
+              color={active ? THEME.onAccent : THEME.faint}
+            >
+              {` ${p.num} ${p.label} `}
             </Text>
-            {i < 3 && <Text color="gray">{'│'}</Text>}
-          </Box>
-        ))}
+          );
+        })}
         <Box flexGrow={1} />
-        {error && <Text color={THEME.dangerBright}>✗ {error}</Text>}
-        {!error && message && <Text color={THEME.successBright}>✓ {message}</Text>}
+        {error && <Text bold color={THEME.dangerBright}>✗ {error}</Text>}
+        {!error && message && <Text bold color={THEME.successBright}>✓ {message}</Text>}
       </Box>
 
       <Box height={1} paddingX={1}>
-        <Text color="gray">{'─'.repeat(terminalWidth - 2)}</Text>
+        <Text color={THEME.border}>{'─'.repeat(terminalWidth - 2)}</Text>
       </Box>
 
       {/* ── Content: 按 page 条件渲染对应页面组件 ────────── */}
@@ -365,17 +384,17 @@ export default function App() {
       </Box>
 
       <Box height={1} paddingX={1}>
-        <Text color="gray">{'─'.repeat(terminalWidth - 2)}</Text>
+        <Text color={THEME.border}>{'─'.repeat(terminalWidth - 2)}</Text>
       </Box>
 
-      {/* ── Bottom Bar: 快捷键提示 ──────────────────────── */}
+      {/* ── Bottom Bar: 键帽式快捷键提示 ────────────────── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
-        <Text color="gray" dimColor>
-          {page === PAGES.CCR && `Tab/←→ focus  │  ↑↓ nav  │  ↵ edit  │  s keys  │  r refresh  │  q quit`}
-          {page === PAGES.MCP && `Tab/←→ focus  │  ↑↓ nav  │  ↵ action  │  d delete  │  y/n confirm  │  r refresh  │  q quit`}
-          {page === PAGES.SKILLS && `↑↓ nav  │  ↵ toggle  │  r refresh  │  q quit`}
-          {page === PAGES.SETTINGS && `r refresh  │  q quit`}
-        </Text>
+        {(FOOTER_HINTS[page] || []).map(([k, label]) => (
+          <Box key={k} flexDirection="row" marginRight={2}>
+            <Text bold backgroundColor={THEME.chipBg} color={THEME.infoBright}>{` ${k} `}</Text>
+            <Text color={THEME.faint}>{` ${label}`}</Text>
+          </Box>
+        ))}
       </Box>
     </Box>
   );
