@@ -10,7 +10,7 @@ const CCR_BACKUP_DIR = path.join(os.homedir(), '.claude-backups');
 export const ROUTER_RULES = [
   { key: 'default', label: 'Default', desc: '默认路由' },
   { key: 'background', label: 'Background', desc: '后台任务' },
-  { key: 'think', label: 'Think', desc: '思考/推理' },
+  { key: 'think', label: 'Thinking', desc: '思考/推理' },
   { key: 'longContext', label: 'Long Context', desc: '长上下文' },
   { key: 'webSearch', label: 'Web Search', desc: '网页搜索' },
   { key: 'image', label: 'Image', desc: '图像/多模态' }

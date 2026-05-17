@@ -8,7 +8,7 @@ import StatusBadge from '../components/StatusBadge.js';
 import ActionHint from '../components/ActionHint.js';
 import SectionHeader from '../components/SectionHeader.js';
 
-export default function SkillsPage({ skills, selectedItem, selectedIndex, terminalWidth, terminalHeight }) {
+export default function SKILLPage({ skills, selectedItem, selectedIndex, terminalWidth, terminalHeight }) {
   const skillsList = Object.keys(skills).sort();
   const skill = selectedItem ? skills[selectedItem] : null;
   const leftWidth = Math.floor(terminalWidth * 0.32);

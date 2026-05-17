@@ -7,8 +7,8 @@ import { useTerminalSize } from './hooks/useTerminalSize.js';
 
 import CCRPage from './pages/CCRPage.js';
 import MCPPage from './pages/MCPPage.js';
-import SkillsPage from './pages/SkillsPage.js';
-import SettingsPage from './pages/SettingsPage.js';
+import SKILLPage from './pages/SKILLPage.js';
+import SETTINGPage from './pages/SETTINGPage.js';
 
 // 各页面底部键帽提示：[按键, 说明]
 const FOOTER_HINTS = {
@@ -18,10 +18,10 @@ const FOOTER_HINTS = {
   [PAGES.MCP]: [
     ['Tab/←→', 'focus'], ['↑↓', 'nav'], ['↵', 'action'], ['d', 'delete'], ['y/n', 'confirm'], ['r', 'refresh'], ['q', 'quit']
   ],
-  [PAGES.SKILLS]: [
+  [PAGES.SKILL]: [
     ['↑↓', 'nav'], ['↵', 'toggle'], ['r', 'refresh'], ['q', 'quit']
   ],
-  [PAGES.SETTINGS]: [
+  [PAGES.SETTING]: [
     ['r', 'refresh'], ['q', 'quit']
   ]
 };
@@ -114,7 +114,7 @@ export default function App() {
   const getCurrentList = () => {
     switch (page) {
       case PAGES.MCP: return Object.keys(mcpServers).sort();
-      case PAGES.SKILLS: return Object.keys(skills).sort();
+      case PAGES.SKILL: return Object.keys(skills).sort();
       case PAGES.CCR: return ccrData.providers.map(p => p.name);
       default: return [];
     }
@@ -186,15 +186,15 @@ export default function App() {
     // ── 数字键切页（0-3） ──
     if (input === '0') { setPage(PAGES.CCR); setCcrActiveWindow(0); setCcrSelectedProvider(0); setCcrSelectedRouterRule(0); setCcrEditMode(false); return; }
     if (input === '1') { setPage(PAGES.MCP); setActiveWindow(MCP_WINDOWS.LIST); setSelectedIndex(0); setDetailMenuIndex(0); return; }
-    if (input === '2') { setPage(PAGES.SKILLS); setSelectedIndex(0); return; }
-    if (input === '3') { setPage(PAGES.SETTINGS); return; }
+    if (input === '2') { setPage(PAGES.SKILL); setSelectedIndex(0); return; }
+    if (input === '3') { setPage(PAGES.SETTING); return; }
 
     // ── 列表导航（↑↓） ──
     if (page === PAGES.MCP && activeWindow === MCP_WINDOWS.LIST) {
       if (key.upArrow) { setSelectedIndex(prev => Math.max(0, prev - 1)); return; }
       if (key.downArrow) { setSelectedIndex(prev => Math.min(currentList.length - 1, prev + 1)); return; }
     }
-    if (page === PAGES.SKILLS) {
+    if (page === PAGES.SKILL) {
       if (key.upArrow) { setSelectedIndex(prev => Math.max(0, prev - 1)); return; }
       if (key.downArrow) { setSelectedIndex(prev => Math.min(currentList.length - 1, prev + 1)); return; }
     }
@@ -293,7 +293,7 @@ export default function App() {
     }
 
     // ── Skills 切换 ─────────────────────────────────────
-    if (page === PAGES.SKILLS && selectedItem && key.return) {
+    if (page === PAGES.SKILL && selectedItem && key.return) {
       try {
         configManager.toggleSkill(selectedItem);
         refreshData();
@@ -369,8 +369,8 @@ export default function App() {
             terminalHeight={terminalHeight}
           />
         )}
-        {page === PAGES.SKILLS && (
-          <SkillsPage
+        {page === PAGES.SKILL && (
+          <SKILLPage
             skills={skills}
             selectedItem={selectedItem}
             selectedIndex={selectedIndex}
@@ -378,8 +378,8 @@ export default function App() {
             terminalHeight={terminalHeight}
           />
         )}
-        {page === PAGES.SETTINGS && (
-          <SettingsPage claudeDetected={configManager?.isAvailable()} />
+        {page === PAGES.SETTING && (
+          <SETTINGPage claudeDetected={configManager?.isAvailable()} />
         )}
       </Box>
 

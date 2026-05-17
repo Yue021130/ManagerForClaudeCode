@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import { THEME } from '../theme.js';
 import SectionHeader from '../components/SectionHeader.js';
 
-export default function SettingsPage({ claudeDetected }) {
+export default function SETTINGPage({ claudeDetected }) {
   return (
     <Box flexGrow={1} flexDirection="column" paddingX={1} paddingY={1}>
       <Text bold color={THEME.accentBright}>Settings</Text>

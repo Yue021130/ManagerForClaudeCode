@@ -39,16 +39,16 @@ export const THEME = {
 export const PAGES = {
   CCR: 'ccr',
   MCP: 'mcp',
-  SKILLS: 'skills',
-  SETTINGS: 'settings'
+  SKILL: 'SKILL',
+  SETTING: 'SETTING'
 };
 
 // 按键 0-3 与页面的映射：CCR 是核心功能，排在第一位
 export const PAGE_META = {
   [PAGES.CCR]:      { num: 0, label: 'CCR',      color: THEME.magentaBright },
   [PAGES.MCP]:      { num: 1, label: 'MCP',      color: THEME.successBright },
-  [PAGES.SKILLS]:   { num: 2, label: 'Skills',   color: THEME.infoBright },
-  [PAGES.SETTINGS]: { num: 3, label: 'Settings', color: THEME.accentBright }
+  [PAGES.SKILL]:   { num: 2, label: 'SKILL',   color: THEME.infoBright },
+  [PAGES.SETTING]: { num: 3, label: 'SETTING', color: THEME.accentBright }
 };
 
 // MCP 页面两栏布局：列表 | 详情
