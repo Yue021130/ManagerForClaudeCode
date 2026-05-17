@@ -2,7 +2,7 @@
 
 ## 1. 项目概述
 
-**Claude Code Manager** 是一个基于 **React + Ink** 的终端 CLI 工具，**专用于 Claude Code**：以 CCR（Claude Code Router）路由管理为核心，同时管理 MCP 服务器配置与 Skills 插件。
+**Claude Code Manager** 是一个基于 **React + Ink** 的终端 CLI 工具，**专用于 Claude Code**：以 CCR（Claude Code Router）路由管理为核心，同时管理 MCP 服务器配置与 Skill 插件。
 
 | 维度 | 技术选型 |
 |------|---------|
@@ -32,7 +32,7 @@
        │          │          │              │
        ▼          ▼          ▼              ▼
 ┌──────────┐ ┌──────┐  ┌────────┐  ┌──────────┐
-│CCR (核心)│ │MCP   │  │Skills  │  │Settings  │
+│CCR (核心)│ │MCP   │  │SKILL  │  │SETTING  │
 │Page      │ │Page  │  │Page    │  │Page      │
 └────┬─────┘ └──┬───┘  └───┬────┘  └──────────┘
      │          │          │
@@ -168,8 +168,8 @@ ConfigManager                CcrConfigManager
 |------|------|------|---------|
 | `0` | CCRPage | 自定义三栏 | Providers + 详情 + Router 规则（**核心页，启动默认**） |
 | `1` | MCPPage | SidebarLayout (两栏) | MCP 列表 + 详情 + 删除确认条 |
-| `2` | SkillsPage | SidebarLayout (两栏) | Skills 列表 + 详情 |
-| `3` | SettingsPage | 单栏 | 检测状态 + 配置路径 + 版本 |
+| `2` | SKILLPage | SidebarLayout (两栏) | Skills 列表 + 详情 |
+| `3` | SETTINGPage | 单栏 | 检测状态 + 配置路径 + 版本 |
 
 **共享组件（7 个）：**
 
@@ -294,8 +294,8 @@ cli.js
        └── pages/
              ├── CCRPage.js        ← 核心页，内置虚拟滚动
              ├── MCPPage.js
-             ├── SkillsPage.js
-             └── SettingsPage.js
+             ├── SKILLPage.js
+             └── SETTINGPage.js
                    └── components/
                          ├── SidebarLayout.js
                          ├── ScrollableList.js
@@ -318,7 +318,7 @@ cli.js
 中复杂度:  MCPPage.js (MCPDetailContent 子组件)
           CcrConfigManager.js
 
-低复杂度:  SkillsPage.js, SettingsPage.js
+低复杂度:  SKILLPage.js, SETTINGPage.js
           所有 components/ (纯展示)
           theme.js, cli.js
 ```
