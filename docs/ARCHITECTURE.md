@@ -98,7 +98,7 @@ App.js 是整个应用的神经中枢，承担三个核心职责：
 选择层:  selectedIndex, detailMenuIndex
 数据层:  mcpServers, skills, ccrData
 服务层:  configManager, ccrManager  (Manager 实例)
-反馈层:  error, message, pendingDelete（删除确认）
+反馈层:  error, message, pendingRemove（暂时移除确认）
 CCR专属: ccrActiveWindow, ccrSelectedProvider, ccrSelectedRouterRule, ccrShowKeys, ccrEditMode, ccrEditSelected
 ```
 
@@ -106,28 +106,35 @@ CCR专属: ccrActiveWindow, ccrSelectedProvider, ccrSelectedRouterRule, ccrShowK
 
 ```
 按键 → useInput
-  ├── pendingDelete? → 模态确认（y 确认 / n、Esc 取消，其余全拦截）
+  ├── pendingRemove? → 模态确认（y 确认 / n、Esc 取消，其余全拦截）
   ├── q → exit()
   ├── Tab/←→ → 切换 activeWindow (MCP) 或 ccrActiveWindow (CCR)
   ├── 0-3 → 切换 page（CCR / MCP / Skills / Settings）
   ├── ↑↓ → 根据 page + activeWindow 移动选中索引
   ├── Enter → 根据 page + activeWindow 执行操作
-  ├── d → MCP 快速删除（进入确认态）
+  ├── d → MCP 快速暂时移除（进入确认态）
   ├── s → CCR 切换 API Key 显示
   └── r → 刷新所有数据
 ```
 
-**删除确认流（模态）：**
+**核心语义 —— 恢复 / 暂时移除（无永久删除）：**
+
+MCP 和 Skills 的管理只有两种操作：
+
+- **暂时移除**：条目从生效配置中拿掉，但数据完整保留，列表中灰显（○）
+  - MCP：配置从 `~/.claude.json` 的 `mcpServers` 移入全局移除池 `~/.claude-removed-mcp.json`
+  - Skills：在 `installed_plugins.json` 中置 `disabled` 标志（Claude Code 原生支持）
+- **恢复**：把暂时移除的条目加回生效配置（●）
+
+**暂时移除确认流（模态）：**
 
 ```
-d / 菜单 Delete
-  → setPendingDelete(name)        ← 进入确认态，其余按键全部拦截
-  → MCPPage 底部渲染确认条 "Delete "xxx"? y=yes / n=no"
-  → y: deleteMcpServer → 刷新 → 提示已删除
+d / 菜单 Remove 暂时移除
+  → setPendingRemove(name)        ← 进入确认态，其余按键全部拦截
+  → MCPPage 底部渲染确认条 "暂时移除 "xxx"? y=yes / n=no"
+  → y: removeMcpServer → 移入移除池 → 刷新 → 列表中灰显保留
   → n / Esc: 取消
 ```
-
-删除是**永久的**（无回收站）；安全兜底依赖写前自动备份（`~/.claude-backups/`，保留 10 份）。
 
 ### 3.3 服务层 — 两个 Manager
 
@@ -138,26 +145,29 @@ ConfigManager                CcrConfigManager
 
 读取:                         读取:
  ~/.claude.json                ~/.claude-code-router/config.json
- ~/.claude/plugins/
- installed_plugins.json
+ ~/.claude/plugins/            
+ installed_plugins.json        
+ ~/.claude-removed-mcp.json    
 
 职责:                         职责:
-- MCP CRUD（删除永久）          - Provider 列表/详情
-- Skills CRUD                  - Router 规则设置/清除
+- MCP 暂时移除/恢复            - Provider 列表/详情
+- Skills 暂时移除/恢复         - Router 规则设置/清除
 - 自动备份(10份)               - 路由值解析 "Provider,model"
                               - 自动备份(10份)
 ```
 
 **安全设计 — 备份策略：**
-每次写操作前自动备份到 `~/.claude-backups/`，保留最近 10 份。文件名格式：`{backupPrefix}-{ISO时间戳}.json`（`claude-config-` / `plugins-` / `ccr-config-` 前缀）。这是防止误操作的最后防线。
+每次写操作前自动备份到 `~/.claude-backups/`，保留最近 10 份。文件名格式：`{backupPrefix}-{ISO时间戳}.json`（`claude-config-` / `plugins-` / `ccr-config-` 前缀）。这是防止误操作的最后防线。注意「暂时移除」本身不是删除——MCP 配置移入移除池、Skills 只置 `disabled` 标志，随时可恢复。
 
 **数据视图 — getMcpServers()：**
-直接映射 `~/.claude.json` 的 `mcpServers` 字段：
+合并 `~/.claude.json` 的 `mcpServers`（生效）与 `~/.claude-removed-mcp.json`（移除池）：
 
 ```
-输入:  { mcpServers: { github: { type: "http", ..., disabled: false } } }
+输入:  mcpServers:  { github: { type: "http", ... } }
+       removedMcp:  { fs-old: { type: "stdio", ... } }
 
-输出:  { github: { name: "github", enabled: true, config: {...} } }
+输出:  { github: { name: "github", enabled: true,  removed: false, config: {...} },
+        "fs-old": { name: "fs-old", enabled: false, removed: true,  config: {...} } }
 ```
 
 ### 3.4 UI 层 — Pages + Components
@@ -167,7 +177,7 @@ ConfigManager                CcrConfigManager
 | 按键 | 页面 | 布局 | 核心功能 |
 |------|------|------|---------|
 | `0` | CCRPage | 自定义三栏 | Providers + 详情 + Router 规则（**核心页，启动默认**） |
-| `1` | MCPPage | SidebarLayout (两栏) | MCP 列表 + 详情 + 删除确认条 |
+| `1` | MCPPage | SidebarLayout (两栏) | MCP 列表 + 详情 + 暂时移除确认条 |
 | `2` | SKILLPage | SidebarLayout (两栏) | Skills 列表 + 详情 |
 | `3` | SETTINGPage | 单栏 | 检测状态 + 配置路径 + 版本 |
 
@@ -188,19 +198,20 @@ ConfigManager                CcrConfigManager
 ```
 ┌──────────────────┬───┬──────────────────────────────┐
 │  MCP Servers     │ │ │  Details                     │
-│  ▸ github      ● │ │ │  github                      │
-│    filesystem  ○ │ │ │  Status Disabled              │
+│  ▸ github      ● │ │ │  filesystem                  │
+│    filesystem  ○ │ │ │  Status REMOVED               │
+│                  │ │ │  ~/.claude-removed-mcp.json   │
 │                  │ │ │  ── Configuration ──          │
-│                  │ │ │  type: http                   │
-│                  │ │ │  url: https://...             │
+│                  │ │ │  type: stdio                  │
 │                  │ │ │  ── Actions ──                │
-│                  │ │ │  ▸ Delete                     │
-│                  │ │ │    Enable                     │
+│                  │ │ │  ▸ Restore 恢复               │
 ├──────────────────┴───┴──────────────────────────────┤
-│ Delete "github"? y = yes / n = no   ← 确认态才显示   │
+│ 暂时移除 "github"? y = yes / n = no  ← 确认态才显示  │
 └─────────────────────────────────────────────────────┘
   activeWindow=0 (List)   activeWindow=1 (Details)
 ```
+
+生效条目显示 `●` 和 `Remove 暂时移除` 操作；移除池条目灰显 `○`、状态 `REMOVED`、操作为 `Restore 恢复`。
 
 **CCR 页面的三栏布局：**
 
@@ -267,11 +278,11 @@ App.js  useInput()
 
 ### 按功能线阅读
 
-**想了解"MCP 删除是怎么实现的"？**
-1. `App.js:useInput` → `d` 键或菜单 Delete 分支 → `setPendingDelete(name)`
-2. 确认态按 `y` → `ConfigManager.deleteMcpServer()` → 从 `config.mcpServers` 删除
-3. `ConfigManager.saveConfig()` → 备份 + 写文件
-4. `App.js:refreshData()` → 重新加载，UI 更新
+**想了解"MCP 暂时移除是怎么实现的"？**
+1. `App.js:useInput` → `d` 键或菜单 Remove 分支 → `setPendingRemove(name)`
+2. 确认态按 `y` → `ConfigManager.removeMcpServer()` → 配置从 `config.mcpServers` 移入 `removedMcp` 移除池
+3. `ConfigManager.saveConfig()` + `saveRemovedMcp()` → 备份 + 写文件
+4. `App.js:refreshData()` → 重新加载，UI 中该条目灰显保留；详情栏操作变为 `Restore 恢复`
 
 **想了解"CCR 路由设置是怎么实现的"？**
 1. Router 面板选中规则按 `↵` → 无值进编辑模式，有值则清除
@@ -311,7 +322,7 @@ cli.js
 ### 复杂度热力图
 
 ```
-高复杂度:  App.js (键盘路由 + 删除确认模态)
+高复杂度:  App.js (键盘路由 + 暂时移除确认模态)
           ConfigManager.js (MCP/Skills, 备份)
           CCRPage.js (三栏 + 编辑模式 + 虚拟滚动)
 
@@ -347,5 +358,5 @@ cli.js
 1. **页面组件无状态** — 所有状态提升到 App.js，页面组件是纯渲染函数（接收 props，返回 JSX）
 2. **Manager 无 UI 依赖** — 两个 Manager 可以脱离 React 独立使用，只依赖 Node.js fs/path
 3. **写前备份** — 任何修改操作前自动备份，防止误操作不可逆
-4. **删除必须确认** — 永久删除操作一律经过 y/n 模态确认
+4. **移除必须确认** — 暂时移除操作一律经过 y/n 模态确认，且移除≠删除（数据保留，可恢复）
 5. **常量驱动** — 页面编号、颜色方案、窗口索引都用命名常量，不用魔术数字
