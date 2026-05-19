@@ -57,7 +57,7 @@ export default function SKILLPage({ skills, selectedItem, selectedIndex, termina
                 <Text color={THEME.faint}>{new Date(skill.installedAt).toLocaleDateString()}</Text>
               )}
               <SectionHeader title="Actions" />
-              <ActionHint label={skill.disabled ? 'Enable' : 'Disable'} />
+              <ActionHint label={skill.disabled ? 'Restore 恢复' : 'Remove 暂时移除'} />
             </Box>
           )}
         </DetailPanel>

@@ -15,7 +15,7 @@ export default function MCPPage({
   detailMenuIndex,
   detailMenu,
   activeWindow,
-  pendingDelete,
+  pendingRemove,
   terminalWidth,
   terminalHeight
 }) {
@@ -72,11 +72,11 @@ export default function MCPPage({
         }
       />
 
-      {/* 删除确认条 — pendingDelete 非空时显示，按键由 App.js 的模态逻辑处理 */}
-      {pendingDelete !== null && (
+      {/* 暂时移除确认条 — pendingRemove 非空时显示，按键由 App.js 的模态逻辑处理 */}
+      {pendingRemove !== null && (
         <Box height={1} paddingX={1}>
           <Text bold backgroundColor={THEME.danger} color={THEME.onAccent}>
-            {` ⚠ Delete "${pendingDelete}"?  y confirm · n cancel `}
+            {` ⚠ 暂时移除 "${pendingRemove}"?  y confirm · n cancel `}
           </Text>
         </Box>
       )}
@@ -87,6 +87,7 @@ export default function MCPPage({
 function MCPDetailContent({ serverInfo, selectedItem, detailMenu, detailMenuIndex, activeWindow }) {
   const config = serverInfo.config || {};
   const isDisabled = !serverInfo.enabled;
+  const isRemoved = serverInfo.removed;
   const configEntries = Object.entries(config).filter(([k]) => k !== 'disabled');
 
   return (
@@ -95,9 +96,9 @@ function MCPDetailContent({ serverInfo, selectedItem, detailMenu, detailMenuInde
       <Text bold color={THEME.fg}>{selectedItem}</Text>
       <Box marginTop={1} flexDirection="row">
         <Text color={THEME.muted}>Status </Text>
-        <StatusBadge disabled={isDisabled} />
+        <StatusBadge disabled={isDisabled} disabledLabel={isRemoved ? 'REMOVED' : 'OFF'} />
       </Box>
-      <Text color={THEME.faint}>~/.claude.json</Text>
+      <Text color={THEME.faint}>{isRemoved ? '~/.claude-removed-mcp.json' : '~/.claude.json'}</Text>
 
       {/* Configuration Section */}
       <SectionHeader title="Configuration" />

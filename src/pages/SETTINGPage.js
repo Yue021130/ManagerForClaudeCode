@@ -34,6 +34,7 @@ export default function SETTINGPage({ claudeDetected }) {
           {[
             '~/.claude.json',
             '~/.claude/plugins/installed_plugins.json',
+            '~/.claude-removed-mcp.json',
             '~/.claude-code-router/config.json'
           ].map(p => (
             <Text key={p}>

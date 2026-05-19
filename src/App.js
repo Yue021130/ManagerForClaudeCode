@@ -16,10 +16,10 @@ const FOOTER_HINTS = {
     ['Tab/←→', 'focus'], ['↑↓', 'nav'], ['↵', 'set/clear'], ['s', 'keys'], ['r', 'refresh'], ['q', 'quit']
   ],
   [PAGES.MCP]: [
-    ['Tab/←→', 'focus'], ['↑↓', 'nav'], ['↵', 'action'], ['d', 'delete'], ['y/n', 'confirm'], ['r', 'refresh'], ['q', 'quit']
+    ['Tab/←→', 'focus'], ['↑↓', 'nav'], ['↵', 'action'], ['d', 'remove'], ['y/n', 'confirm'], ['r', 'refresh'], ['q', 'quit']
   ],
   [PAGES.SKILL]: [
-    ['↑↓', 'nav'], ['↵', 'toggle'], ['r', 'refresh'], ['q', 'quit']
+    ['↑↓', 'nav'], ['↵', 'remove/restore'], ['r', 'refresh'], ['q', 'quit']
   ],
   [PAGES.SETTING]: [
     ['r', 'refresh'], ['q', 'quit']
@@ -36,7 +36,7 @@ const FOOTER_HINTS = {
  * - 选择层：selectedIndex, detailMenuIndex
  * - 数据层：mcpServers, skills, ccrData
  * - 服务层：configManager, ccrManager（两个 Manager 实例）
- * - UI反馈：error, message, pendingDelete（删除确认）
+ * - UI反馈：error, message, pendingRemove（暂时移除确认）
  *
  * 【键盘输入流】
  * useInput → 判断 page → 判断 activeWindow → 分发到具体处理逻辑 → 调用 Manager → setState → 重渲染
@@ -72,7 +72,7 @@ export default function App() {
   // ── 反馈状态 ──────────────────────────────────────────
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
-  const [pendingDelete, setPendingDelete] = useState(null);             // 待确认删除的 MCP 名称
+  const [pendingRemove, setPendingRemove] = useState(null);             // 待确认暂时移除的 MCP 名称
 
   // 初始化：创建两个 Manager 实例，加载所有数据
   useEffect(() => {
@@ -123,14 +123,14 @@ export default function App() {
   const currentList = getCurrentList();
   const selectedItem = currentList[selectedIndex];
 
-  // 生成详情面板的操作菜单项（根据选中 MCP 的状态动态显示）
+  // 生成详情面板的操作菜单项（根据选中 MCP 的状态动态显示：暂时移除 或 恢复）
   const getDetailMenu = (name) => {
     if (!name || !mcpServers[name]) return [];
-    const isDisabled = !mcpServers[name].enabled;
-    return [
-      { label: 'Delete', action: 'delete' },
-      { label: isDisabled ? 'Enable' : 'Disable', action: 'toggle' }
-    ];
+    const server = mcpServers[name];
+    if (server.removed) {
+      return [{ label: 'Restore 恢复', action: 'restore' }];
+    }
+    return [{ label: 'Remove 暂时移除', action: 'remove' }];
   };
 
   const detailMenu = getDetailMenu(selectedItem);
@@ -142,21 +142,19 @@ export default function App() {
     if (message) setMessage(null);
     if (error) setError(null);
 
-    // ── 删除确认（模态）：y 确认 / n 或 Esc 取消，其余按键全部拦截 ──
-    if (pendingDelete !== null) {
+    // ── 暂时移除确认（模态）：y 确认 / n 或 Esc 取消，其余按键全部拦截 ──
+    if (pendingRemove !== null) {
       if (input === 'y') {
         try {
-          configManager.deleteMcpServer(pendingDelete);
+          configManager.removeMcpServer(pendingRemove);
           refreshData();
-          setSelectedIndex(prev => Math.max(0, prev - 1));
-          setDetailMenuIndex(0);
-          setMessage(`已删除 ${pendingDelete}`);
+          setMessage(`已暂时移除 ${pendingRemove}（选中后按 Restore 可恢复）`);
         } catch (err) {
           setError(err.message);
         }
-        setPendingDelete(null);
+        setPendingRemove(null);
       } else if (input === 'n' || key.escape) {
-        setPendingDelete(null);
+        setPendingRemove(null);
       }
       return;
     }
@@ -271,13 +269,13 @@ export default function App() {
       if (key.downArrow) { setDetailMenuIndex(prev => Math.min(detailMenu.length - 1, prev + 1)); return; }
       if (key.return && selectedItem) {
         const action = detailMenu[detailMenuIndex]?.action;
-        if (action === 'delete') {
-          setPendingDelete(selectedItem);
-        } else if (action === 'toggle') {
+        if (action === 'remove') {
+          setPendingRemove(selectedItem);
+        } else if (action === 'restore') {
           try {
-            configManager.toggleMcpServer(selectedItem);
+            configManager.restoreMcpServer(selectedItem);
             refreshData();
-            setMessage(`已切换 ${selectedItem} 状态`);
+            setMessage(`已恢复 ${selectedItem}`);
           } catch (err) {
             setError(err.message);
           }
@@ -286,19 +284,25 @@ export default function App() {
       }
     }
 
-    // ── MCP 快速删除（d 键）— 进入确认态 ────────────────
+    // ── MCP 快速暂时移除（d 键）— 进入确认态 ────────────
     if (page === PAGES.MCP && input === 'd' && selectedItem) {
-      setPendingDelete(selectedItem);
+      setPendingRemove(selectedItem);
       return;
     }
 
-    // ── Skills 切换 ─────────────────────────────────────
+    // ── Skills 暂时移除 / 恢复 ──────────────────────────
     if (page === PAGES.SKILL && selectedItem && key.return) {
       try {
-        configManager.toggleSkill(selectedItem);
-        refreshData();
-        const skill = skills[selectedItem];
-        setMessage(`${skill?.name} 已${skill?.disabled ? '启用' : '禁用'}`);
+        const wasDisabled = skills[selectedItem]?.disabled;
+        if (wasDisabled) {
+          configManager.restoreSkill(selectedItem);
+          refreshData();
+          setMessage(`已恢复 ${skills[selectedItem]?.name}`);
+        } else {
+          configManager.removeSkill(selectedItem);
+          refreshData();
+          setMessage(`已暂时移除 ${skills[selectedItem]?.name}（按 Restore 可恢复）`);
+        }
       } catch (err) {
         setError(err.message);
       }
@@ -364,7 +368,7 @@ export default function App() {
             detailMenuIndex={detailMenuIndex}
             detailMenu={detailMenu}
             activeWindow={activeWindow}
-            pendingDelete={pendingDelete}
+            pendingRemove={pendingRemove}
             terminalWidth={terminalWidth}
             terminalHeight={terminalHeight}
           />
