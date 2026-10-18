@@ -1,0 +1,3 @@
+[submodule "claude-code-router"]
+	path = claude-code-router
+	url = git@github.com:Yue021130/claude-code-router.git

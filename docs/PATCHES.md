@@ -47,24 +47,41 @@
 - 内容：`findWindowsExecutablePid` 的 `spawnSync` 加 `timeout: 3_000`。
 - 原因：同补丁 3。
 
-## 上游更新流程（重要）
+## 上游更新流程（fork 分支模型）
 
-补丁在本仓库中以普通提交维护（`92d23a29` 及补丁相关提交），更新上游时：
+`claude-code-router/` 是 git submodule（remote：`git@github.com:Yue021130/claude-code-router.git`，
+上游 musistudio 的 fork），内部分支约定：
 
-```powershell
-git fetch upstream main
-git log --oneline HEAD..upstream/main          # 先看上游有没有新提交
-```
+- **`main`** — 只跟踪上游，保持与 `upstream/main` 一致；
+- **`custom`** — 全部本地补丁维护在此分支，**工作区平时停留在这里**。
 
-- **没有新提交就不要 pull**。上游 main 停在本地板本基点时跑 `git subtree pull --squash`，
-  会计算出反向合并范围，把补丁精准回滚（2026-10-18 踩过此坑）。
-- 有新提交时：
+上游有新版本时（在 `claude-code-router/` 目录内）：
 
 ```powershell
-git subtree pull --prefix=claude-code-router upstream main --squash
+git fetch upstream
+git checkout main
+git merge upstream/main     # 快进合并上游更新
+git push origin main        # 同步到你的 fork
+git checkout custom
+git merge main              # 合进补丁分支；上游改了补丁同文件会冲突，解决时保留补丁
+git push origin custom
 ```
 
-  然后核对补丁是否还在（上游改了同文件会冲突，解决时保留我方补丁）。
+然后回到 MFC 更新 submodule 指针：
+
+```powershell
+cd ..
+git add claude-code-router
+git commit -m "chore: bump ccr"
+git push
+```
+
+核对补丁：在 `claude-code-router/` 里 `git diff main...custom --stat`
+应始终等于本清单的 5 个文件；`git log --oneline main..custom` 是补丁提交列表。
+
+> 历史教训：曾用 subtree + squash 管理补丁，上游无新提交时 pull 会算出反向合并、
+> 把补丁精准回滚（2026-10-18 踩过）。fork 分支模型下 `git merge` 是真三方合并，
+> 不存在此问题。
 
 ## 已知关联路径
 

@@ -11,7 +11,7 @@
 | 目录 | 子项目 | 说明 |
 |------|--------|------|
 | `src/`（本目录各文件） | **ManagerForClaudeCode 本体** | 就是下面文档描述的这个 React + Ink 终端 CLI |
-| `claude-code-router/` | **CCR 魔改 fork** | [musistudio/claude-code-router](https://github.com/musistudio/claude-code-router) 的本地副本，带 6 处本地补丁（隐藏启动窗口、Electron 运行时重定向、桌面应用探测超时/禁用等），清单见 [docs/PATCHES.md](./docs/PATCHES.md) |
+| `claude-code-router/` | **CCR 魔改 fork**（git submodule） | [musistudio/claude-code-router](https://github.com/musistudio/claude-code-router) 的 fork，带 5 处本地补丁（隐藏启动窗口、禁用桌面应用探测、子进程超时等）。`main` 分支跟踪上游，`custom` 分支维护补丁，清单与更新流程见 [docs/PATCHES.md](./docs/PATCHES.md) |
 | `ccr-tray/` | **CCRTray 托盘** | Windows 任务栏托盘程序（C# 单文件），显示 ccr 服务运行状态，双击打开管理界面。改完用 `build.bat` 重新编译 |
 
 ## 功能特性
