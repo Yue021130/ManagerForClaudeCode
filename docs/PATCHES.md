@@ -35,21 +35,40 @@
 ## 补丁 4：Windows 应用发现的同步子进程加超时
 
 - 文件：`packages/core/src/platform/windows-app-discovery.ts`
-- 内容：3 处 `spawnSync` 各加 `timeout: 5_000`；其中 2 处同时加
+- 内容：3 处 `spawnSync` 各加 `timeout: 3_000`；其中 2 处同时加
   `maxBuffer: 4 * 1024 * 1024`。
 - 原因：防止 PowerShell / where.exe 探测无限期挂起。
 
 ## 补丁 5：Profile 启动服务的同步子进程加超时
 
 - 文件：`packages/core/src/profiles/launch-service.ts`
-- 内容：2 处 `spawnSync` 加超时（一处 5 秒、`ensureWindowsUserPath` 一处 15 秒）。
+- 内容：2 处 `spawnSync` 加超时（一处 3 秒、`ensureWindowsUserPath` 一处 5 秒）。
 - 原因：同补丁 4。
 
 ## 补丁 6：OpenCode 进程查找加超时
 
 - 文件：`packages/core/src/agents/opencode/app-launch.ts`
-- 内容：`findWindowsExecutablePid` 的 `spawnSync` 加 `timeout: 5_000`。
+- 内容：`findWindowsExecutablePid` 的 `spawnSync` 加 `timeout: 3_000`。
 - 原因：同补丁 4。
+
+## 上游更新流程（重要）
+
+补丁在本仓库中以普通提交维护（`92d23a29`、`82135111` 及其后续），更新上游时：
+
+```powershell
+git fetch upstream main
+git log --oneline HEAD..upstream/main          # 先看上游有没有新提交
+```
+
+- **没有新提交就不要 pull**。上游 main 停在本地板本基点时跑 `git subtree pull --squash`，
+  会计算出反向合并范围，把补丁精准回滚（2026-10-18 踩过此坑）。
+- 有新提交时：
+
+```powershell
+git subtree pull --prefix=claude-code-router upstream main --squash
+```
+
+  然后核对补丁是否还在（上游改了同文件会冲突，解决时保留我方补丁）。
 
 ## 已知关联路径
 
