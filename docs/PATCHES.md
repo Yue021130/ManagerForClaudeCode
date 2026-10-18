@@ -5,25 +5,21 @@
 必须按本清单在源码里重新确认/重打，再重新构建或同步 dist。**
 
 当前基准版本：上游 v3.1.3（commit `057abaa1`）。
-补丁共 6 个文件、45 行新增，全部以 `// CCR patch:` 注释标记，可用
+补丁共 5 个文件，大部分以 `// CCR patch:` 注释标记，可用
 `git diff` 或搜索该注释快速定位。
 
-## 补丁 1：Electron 运行时重定向到真实 Node
+> **已放弃的补丁**：Electron 运行时重定向（原 cli.ts 补丁，2026-10-18 撤销，
+> 见 `5c13a338`）。本机 `node` 被 Kimi Electron 假扮导致的 better-sqlite3 ABI
+> 问题，改从启动方式上规避：**始终用真 node（`Z:\Nvm_Nodejs\nodejs\node.exe`）
+> 启动 ccr**，不在代码里硬编码路径。
 
-- 文件：`packages/cli/src/cli.ts`
-- 内容：启动时若检测到 `process.versions.electron`（即在 Electron 运行时里被当
-  node 启动，例如某些桌面应用内嵌），则用 `spawnSync` 以
-  `Z:\Nvm_Nodejs\nodejs\node.exe` 重新执行自己（`stdio: "inherit"`、
-  `windowsHide: true`、环境变量 `CCR_NO_REEXEC=1` 防循环），然后 `process.exit`。
-- 原因：Electron 的 ABI 与 better-sqlite3 不兼容，不重定向会导致配置静默降级为空。
-
-## 补丁 2：网关子进程隐藏窗口
+## 补丁 1：网关子进程隐藏窗口
 
 - 文件：`packages/core/src/gateway/core-runtime/supervisor.ts`
 - 内容：`spawnGatewayProcess` 的 fork 选项加 `windowsHide: true`。
 - 原因：`ccr start` 不再弹出 node 控制台窗口。
 
-## 补丁 3：禁用桌面应用探测（信息类 RPC）
+## 补丁 2：禁用桌面应用探测（信息类 RPC）
 
 - 文件：`packages/core/src/agents/app-info-paths.ts`
 - 内容：`getAppInfoPaths` 的三个字段（chatgptAppPath / opencodeAppPath /
@@ -32,28 +28,28 @@
   的事件循环卡住几十秒，导致 `http://127.0.0.1:3458/` 刷新很慢。
   这些路径仅用于信息展示；真正的启动器（launchers）在需要时仍会实时探测。
 
-## 补丁 4：Windows 应用发现的同步子进程加超时
+## 补丁 3：Windows 应用发现的同步子进程加超时
 
 - 文件：`packages/core/src/platform/windows-app-discovery.ts`
 - 内容：3 处 `spawnSync` 各加 `timeout: 3_000`；其中 2 处同时加
   `maxBuffer: 4 * 1024 * 1024`。
 - 原因：防止 PowerShell / where.exe 探测无限期挂起。
 
-## 补丁 5：Profile 启动服务的同步子进程加超时
+## 补丁 4：Profile 启动服务的同步子进程加超时
 
 - 文件：`packages/core/src/profiles/launch-service.ts`
 - 内容：2 处 `spawnSync` 加超时（一处 3 秒、`ensureWindowsUserPath` 一处 5 秒）。
-- 原因：同补丁 4。
+- 原因：同补丁 3。
 
-## 补丁 6：OpenCode 进程查找加超时
+## 补丁 5：OpenCode 进程查找加超时
 
 - 文件：`packages/core/src/agents/opencode/app-launch.ts`
 - 内容：`findWindowsExecutablePid` 的 `spawnSync` 加 `timeout: 3_000`。
-- 原因：同补丁 4。
+- 原因：同补丁 3。
 
 ## 上游更新流程（重要）
 
-补丁在本仓库中以普通提交维护（`92d23a29`、`82135111` 及其后续），更新上游时：
+补丁在本仓库中以普通提交维护（`92d23a29` 及补丁相关提交），更新上游时：
 
 ```powershell
 git fetch upstream main
