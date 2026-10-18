@@ -9,7 +9,7 @@
 `git diff` 或搜索该注释快速定位。
 
 > **已放弃的补丁**：Electron 运行时重定向（原 cli.ts 补丁，2026-10-18 撤销，
-> 见 `5c13a338`）。本机 `node` 被 Kimi Electron 假扮导致的 better-sqlite3 ABI
+> 于 2026-10-18 撤销，不再维护）。本机 `node` 被 Kimi Electron 假扮导致的 better-sqlite3 ABI
 > 问题，改从启动方式上规避：**始终用真 node（`Z:\Nvm_Nodejs\nodejs\node.exe`）
 > 启动 ccr**，不在代码里硬编码路径。
 
