@@ -88,3 +88,7 @@ git push
 - ccr 运行数据：`%APPDATA%\claude-code-router\`（网关口 40229，管理口 3458）
 - 全局安装副本（npm update 会覆盖）：
   `Z:\Nodejs_Global\node_global\node_modules\@musistudio\claude-code-router\dist\main\cli.js`
+- 本地构建并同步到全局安装：`powershell -File scripts\publish-local-ccr.ps1`
+  （产物 = `packages/cli/dist` + `packages/core/dist` 合并覆盖全局 dist；
+  全局的 better-sqlite3 原生模块不动；本地 `npm install` 需 `--ignore-scripts`
+  跳过原生编译，详见脚本注释）
