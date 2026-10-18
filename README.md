@@ -4,6 +4,15 @@
 
 一个基于 React + Ink 的终端 CLI 工具，**专用于 Claude Code**。以 CCR（Claude Code Router）路由管理为核心，同时管理 MCP 服务器和 Skill 插件。
 
+## 仓库结构：三个子项目
+
+本仓库同时维护三个子项目：
+
+| 目录 | 子项目 | 说明 |
+|------|--------|------|
+| `src/`（本目录各文件） | **ManagerForClaudeCode 本体** | 就是下面文档描述的这个 React + Ink 终端 CLI |
+| `claude-code-router/` | **CCR 魔改 fork** | [musistudio/claude-code-router](https://github.com/musistudio/claude-code-router) 的本地副本，带 6 处本地补丁（隐藏启动窗口、Electron 运行时重定向、桌面应用探测超时/禁用等），清单见 [docs/PATCHES.md](./docs/PATCHES.md) |
+| `ccr-tray/` | **CCRTray 托盘** | Windows 任务栏托盘程序（C# 单文件），显示 ccr 服务运行状态，双击打开管理界面。改完用 `build.bat` 重新编译 |
 
 ## 功能特性
 
@@ -65,7 +74,7 @@ mcp-manager
 | `r` | 刷新配置 |
 | `q` | 退出 |
 
-## 项目结构
+## 项目结构（ManagerForClaudeCode 本体）
 
 ```
 src/
@@ -100,8 +109,19 @@ src/
 |------|------|
 | `~/.claude.json` | Claude Code 的 MCP 服务器配置 |
 | `~/.claude/plugins/installed_plugins.json` | Claude Code 的 Skill 插件记录 |
-| `~/.claude-code-router/config.json` | CCR 路由配置 |
+| `%APPDATA%\claude-code-router\config.sqlite` | CCR 路由配置（v3.1.3+ 起由 sqlite 存储；`request-logs.sqlite` 等为日志，见 [docs/PATCHES.md](./docs/PATCHES.md)） |
 | `~/.claude-backups/` | 自动备份目录（保留最近 10 份） |
+
+## 子项目：CCRTray 托盘
+
+`ccr-tray/` 是一个独立的 Windows 托盘程序，与 CLI 互不依赖：
+
+```powershell
+cd ccr-tray
+.\build.bat        # 需要 .NET Framework 的 csc 编译器，产出 CCRTray.exe
+```
+
+托盘图标颜色指示 ccr 服务状态（绿=运行 / 红=停止 / 黄=启动中），右键菜单可启动、停止、打开管理界面（自动探测 3458 端口）。
 
 ## 技术栈
 
