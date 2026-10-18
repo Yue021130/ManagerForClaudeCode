@@ -1,0 +1,4 @@
+# ccr-tray 编译产物（源码用 build.bat 随时可重现，exe 不入库）
+*.exe
+*.pdb
+*.tmp
