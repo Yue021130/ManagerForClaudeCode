@@ -1,4 +1,6 @@
 import type { AppInfo } from "@ccr/core/contracts/app";
+import { findInstalledCodexAppExecutable, findInstalledWorkbuddyAppExecutable } from "@ccr/core/agents/codex/app-launch";
+import { findInstalledOpenCodeAppExecutable } from "@ccr/core/agents/opencode/app-launch";
 
 type AppPaths = Pick<AppInfo, "chatgptAppPath" | "opencodeAppPath" | "workbuddyAppPath">;
 
@@ -15,12 +17,8 @@ export function createAppInfoPathReader(load: () => AppPaths, now: () => number 
 }
 
 // Launchers still discover afresh; only the informational RPC uses this cache.
-// CCR patch: skip desktop-app discovery for the informational RPC. The
-// discovery spawns several synchronous PowerShell subprocesses, which can
-// stall the management server's event loop for tens of seconds. The values
-// are only informational; launchers still discover afresh when needed.
 export const getAppInfoPaths = createAppInfoPathReader(() => ({
-  chatgptAppPath: "",
-  opencodeAppPath: "",
-  workbuddyAppPath: ""
+  chatgptAppPath: findInstalledCodexAppExecutable().executable,
+  opencodeAppPath: findInstalledOpenCodeAppExecutable().executable,
+  workbuddyAppPath: findInstalledWorkbuddyAppExecutable().executable
 }));
