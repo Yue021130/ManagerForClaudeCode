@@ -1,0 +1,15 @@
+---
+import Redirect from "../../../components/Redirect.astro";
+import { AGENTCLAW_DOC_ORDER } from "../../../agentclaw-docs";
+
+export function getStaticPaths() {
+  return AGENTCLAW_DOC_ORDER.filter((platform) => platform !== "setup").map((platform) => ({
+    params: { platform },
+    props: { target: `/en/agentclaw/${platform}/` },
+  }));
+}
+
+const { target } = Astro.props;
+---
+
+<Redirect target={target} lang="en" label="AgentClaw" />

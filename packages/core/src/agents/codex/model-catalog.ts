@@ -1,0 +1,867 @@
+import { BUILTIN_FUSION_VISION_TOOL_NAME, BUILTIN_FUSION_WEB_SEARCH_TOOL_NAME, effectiveContextWindowPercentFor, isGatewayProviderEnabled } from "@ccr/core/contracts/app";
+import type { AppConfig, GatewayProviderConfig, GatewayProviderProtocol, ProviderModelMetadata, ProviderReasoningLevel, VirtualModelProfileConfig } from "@ccr/core/contracts/app";
+import {
+  findModelCatalogEntry,
+  modelCatalogMaxInputTokens,
+  readCatalogCapability,
+  type ModelCatalogEntry
+} from "@ccr/core/gateway/model-catalog";
+import { codexDefaultBaseUrl, readCodexLocalModelCatalog } from "@ccr/core/agents/local-providers/codex";
+import { localAgentProviderApiKey } from "@ccr/core/agents/local-providers/shared";
+import { normalizeProviderBaseUrl } from "@ccr/core/providers/url";
+import { resolveUsageModelAttribution } from "@ccr/core/usage/model-attribution";
+import { filterModelIdsByAllowedModels } from "@ccr/core/profiles/model-allowlist";
+import { codexBaseInstructions } from "@ccr/core/agents/codex/base-instructions";
+
+const fusionModelProviderName = "Fusion";
+const codexDefaultContextWindow = 128_000;
+const codexEffectiveContextWindowPercent = 95;
+const codexFastModeAdditionalSpeedTiers = ["fast"];
+const codexFastModeServiceTiers = [{ id: "priority", name: "Fast", description: "1.5x speed, increased usage" }];
+
+export type CodexModelCatalog = {
+  models: CodexModelCatalogItem[];
+};
+
+export type CodexModelCatalogOptions = {
+  allowedModels?: string[];
+};
+
+export type CodexModelCatalogItem = {
+  additional_speed_tiers: unknown[];
+  apply_patch_tool_type: string | null;
+  availability_nux: null;
+  base_instructions: string;
+  context_window: number;
+  defaultReasoningEffort: string | null;
+  default_reasoning_level: string | null;
+  default_reasoning_effort: string | null;
+  default_reasoning_summary: string;
+  description: string;
+  displayName: string;
+  display_name: string;
+  effective_context_window_percent: number;
+  experimental_supported_tools: unknown[];
+  id: string;
+  input_modalities: string[];
+  max_context_window: number;
+  model: string;
+  priority: number;
+  service_tiers: unknown[];
+  shell_type: string;
+  slug: string;
+  support_verbosity: boolean;
+  supported_in_api: boolean;
+  supportedReasoningEfforts: Array<{ description: string; reasoningEffort: string; reasoning_effort: string }>;
+  supported_reasoning_efforts: string[];
+  supported_reasoning_levels: Array<{ description: string; effort: string }>;
+  supports_image_detail_original: boolean;
+  supports_parallel_tool_calls: boolean;
+  supports_reasoning_summaries: boolean;
+  supports_search_tool: boolean;
+  truncation_policy: { limit: number; mode: string };
+  upgrade: null;
+  visibility: string;
+  web_search_tool_type: string;
+};
+
+export function buildCodexModelCatalog(
+  config?: Partial<Pick<AppConfig, "Providers" | "Router" | "virtualModelProfiles">>,
+  selectedModel?: string,
+  options: CodexModelCatalogOptions = {}
+): CodexModelCatalog {
+  return {
+    models: buildCodexModelCatalogIds(config, selectedModel, options).map((model, index) => codexModelCatalogItem(model, index, config))
+  };
+}
+
+export function buildCodexModelCatalogIds(
+  config?: Partial<Pick<AppConfig, "Providers" | "Router" | "virtualModelProfiles">>,
+  selectedModel?: string,
+  options: CodexModelCatalogOptions = {}
+): string[] {
+  const ids: string[] = [];
+  pushUniqueModel(ids, normalizeModelSelector(selectedModel));
+
+  const baseEntries: Array<{ modelName: string; providerName: string }> = [];
+  for (const provider of config?.Providers ?? []) {
+    const providerName = provider.name?.trim();
+    if (!isGatewayProviderEnabled(provider) || !providerName || !Array.isArray(provider.models)) {
+      continue;
+    }
+    for (const rawModel of provider.models) {
+      const modelName = rawModel.trim();
+      if (!modelName) {
+        continue;
+      }
+      baseEntries.push({ modelName, providerName });
+      pushUniqueModel(ids, `${providerName}/${modelName}`);
+    }
+  }
+
+  for (const profile of config?.virtualModelProfiles ?? []) {
+    if (!virtualModelIsCatalogVisible(profile)) {
+      continue;
+    }
+    for (const entry of baseEntries) {
+      for (const prefix of profile.match?.prefixes ?? []) {
+        const normalizedPrefix = prefix.trim();
+        if (normalizedPrefix) {
+          pushUniqueModel(ids, `${entry.providerName}/${normalizedPrefix}${entry.modelName}`);
+        }
+      }
+      for (const suffix of profile.match?.suffixes ?? []) {
+        const normalizedSuffix = suffix.trim();
+        if (normalizedSuffix) {
+          pushUniqueModel(ids, `${entry.providerName}/${entry.modelName}${normalizedSuffix}`);
+        }
+      }
+    }
+    for (const alias of virtualModelRawCatalogNames(profile)) {
+      pushUniqueModel(ids, fusionModelSelector(alias));
+    }
+  }
+
+  return filterModelIdsByAllowedModels(
+    config ? {
+      Providers: config.Providers ?? [],
+      virtualModelProfiles: config.virtualModelProfiles ?? []
+    } : undefined,
+    ids,
+    options.allowedModels
+  );
+}
+
+export function codexModelCatalogJson(
+  config?: Partial<Pick<AppConfig, "Providers" | "Router" | "virtualModelProfiles">>,
+  selectedModel?: string,
+  options: CodexModelCatalogOptions = {}
+): string {
+  return `${JSON.stringify(buildCodexModelCatalog(config, selectedModel, options), null, 2)}\n`;
+}
+
+export function codexModelCatalogBase64(
+  config?: Partial<Pick<AppConfig, "Providers" | "Router" | "virtualModelProfiles">>,
+  selectedModel?: string,
+  options: CodexModelCatalogOptions = {}
+): string {
+  const catalog = buildCodexModelCatalog(config, selectedModel, options);
+  return Buffer.from(JSON.stringify(catalog), "utf8").toString("base64");
+}
+
+function codexModelCatalogItem(
+  model: string,
+  priority: number,
+  config?: Partial<Pick<AppConfig, "Providers" | "Router" | "virtualModelProfiles">>
+): CodexModelCatalogItem {
+  const profile = codexModelCapabilityProfile(model, config);
+  const contextWindow = positiveInteger(profile.contextWindow) ?? positiveInteger(profile.maxContextWindow) ?? codexModelContextWindow(model, profile.catalogEntry);
+  const maxContextWindow = Math.max(contextWindow, positiveInteger(profile.maxContextWindow) ?? contextWindow);
+  const effectiveContextWindowPercent = effectiveContextWindowPercentFor({
+    contextWindowPinned: profile.contextWindowPinned,
+    effectiveContextWindowPercent: profile.effectiveContextWindowPercent
+  }) ?? codexEffectiveContextWindowPercent;
+  return {
+    additional_speed_tiers: profile.additionalSpeedTiers,
+    apply_patch_tool_type: profile.applyPatchToolType,
+    availability_nux: null,
+    base_instructions: codexBaseInstructions,
+    context_window: contextWindow,
+    defaultReasoningEffort: profile.defaultReasoningLevel,
+    default_reasoning_level: profile.defaultReasoningLevel,
+    default_reasoning_effort: profile.defaultReasoningLevel,
+    default_reasoning_summary: profile.defaultReasoningSummary,
+    description: profile.description ?? `CCR gateway model ${model}`,
+    displayName: model,
+    display_name: model,
+    effective_context_window_percent: effectiveContextWindowPercent,
+    experimental_supported_tools: [],
+    id: model,
+    input_modalities: profile.inputModalities,
+    max_context_window: maxContextWindow,
+    model,
+    priority,
+    service_tiers: profile.serviceTiers,
+    shell_type: "shell_command",
+    slug: model,
+    support_verbosity: true,
+    supported_in_api: true,
+    supportedReasoningEfforts: profile.supportedReasoningLevels.map(reasoningEffortOption),
+    supported_reasoning_efforts: profile.supportedReasoningLevels.map((level) => level.effort),
+    supported_reasoning_levels: profile.supportedReasoningLevels,
+    supports_image_detail_original: profile.supportsImageInput,
+    supports_parallel_tool_calls: profile.supportsParallelToolCalls,
+    supports_reasoning_summaries: profile.supportsReasoning,
+    supports_search_tool: profile.supportsSearchTool,
+    truncation_policy: { mode: "tokens", limit: 10_000 },
+    upgrade: null,
+    visibility: "list",
+    web_search_tool_type: profile.supportsSearchTool && profile.supportsImageInput ? "text_and_image" : "text"
+  };
+}
+
+function reasoningEffortOption(level: { description: string; effort: string }): { description: string; reasoningEffort: string; reasoning_effort: string } {
+  return {
+    description: level.description,
+    reasoningEffort: level.effort,
+    reasoning_effort: level.effort
+  };
+}
+
+type CodexCapabilityProfile = {
+  additionalSpeedTiers: unknown[];
+  applyPatchToolType: string | null;
+  catalogEntry?: ModelCatalogEntry;
+  contextWindow?: number;
+  contextWindowPinned?: boolean;
+  description?: string;
+  defaultReasoningLevel: string | null;
+  defaultReasoningSummary: string;
+  effectiveContextWindowPercent?: number;
+  inputModalities: string[];
+  supportedReasoningLevels: Array<{ description: string; effort: string }>;
+  serviceTiers: unknown[];
+  maxContextWindow?: number;
+  supportsImageInput: boolean;
+  supportsParallelToolCalls: boolean;
+  supportsReasoning: boolean;
+  supportsSearchTool: boolean;
+};
+
+function codexModelCapabilityProfile(
+  model: string,
+  config?: Partial<Pick<AppConfig, "Providers" | "Router" | "virtualModelProfiles">>
+): CodexCapabilityProfile {
+  const selector = parseModelSelector(model);
+  const attributionConfig = config
+    ? {
+        Providers: config.Providers ?? [],
+        virtualModelProfiles: config.virtualModelProfiles ?? []
+      }
+    : undefined;
+  const attribution = resolveUsageModelAttribution(attributionConfig, model);
+  const provider = attribution.provider
+    ? findConfiguredProvider(config, attribution.provider)
+    : selector?.provider
+      ? findConfiguredProvider(config, selector.provider)
+      : findConfiguredProviderForModel(config, attribution.model ?? model);
+  const providerModel = attribution.model ?? selector?.model ?? model;
+  const providerModelMetadata = provider
+    ? codexProviderModelMetadataFor(provider, providerModel)
+    : undefined;
+  const physicalModelSelector = provider ? `${provider.name}/${providerModel}` : providerModel;
+  const catalogEntry = findModelCatalogEntry(physicalModelSelector);
+  const capabilities = catalogEntry?.capabilities ?? {};
+  const configuredCapabilities = providerModelMetadata?.capabilities;
+  const providerProtocol = provider ? codexProviderProtocol(provider) : undefined;
+  const supportsFusionVision = codexVirtualModelSupportsFusionVision(model, config);
+  const supportsFusionWebSearch = codexVirtualModelSupportsFusionWebSearch(model, config);
+  const metadataReasoningLevels = normalizeProviderReasoningLevels(providerModelMetadata?.supportedReasoningLevels);
+  const documentedReasoning = documentedReasoningProfile(providerModel);
+  const resolvedReasoningLevels = metadataReasoningLevels
+    ?? documentedReasoning?.levels
+    ?? [];
+  const supportsReasoning = providerModelMetadata?.supportsReasoningSummaries
+    ?? documentedReasoning?.supportsReasoning
+    ?? (metadataReasoningLevels !== undefined || readCatalogCapability(capabilities, "reasoning"));
+  const supportsImageInput = supportsFusionVision ||
+    (configuredCapabilities?.imageInput ?? catalogEntrySupportsImageInput(catalogEntry));
+  const supportsParallelToolCalls = readCatalogCapability(capabilities, "parallelFunctionCalling");
+  // Codex must emit apply_patch for both native GPT models and non-GPT models
+  // that the gateway converts through the compatibility bridge.
+  const applyPatchToolType = "freeform";
+  const supportsSearchTool =
+    supportsFusionWebSearch ||
+    (
+      (configuredCapabilities?.webSearch ?? readCatalogCapability(capabilities, "webSearch")) &&
+      (
+        providerProtocol === "openai_responses" ||
+        providerProtocol === "anthropic_messages" ||
+        providerProtocol === "gemini_interactions"
+      )
+    );
+
+  return {
+    additionalSpeedTiers: codexAdditionalSpeedTiers(providerModelMetadata),
+    applyPatchToolType,
+    catalogEntry,
+    contextWindow: providerModelMetadata?.contextWindow,
+    contextWindowPinned: providerModelMetadata?.contextWindowPinned,
+    description: provider
+      ? providerModelDescriptionFor(provider, providerModel)
+      : undefined,
+    defaultReasoningLevel: resolveDefaultReasoningLevel(
+      providerModelMetadata?.defaultReasoningLevel !== undefined
+        ? providerModelMetadata.defaultReasoningLevel
+        : documentedReasoning?.defaultLevel,
+      resolvedReasoningLevels,
+      providerModelMetadata?.defaultReasoningLevel !== undefined || documentedReasoning !== undefined
+    ),
+    defaultReasoningSummary: providerModelMetadata?.defaultReasoningSummary ?? "none",
+    effectiveContextWindowPercent: providerModelMetadata?.effectiveContextWindowPercent,
+    inputModalities: supportsImageInput ? ["text", "image"] : ["text"],
+    serviceTiers: codexServiceTiers(providerModelMetadata),
+    maxContextWindow: providerModelMetadata?.maxContextWindow,
+    supportedReasoningLevels: resolvedReasoningLevels,
+    supportsImageInput,
+    supportsParallelToolCalls,
+    supportsReasoning,
+    supportsSearchTool
+  };
+}
+
+function codexAdditionalSpeedTiers(metadata?: ProviderModelMetadata): unknown[] {
+  if (Array.isArray(metadata?.additionalSpeedTiers)) {
+    return metadata.additionalSpeedTiers;
+  }
+  return metadata?.supportsFastMode ? codexFastModeAdditionalSpeedTiers : [];
+}
+
+function codexServiceTiers(metadata?: ProviderModelMetadata): unknown[] {
+  if (Array.isArray(metadata?.serviceTiers)) {
+    return metadata.serviceTiers;
+  }
+  return metadata?.supportsFastMode ? codexFastModeServiceTiers : [];
+}
+
+function providerModelMetadataFor(provider: GatewayProviderConfig, model: string): ProviderModelMetadata | undefined {
+  const metadata = provider.modelMetadata ?? {};
+  const direct = metadata[model];
+  if (direct) {
+    return direct;
+  }
+  const normalized = model.trim().toLowerCase();
+  const match = Object.entries(metadata).find(([candidate]) => candidate.trim().toLowerCase() === normalized);
+  return match?.[1];
+}
+
+function providerModelDescriptionFor(provider: GatewayProviderConfig, model: string): string | undefined {
+  const descriptions = provider.modelDescriptions ?? {};
+  const direct = descriptions[model]?.trim();
+  if (direct) {
+    return direct;
+  }
+  const normalized = model.trim().toLowerCase();
+  const match = Object.entries(descriptions).find(([candidate]) => candidate.trim().toLowerCase() === normalized);
+  return match?.[1]?.trim() || undefined;
+}
+
+function codexProviderModelMetadataFor(provider: GatewayProviderConfig, model: string): ProviderModelMetadata | undefined {
+  return providerModelMetadataFor(provider, model) ?? localCodexModelMetadataFor(provider, model);
+}
+
+function localCodexModelMetadataFor(provider: GatewayProviderConfig, model: string): ProviderModelMetadata | undefined {
+  if (!isLocalCodexProvider(provider)) {
+    return undefined;
+  }
+  return readCodexLocalModelCatalog().modelMetadata?.[model];
+}
+
+function isLocalCodexProvider(provider: GatewayProviderConfig): boolean {
+  const baseUrl = providerBaseUrl(provider).trim().replace(/\/+$/g, "");
+  const normalizedBaseUrl = normalizeProviderBaseUrl(baseUrl);
+  const normalizedCodexBaseUrl = normalizeProviderBaseUrl(codexDefaultBaseUrl);
+  return (
+    providerApiKey(provider) === localAgentProviderApiKey &&
+    (
+      baseUrl.toLowerCase() === codexDefaultBaseUrl.toLowerCase() ||
+      baseUrl.toLowerCase().includes("chatgpt.com/backend-api/codex") ||
+      normalizedBaseUrl === normalizedCodexBaseUrl
+    )
+  );
+}
+
+function providerBaseUrl(provider: GatewayProviderConfig): string {
+  return provider.api_base_url || provider.baseUrl || provider.baseurl || "";
+}
+
+function providerApiKey(provider: GatewayProviderConfig): string {
+  return provider.api_key || provider.apiKey || provider.apikey || "";
+}
+
+function normalizeProviderReasoningLevels(levels: ProviderReasoningLevel[] | undefined): Array<{ description: string; effort: string }> | undefined {
+  if (levels === undefined) {
+    return undefined;
+  }
+  const seen = new Set<string>();
+  const normalized: Array<{ description: string; effort: string }> = [];
+  for (const level of levels) {
+    const effort = level.effort.trim().toLowerCase();
+    // Codex treats `none` as the absence of a reasoning selection and does not
+    // render it in the effort menu, so do not publish it as a selectable level.
+    if (!effort || effort === "none" || seen.has(effort)) {
+      continue;
+    }
+    seen.add(effort);
+    normalized.push({
+      description: level.description.trim() || effortDescription(effort),
+      effort
+    });
+  }
+  return normalized;
+}
+
+function resolveDefaultReasoningLevel(
+  configuredDefault: string | null | undefined,
+  levels: Array<{ effort: string }>,
+  hasConfiguredDefault: boolean
+): string | null {
+  if (hasConfiguredDefault && configuredDefault === null) {
+    return null;
+  }
+
+  const normalizedDefault = configuredDefault?.trim().toLowerCase();
+  const configuredMatch = normalizedDefault
+    ? levels.find((level) => level.effort.toLowerCase() === normalizedDefault)
+    : undefined;
+  if (configuredMatch) {
+    return configuredMatch.effort;
+  }
+  if (normalizedDefault === "none") {
+    return null;
+  }
+
+  return levels.find((level) => level.effort === "medium")?.effort
+    ?? levels.find((level) => level.effort === "high")?.effort
+    ?? levels[0]?.effort
+    ?? null;
+}
+
+function effortDescription(effort: string): string {
+  const normalized = effort.trim().toLowerCase();
+  if (normalized === "xhigh") {
+    return "Extra high reasoning";
+  }
+  if (normalized === "ultra") {
+    return "Maximum reasoning with automatic task delegation";
+  }
+  return `${effort.slice(0, 1).toUpperCase()}${effort.slice(1)} reasoning`;
+}
+
+function codexModelContextWindow(model: string, entry = findModelCatalogEntry(model)): number {
+  return modelCatalogMaxInputTokens(entry) || codexDefaultContextWindow;
+}
+
+function positiveInteger(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isFinite(value) && value > 0
+    ? Math.trunc(value)
+    : undefined;
+}
+
+function catalogEntrySupportsImageInput(entry: ModelCatalogEntry | undefined): boolean {
+  const capabilities = entry?.capabilities ?? {};
+  const modalities = new Set((entry?.modalities?.input ?? []).map((item) => item.toLowerCase()));
+  return modalities.has("image") ||
+    readCatalogCapability(capabilities, "imageInput") ||
+    readCatalogCapability(capabilities, "vision") ||
+    readCatalogCapability(capabilities, "multimodal");
+}
+
+type DocumentedReasoningProfile = {
+  defaultLevel: string | null;
+  levels: Array<{ description: string; effort: string }>;
+  supportsReasoning: boolean;
+};
+
+function documentedReasoningProfile(model: string): DocumentedReasoningProfile | undefined {
+  const name = model.trim().toLowerCase().split("/").at(-1) ?? "";
+  const profile = (efforts: string[], defaultLevel: string | null, supportsReasoning = true): DocumentedReasoningProfile => ({
+    defaultLevel,
+    levels: efforts
+      .filter((effort) => effort !== "none")
+      .map((effort) => ({ description: effortDescription(effort), effort })),
+    supportsReasoning
+  });
+
+  // OpenAI API model pages define the API effort values. Codex additionally
+  // exposes its client-only Ultra mode for Sol/Terra, matching gateway metadata.
+  if (/^gpt-5\.6(?:-(?:sol|terra|luna))?(?:-\d{4}-\d{2}-\d{2})?$/.test(name)) {
+    const supportsUltra = !/^gpt-5\.6-luna(?:-|$)/.test(name);
+    return profile([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      ...(supportsUltra ? ["ultra"] : [])
+    ], "medium");
+  }
+  if (/^gpt-5\.5(?:-\d{4}-\d{2}-\d{2})?$/.test(name)) {
+    return profile(["none", "low", "medium", "high", "xhigh"], "medium");
+  }
+  if (/^gpt-5\.5-pro(?:-\d{4}-\d{2}-\d{2})?$/.test(name)) {
+    return profile(["medium", "high", "xhigh"], "high");
+  }
+  if (/^gpt-5\.4(?:-(?:mini|nano))?(?:-\d{4}-\d{2}-\d{2})?$/.test(name)) {
+    return profile(["none", "low", "medium", "high", "xhigh"], "none");
+  }
+  if (/^gpt-5\.4-pro(?:-\d{4}-\d{2}-\d{2})?$/.test(name)) {
+    return profile(["medium", "high", "xhigh"], "medium");
+  }
+  if (/^gpt-5\.3-codex(?:-\d{4}-\d{2}-\d{2})?$/.test(name)) {
+    return profile(["low", "medium", "high", "xhigh"], "medium");
+  }
+
+  // Anthropic effort is distinct from extended-thinking on/off or token budgets.
+  if (/^claude-(?:fable|mythos)-5(?:-|$)/.test(name)) {
+    return profile(["low", "medium", "high", "xhigh", "max"], "high");
+  }
+  if (/^claude-opus-4[.-](?:7|8)(?:-|$)/.test(name)) {
+    return profile(["low", "medium", "high", "xhigh", "max"], "high");
+  }
+  if (/^claude-(?:opus-4[.-]6|sonnet-4[.-]6)(?:-|$)/.test(name)) {
+    return profile(["low", "medium", "high", "max"], "high");
+  }
+  if (/^claude-opus-4[.-]5(?:-|$)/.test(name)) {
+    return profile(["low", "medium", "high"], "high");
+  }
+  if (/^claude-(?:sonnet|haiku)-4[.-]5(?:-|$)/.test(name)) {
+    return profile([], null);
+  }
+
+  // Gemini Interactions thinking levels. Gemini 2.5 defaults dynamically, so
+  // a null default preserves the provider default until the user selects a level.
+  if (/^gemini-3\.5-flash(?:-|$)/.test(name)) {
+    return profile(["minimal", "low", "medium", "high"], "medium");
+  }
+  if (/^gemini-3(?:\.0)?-flash(?:-|$)/.test(name)) {
+    return profile(["minimal", "low", "medium", "high"], "high");
+  }
+  if (/^gemini-3\.1-pro(?:-|$)/.test(name)) {
+    return profile(["low", "medium", "high"], "high");
+  }
+  if (/^gemini-2\.5-(?:pro|flash)(?:-|$)/.test(name)) {
+    return profile(["low", "medium", "high"], null);
+  }
+
+  if (/^deepseek-v4-(?:flash|pro)(?:-free)?$/.test(name)) {
+    return profile(["high", "max"], "high");
+  }
+  if (/^glm-5\.2(?:-|$)/.test(name)) {
+    return profile(["none", "minimal", "low", "medium", "high", "xhigh", "max"], "max");
+  }
+  if (/^glm-(?:5(?:\.1|-turbo)?|4\.7|4\.5-air|5v-turbo)(?:-|$)/.test(name)) {
+    return profile([], null);
+  }
+  if (/^kimi-(?:k2[.-](?:6|7)(?:-code)?|for-coding)(?:-|$)/.test(name)) {
+    return profile([], null);
+  }
+  if (/^grok-4[.-]5(?:-|$)/.test(name)) {
+    return profile(["low", "medium", "high"], "high");
+  }
+
+  return undefined;
+}
+
+function findConfiguredProvider(
+  config: Partial<Pick<AppConfig, "Providers" | "virtualModelProfiles">> | undefined,
+  providerName: string
+): GatewayProviderConfig | undefined {
+  const normalized = providerName.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  return (config?.Providers ?? []).find((provider) =>
+    isGatewayProviderEnabled(provider) &&
+    provider.name.trim().toLowerCase() === normalized
+  );
+}
+
+function findConfiguredProviderForModel(
+  config: Partial<Pick<AppConfig, "Providers" | "virtualModelProfiles">> | undefined,
+  model: string
+): GatewayProviderConfig | undefined {
+  const normalized = model.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  return (config?.Providers ?? []).find((provider) =>
+    isGatewayProviderEnabled(provider) &&
+    provider.models.some((candidate) => candidate.trim().toLowerCase() === normalized)
+  );
+}
+
+function codexProviderProtocol(provider: GatewayProviderConfig): GatewayProviderProtocol | undefined {
+  const capabilityProtocols = uniqueProviderProtocols((provider.capabilities ?? []).map((capability) => normalizeProviderProtocol(capability.type)));
+  for (const protocol of ["openai_responses", "openai_chat_completions", "anthropic_messages", "gemini_generate_content", "gemini_interactions"] as GatewayProviderProtocol[]) {
+    if (capabilityProtocols.includes(protocol)) {
+      return protocol;
+    }
+  }
+
+  return normalizeProviderProtocol(provider.type) ?? normalizeProviderProtocol(provider.provider) ?? inferProviderProtocol(provider);
+}
+
+function inferProviderProtocol(provider: GatewayProviderConfig): GatewayProviderProtocol {
+  const url = (provider.baseUrl || provider.baseurl || provider.api_base_url || "").toLowerCase();
+  const transformer = JSON.stringify(provider.transformer ?? "").toLowerCase();
+  if (providerEndpointLooksLikeResponses(provider)) {
+    return "openai_responses";
+  }
+  if (url.includes("/interactions") || transformer.includes("gemini_interactions")) {
+    return "gemini_interactions";
+  }
+  if (url.includes("generativelanguage.googleapis.com") || transformer.includes("gemini")) {
+    return "gemini_generate_content";
+  }
+  if (url.includes("anthropic") || transformer.includes("anthropic")) {
+    return "anthropic_messages";
+  }
+  return "openai_chat_completions";
+}
+
+function providerEndpointLooksLikeResponses(provider: GatewayProviderConfig): boolean {
+  const url = (provider.baseUrl || provider.baseurl || provider.api_base_url || "").toLowerCase();
+  return url.endsWith("/responses") || url.includes("/responses?");
+}
+
+function normalizeProviderProtocol(value: unknown): GatewayProviderProtocol | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "openai" || normalized === "openai_responses") {
+    return "openai_responses";
+  }
+  if (normalized === "openai_chat" || normalized === "openai_chat_completions") {
+    return "openai_chat_completions";
+  }
+  if (normalized === "anthropic" || normalized === "anthropic_messages") {
+    return "anthropic_messages";
+  }
+  if (normalized === "gemini" || normalized === "gemini_generate_content") {
+    return "gemini_generate_content";
+  }
+  if (
+    normalized === "gemini_interactions" ||
+    normalized === "gemini-interactions" ||
+    normalized === "google_interactions" ||
+    normalized === "google-interactions" ||
+    normalized === "interactions" ||
+    normalized === "interaction"
+  ) {
+    return "gemini_interactions";
+  }
+  return undefined;
+}
+
+function uniqueProviderProtocols(values: Array<GatewayProviderProtocol | undefined>): GatewayProviderProtocol[] {
+  const seen = new Set<GatewayProviderProtocol>();
+  const output: GatewayProviderProtocol[] = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    output.push(value);
+  }
+  return output;
+}
+
+function parseModelSelector(model: string): { model: string; provider: string } | undefined {
+  const normalized = normalizeModelSelector(model);
+  const slashIndex = normalized.indexOf("/");
+  if (slashIndex <= 0 || slashIndex >= normalized.length - 1) {
+    return undefined;
+  }
+  return {
+    provider: normalized.slice(0, slashIndex),
+    model: normalized.slice(slashIndex + 1)
+  };
+}
+
+function codexVirtualModelSupportsFusionWebSearch(
+  model: string,
+  config?: Partial<Pick<AppConfig, "Providers" | "virtualModelProfiles">>
+): boolean {
+  return (config?.virtualModelProfiles ?? []).some((profile) =>
+    virtualModelIsCatalogVisible(profile) &&
+    virtualModelMatchesCatalogModel(profile, model, config) &&
+    virtualModelProfileSupportsFusionWebSearch(profile)
+  );
+}
+
+function codexVirtualModelSupportsFusionVision(
+  model: string,
+  config?: Partial<Pick<AppConfig, "Providers" | "virtualModelProfiles">>
+): boolean {
+  return (config?.virtualModelProfiles ?? []).some((profile) =>
+    virtualModelIsCatalogVisible(profile) &&
+    virtualModelMatchesCatalogModel(profile, model, config) &&
+    virtualModelProfileSupportsFusionVision(profile)
+  );
+}
+
+function virtualModelMatchesCatalogModel(
+  profile: VirtualModelProfileConfig,
+  model: string,
+  config?: Partial<Pick<AppConfig, "Providers" | "virtualModelProfiles">>
+): boolean {
+  const normalizedModel = normalizeModelSelector(model);
+  const normalizedModelLower = normalizedModel.toLowerCase();
+  if (!normalizedModelLower) {
+    return false;
+  }
+
+  for (const alias of virtualModelRawCatalogNames(profile)) {
+    const normalizedAlias = alias.trim().toLowerCase();
+    if (normalizedAlias && (normalizedModelLower === normalizedAlias || normalizedModelLower === fusionModelSelector(alias).toLowerCase())) {
+      return true;
+    }
+  }
+
+  const selector = parseModelSelector(normalizedModel);
+  if (!selector) {
+    return false;
+  }
+  const provider = findConfiguredProvider(config, selector.provider);
+  if (!provider) {
+    return false;
+  }
+  const configuredModels = new Set(provider.models.map((item) => item.trim().toLowerCase()).filter(Boolean));
+  const selectedModel = selector.model.trim();
+  const selectedModelLower = selectedModel.toLowerCase();
+
+  for (const prefix of profile.match?.prefixes ?? []) {
+    const normalizedPrefix = prefix.trim();
+    if (!normalizedPrefix || !selectedModelLower.startsWith(normalizedPrefix.toLowerCase())) {
+      continue;
+    }
+    const baseModel = selectedModel.slice(normalizedPrefix.length).trim().toLowerCase();
+    if (configuredModels.has(baseModel)) {
+      return true;
+    }
+  }
+
+  for (const suffix of profile.match?.suffixes ?? []) {
+    const normalizedSuffix = suffix.trim();
+    if (!normalizedSuffix || !selectedModelLower.endsWith(normalizedSuffix.toLowerCase())) {
+      continue;
+    }
+    const baseModel = selectedModel.slice(0, selectedModel.length - normalizedSuffix.length).trim().toLowerCase();
+    if (configuredModels.has(baseModel)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function virtualModelProfileSupportsFusionWebSearch(profile: VirtualModelProfileConfig): boolean {
+  const metadata = recordValue(profile.metadata);
+  const fusionWebSearch = recordValue(metadata?.fusionWebSearch);
+  if (stringRecordValue(fusionWebSearch, "toolName")) {
+    return true;
+  }
+
+  if (recordValue(profile.execution)?.matchWebSearch === true) {
+    return true;
+  }
+
+  return (profile.tools ?? []).some((tool) => {
+    const name = tool.name.trim();
+    return fusionWebSearchToolNameMatches(name);
+  });
+}
+
+function virtualModelProfileSupportsFusionVision(profile: VirtualModelProfileConfig): boolean {
+  const metadata = recordValue(profile.metadata);
+  const fusionVision = recordValue(metadata?.fusionVision);
+  if (stringRecordValue(fusionVision, "toolName")) {
+    return true;
+  }
+
+  if (recordValue(profile.execution)?.matchMultimodal === true) {
+    return true;
+  }
+
+  return (profile.tools ?? []).some((tool) => fusionVisionToolNameMatches(tool.name.trim()));
+}
+
+function fusionVisionToolNameMatches(name: string): boolean {
+  const normalized = name.toLowerCase().replace(/[-.]/g, "_");
+  return normalized === BUILTIN_FUSION_VISION_TOOL_NAME ||
+    normalized.startsWith(`${BUILTIN_FUSION_VISION_TOOL_NAME}_`);
+}
+
+function fusionWebSearchToolNameMatches(name: string): boolean {
+  const normalized = name.toLowerCase().replace(/[-.]/g, "_");
+  return normalized === BUILTIN_FUSION_WEB_SEARCH_TOOL_NAME ||
+    normalized.startsWith(`${BUILTIN_FUSION_WEB_SEARCH_TOOL_NAME}_`) ||
+    normalized.endsWith(`_${BUILTIN_FUSION_WEB_SEARCH_TOOL_NAME}`) ||
+    normalized.includes("search_web");
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function stringRecordValue(record: Record<string, unknown> | undefined, key: string): string {
+  const value = record?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function virtualModelIsCatalogVisible(profile: VirtualModelProfileConfig): boolean {
+  return profile.enabled !== false &&
+    profile.materialization?.enabled !== false &&
+    profile.materialization?.includeInGatewayModels !== false;
+}
+
+function virtualModelRawCatalogNames(profile: VirtualModelProfileConfig): string[] {
+  const exactAliases = uniqueStrings(profile.match?.exactAliases ?? []);
+  if (exactAliases.length > 0) {
+    return exactAliases;
+  }
+  return [profile.key || profile.displayName].filter(Boolean);
+}
+
+function fusionModelSelector(model: string): string {
+  const normalized = fusionModelNameFromSelector(model);
+  return normalized ? `${fusionModelProviderName}/${normalized}` : "";
+}
+
+function fusionModelNameFromSelector(model: string): string {
+  const trimmed = model.trim();
+  const prefix = `${fusionModelProviderName}/`;
+  return trimmed.toLowerCase().startsWith(prefix.toLowerCase())
+    ? trimmed.slice(prefix.length).trim()
+    : trimmed;
+}
+
+function normalizeModelSelector(value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const commaIndex = trimmed.indexOf(",");
+  if (commaIndex > 0 && commaIndex < trimmed.length - 1) {
+    const provider = trimmed.slice(0, commaIndex).trim();
+    const model = trimmed.slice(commaIndex + 1).trim();
+    return provider && model ? `${provider}/${model}` : "";
+  }
+  return trimmed;
+}
+
+function pushUniqueModel(models: string[], model: string | undefined): void {
+  const normalized = model?.trim();
+  const dedupeKey = normalized?.toLowerCase();
+  if (normalized && dedupeKey && !models.some((candidate) => candidate.toLowerCase() === dedupeKey)) {
+    models.push(normalized);
+  }
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}

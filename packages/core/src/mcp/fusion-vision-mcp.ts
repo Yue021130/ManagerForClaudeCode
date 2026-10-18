@@ -1,0 +1,1264 @@
+import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { extname } from "node:path";
+
+type JsonPrimitive = boolean | null | number | string;
+type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+
+type JsonRpcRequest = {
+  id?: null | number | string;
+  jsonrpc?: string;
+  method?: string;
+  params?: unknown;
+};
+
+type JsonRpcResponse =
+  | {
+      id: null | number | string;
+      jsonrpc: "2.0";
+      result: JsonValue;
+    }
+  | {
+      error: {
+        code: number;
+        data?: JsonValue;
+        message: string;
+      };
+      id: null | number | string;
+      jsonrpc: "2.0";
+    };
+
+type ToolCallResult = {
+  content: Array<{ text: string; type: "text" }>;
+  isError?: boolean;
+};
+
+type FusionBuiltinToolKind = "vision" | "web_search";
+type SearchProvider = "auto" | "bing" | "brave" | "exa" | "google_cse" | "serpapi" | "serper" | "serply" | "tavily";
+type SearchInput = {
+  count: number;
+  country?: string;
+  excludeDomains: string[];
+  freshness?: string;
+  includeDomains: string[];
+  includeRaw: boolean;
+  language?: string;
+  prompt: string;
+  safeSearch?: string;
+  timeoutMs: number;
+};
+type SearchResult = {
+  snippet?: string;
+  title?: string;
+  url?: string;
+};
+type VisionAttemptFailure = {
+  error: string;
+  model: string;
+  statusCode?: number;
+};
+
+const protocolVersion = "2024-11-05";
+const defaultVisionBaseUrl = "https://api.openai.com/v1";
+const defaultVisionModel = "gpt-4o-mini";
+const defaultTimeoutMs = 30000;
+const maxVisionRetryCount = 9999;
+const maxLocalImageBytes = 20 * 1024 * 1024;
+const fusionUsageEventSchema = "ccr.fusion-usage.v1";
+const fusionUsageSyncBaseDelayMs = 100;
+const fusionUsageSyncDrainTimeoutMs = 15_000;
+const fusionUsageSyncMaxAttempts = 3;
+const fusionUsageSyncTimeoutMs = 5_000;
+const pendingUsageSyncs = new Set<Promise<void>>();
+let usageSyncFailureLogged = false;
+let usageSyncShutdownStarted = false;
+
+const toolKind = parseToolKind(env("FUSION_BUILTIN_TOOL_KIND"));
+const toolName = env("FUSION_TOOL_NAME") || env("FUSION_VISION_TOOL_NAME") || (toolKind === "web_search" ? "web_search" : "vision_understand");
+const toolTitle = env("FUSION_TOOL_TITLE") || env("FUSION_VISION_TOOL_TITLE") || (toolKind === "web_search" ? "Fusion Web Search" : "Fusion Vision Understand");
+
+const visionTool = {
+  description: "Analyze one or more images with this Fusion profile's configured OpenAI-compatible vision model.",
+  inputSchema: objectSchema({
+    detail: { enum: ["auto", "low", "high"], type: "string" },
+    imageBase64: { description: "Single raw base64 image payload or data URL.", type: "string" },
+    imagePath: { description: "Single local image path.", type: "string" },
+    imageUrl: { description: "Single HTTP(S) image URL, data URL, or bare base64 payload.", type: "string" },
+    images: {
+      items: objectSchema({
+        base64: { type: "string" },
+        label: { type: "string" },
+        mimeType: { type: "string" },
+        path: { type: "string" },
+        url: { type: "string" }
+      }),
+      type: "array"
+    },
+    prompt: { description: "Task instruction for image analysis.", type: "string" },
+    systemPrompt: { type: "string" },
+    timeoutMs: { minimum: 100, type: "number" }
+  }, ["prompt"]),
+  name: toolName,
+  title: toolTitle
+};
+
+const webSearchTool = {
+  description: "Search the web with this Fusion profile's configured search provider.",
+  inputSchema: objectSchema({
+    allowedDomains: { items: { type: "string" }, type: "array" },
+    allowed_domains: { items: { type: "string" }, type: "array" },
+    blockedDomains: { items: { type: "string" }, type: "array" },
+    blocked_domains: { items: { type: "string" }, type: "array" },
+    count: { maximum: 20, minimum: 1, type: "number" },
+    country: { type: "string" },
+    excludeDomains: { items: { type: "string" }, type: "array" },
+    freshness: { enum: ["day", "week", "month"], type: "string" },
+    includeDomains: { items: { type: "string" }, type: "array" },
+    includeRaw: { type: "boolean" },
+    language: { type: "string" },
+    prompt: { description: "Natural-language search query.", type: "string" },
+    safeSearch: { enum: ["off", "moderate", "strict"], type: "string" },
+    timeoutMs: { minimum: 100, type: "number" }
+  }, ["prompt"]),
+  name: toolName,
+  title: toolTitle
+};
+
+const activeTool = toolKind === "web_search" ? webSearchTool : visionTool;
+
+let inputBuffer = Buffer.alloc(0);
+
+process.stdin.on("data", (chunk) => {
+  inputBuffer = Buffer.concat([inputBuffer, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)]);
+  drainInputBuffer().catch((error) => {
+    writeJsonRpc(jsonRpcError(null, -32603, formatError(error)));
+  });
+});
+
+process.stdin.resume();
+process.once("SIGINT", () => {
+  void shutdownAfterUsageSyncDrain(130);
+});
+process.once("SIGTERM", () => {
+  void shutdownAfterUsageSyncDrain(143);
+});
+
+async function drainInputBuffer(): Promise<void> {
+  while (true) {
+    const headerEnd = inputBuffer.indexOf("\r\n\r\n");
+    if (headerEnd < 0) {
+      return;
+    }
+
+    const headerText = inputBuffer.subarray(0, headerEnd).toString("utf8");
+    const lengthMatch = headerText.match(/content-length:\s*(\d+)/i);
+    if (!lengthMatch) {
+      inputBuffer = inputBuffer.subarray(headerEnd + 4);
+      writeJsonRpc(jsonRpcError(null, -32600, "Missing Content-Length header."));
+      continue;
+    }
+
+    const contentLength = Number(lengthMatch[1]);
+    const messageStart = headerEnd + 4;
+    const messageEnd = messageStart + contentLength;
+    if (inputBuffer.length < messageEnd) {
+      return;
+    }
+
+    const message = inputBuffer.subarray(messageStart, messageEnd).toString("utf8");
+    inputBuffer = inputBuffer.subarray(messageEnd);
+    let payload: unknown;
+    try {
+      payload = JSON.parse(message) as unknown;
+    } catch (error) {
+      writeJsonRpc(jsonRpcError(null, -32700, `Invalid JSON-RPC request: ${formatError(error)}`));
+      continue;
+    }
+
+    const response = await handleJsonRpcRequest(payload);
+    if (response) {
+      writeJsonRpc(response);
+    }
+  }
+}
+
+async function handleJsonRpcRequest(payload: unknown): Promise<JsonRpcResponse | undefined> {
+  if (!isRecord(payload)) {
+    return jsonRpcError(null, -32600, "JSON-RPC request must be an object.");
+  }
+
+  const request = payload as JsonRpcRequest;
+  const id = request.id ?? null;
+  if (request.id === undefined && request.method?.startsWith("notifications/")) {
+    return undefined;
+  }
+  if (request.jsonrpc !== "2.0" || !request.method) {
+    return jsonRpcError(id, -32600, "Invalid JSON-RPC 2.0 request.");
+  }
+
+  try {
+    switch (request.method) {
+      case "initialize":
+        return jsonRpcResult(id, {
+          capabilities: {
+            tools: {}
+          },
+          protocolVersion,
+          serverInfo: {
+            name: "ccr-fusion-builtins",
+            title: "CCR Fusion Builtins",
+            version: "1.0.0"
+          }
+        });
+      case "ping":
+        return jsonRpcResult(id, {});
+      case "tools/list":
+        return jsonRpcResult(id, { tools: [activeTool] as unknown as JsonValue });
+      case "tools/call":
+        return jsonRpcResult(id, await callTool(request.params) as unknown as JsonValue);
+      default:
+        return jsonRpcError(id, -32601, `Unsupported MCP method: ${request.method}`);
+    }
+  } catch (error) {
+    return jsonRpcError(id, -32603, formatError(error));
+  }
+}
+
+async function callTool(params: unknown): Promise<ToolCallResult> {
+  if (!isRecord(params) || typeof params.name !== "string") {
+    throw new Error("tools/call params must include a tool name.");
+  }
+  if (params.name !== toolName) {
+    throw new Error(`Unknown fusion tool: ${params.name}`);
+  }
+
+  const args = isRecord(params.arguments) ? params.arguments : {};
+  try {
+    const text = toolKind === "web_search" ? await analyzeWebSearch(args) : await analyzeVision(args);
+    return textResult(text);
+  } catch (error) {
+    return {
+      ...textResult(formatError(error)),
+      isError: true
+    };
+  }
+}
+
+async function analyzeVision(args: Record<string, unknown>): Promise<string> {
+  const prompt = readString(args.prompt);
+  if (!prompt) {
+    throw new Error(`${toolName} requires prompt.`);
+  }
+
+  const gatewayBaseUrl = env("VISION_GATEWAY_BASE_URL");
+  const baseUrl = gatewayBaseUrl || env("VISION_BASE_URL") || env("OPENAI_BASE_URL") || defaultVisionBaseUrl;
+  const apiKey = gatewayBaseUrl ? env("VISION_GATEWAY_API_KEY") : env("VISION_API_KEY") || env("OPENAI_API_KEY");
+  if (!gatewayBaseUrl && !apiKey) {
+    throw new Error("Missing vision API key. Set VISION_API_KEY.");
+  }
+  const primaryModel = env("VISION_MODEL") || env("OPENAI_MODEL") || defaultVisionModel;
+  const retryCount = clampInteger(readNumber(env("VISION_RETRY_COUNT")) ?? 0, 0, maxVisionRetryCount);
+  const models = uniqueStrings([primaryModel, ...readJsonStringArrayEnv("VISION_FALLBACK_MODELS_JSON")]);
+  const attempts = visionModelAttempts(models.length ? models : [primaryModel], retryCount);
+  const detail = readString(args.detail);
+  const imageParts = await buildImageParts(args, detail === "low" || detail === "high" ? detail : "auto");
+  if (imageParts.length === 0) {
+    throw new Error(`${toolName} requires imageUrl, imagePath, imageBase64, or images.`);
+  }
+
+  const systemPrompt = readString(args.systemPrompt);
+  const messages = [
+    ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+    {
+      role: "user",
+      content: [
+        { type: "text", text: prompt },
+        ...imageParts
+      ]
+    }
+  ];
+  const timeoutMs = clampInteger(readNumber(args.timeoutMs) ?? readNumber(env("VISION_TIMEOUT_MS")) ?? defaultTimeoutMs, 100, 600000);
+
+  const failures: VisionAttemptFailure[] = [];
+  let lastError: unknown;
+  for (let index = 0; index < attempts.length; index += 1) {
+    const model = attempts[index];
+    const startedAt = Date.now();
+    let response: Response | undefined;
+    let usageScheduled = false;
+    try {
+      response = await fetch(resolveChatCompletionsUrl(baseUrl), {
+        body: JSON.stringify({ model, messages }),
+        headers: {
+          ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+          "content-type": "application/json"
+        },
+        method: "POST",
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+      const rawText = await response.text();
+      const payload = parseJson(rawText);
+      scheduleVisionUsageSync({
+        durationMs: Date.now() - startedAt,
+        gatewayRuntime: Boolean(gatewayBaseUrl),
+        model,
+        payload,
+        response
+      });
+      usageScheduled = true;
+      if (!response.ok) {
+        throw new Error(`Vision request failed (${response.status}): ${extractProviderError(rawText, payload)}`);
+      }
+
+      return extractResponseText(payload) || rawText;
+    } catch (error) {
+      if (!usageScheduled) {
+        scheduleVisionUsageSync({
+          durationMs: Date.now() - startedAt,
+          gatewayRuntime: Boolean(gatewayBaseUrl),
+          model,
+          response,
+          statusCode: visionFailureStatusCode(error)
+        });
+      }
+      lastError = error;
+      failures.push({
+        error: formatError(error),
+        model,
+        ...(response ? { statusCode: response.status } : {})
+      });
+      if (index < attempts.length - 1) {
+        await wait(visionRetryDelayMs(response, failures.length - 1));
+        continue;
+      }
+    }
+  }
+
+  throwVisionError(lastError, failures);
+}
+
+function scheduleVisionUsageSync(input: {
+  durationMs: number;
+  gatewayRuntime: boolean;
+  model: string;
+  payload?: unknown;
+  response?: Response;
+  statusCode?: number;
+}): void {
+  const endpoint = env("CCR_FUSION_USAGE_SYNC_ENDPOINT");
+  const header = env("CCR_FUSION_USAGE_SYNC_HEADER");
+  const token = env("CCR_FUSION_USAGE_SYNC_TOKEN");
+  if (!endpoint || !header || !token) {
+    return;
+  }
+
+  const target = input.gatewayRuntime
+    ? splitGatewayVisionModelTarget(input.model)
+    : { model: input.model };
+  const statusCode = input.response?.status ?? input.statusCode ?? 502;
+  const event = {
+    billing: {
+      cost: {
+        total: readVisionCost(input.response, input.payload)
+      },
+      usage: readVisionUsage(input.response, input.payload)
+    },
+    emittedAt: new Date().toISOString(),
+    eventId: randomUUID(),
+    outcome: {
+      status: usageOutcome(statusCode),
+      statusCode
+    },
+    performance: {
+      latency_ms: input.durationMs
+    },
+    route: {
+      method: "POST",
+      url: "/v1/chat/completions"
+    },
+    schema: fusionUsageEventSchema,
+    source: {
+      adapterKey: "openai_chat",
+      provider: "fusion_vision"
+    },
+    target
+  };
+
+  const pending = publishVisionUsage(endpoint, header, token, event);
+  pendingUsageSyncs.add(pending);
+  void pending.then(
+    () => pendingUsageSyncs.delete(pending),
+    () => pendingUsageSyncs.delete(pending)
+  );
+}
+
+async function publishVisionUsage(
+  endpoint: string,
+  header: string,
+  token: string,
+  event: Record<string, unknown>
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= fusionUsageSyncMaxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        body: JSON.stringify(event),
+        headers: {
+          [header]: token,
+          "content-type": "application/json"
+        },
+        method: "POST",
+        signal: AbortSignal.timeout(fusionUsageSyncTimeoutMs)
+      });
+      const rawBody = await response.text();
+      if (!response.ok) {
+        throw new FusionUsageSyncHttpError(response.status);
+      }
+      const acknowledgement = rawBody ? parseJson(rawBody) : undefined;
+      if (isRecord(acknowledgement) && acknowledgement.applied === false) {
+        throw new FusionUsageSyncRejectedError();
+      }
+      usageSyncFailureLogged = false;
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= fusionUsageSyncMaxAttempts || !usageSyncErrorIsRetryable(error)) {
+        break;
+      }
+      await wait(fusionUsageSyncBaseDelayMs * 2 ** (attempt - 1));
+    }
+  }
+
+  if (!usageSyncFailureLogged) {
+    usageSyncFailureLogged = true;
+    console.warn(`[fusion-vision] Failed to publish lightweight usage event: ${formatError(lastError)}`);
+  }
+}
+
+class FusionUsageSyncHttpError extends Error {
+  readonly retryable: boolean;
+
+  constructor(readonly statusCode: number) {
+    super(`HTTP ${statusCode}`);
+    this.name = "FusionUsageSyncHttpError";
+    this.retryable = statusCode === 408 || statusCode === 409 || statusCode === 425 || statusCode === 429 || statusCode >= 500;
+  }
+}
+
+class FusionUsageSyncRejectedError extends Error {
+  readonly retryable = false;
+
+  constructor() {
+    super("Usage sync endpoint rejected the event.");
+    this.name = "FusionUsageSyncRejectedError";
+  }
+}
+
+function usageSyncErrorIsRetryable(error: unknown): boolean {
+  return !(error instanceof FusionUsageSyncRejectedError) &&
+    (!(error instanceof FusionUsageSyncHttpError) || error.retryable);
+}
+
+async function shutdownAfterUsageSyncDrain(exitCode: number): Promise<void> {
+  if (usageSyncShutdownStarted) {
+    return;
+  }
+  usageSyncShutdownStarted = true;
+  const deadline = Date.now() + fusionUsageSyncDrainTimeoutMs;
+  while (pendingUsageSyncs.size > 0 && Date.now() < deadline) {
+    const remainingMs = Math.max(1, deadline - Date.now());
+    await Promise.race([
+      Promise.allSettled([...pendingUsageSyncs]),
+      wait(remainingMs)
+    ]);
+  }
+  process.exit(exitCode);
+}
+
+function wait(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function readJsonStringArrayEnv(name: string): string[] {
+  const raw = env(name);
+  if (!raw) {
+    return [];
+  }
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return readStringArray(value);
+  } catch {
+    return [];
+  }
+}
+
+function visionModelAttempts(models: string[], retryCount: number): string[] {
+  const attempts: string[] = [];
+  for (const model of models) {
+    for (let index = 0; index <= retryCount; index += 1) {
+      attempts.push(model);
+    }
+  }
+  return attempts;
+}
+
+function visionRetryDelayMs(response: Response | undefined, failedAttemptIndex: number): number {
+  const retryAfterMs = parseRetryAfterHeaderMs(response?.headers.get("retry-after") ?? null);
+  if (retryAfterMs !== undefined && retryAfterMs > 0) {
+    return clampInteger(retryAfterMs, 1, 60000);
+  }
+  const exponent = Math.min(10, Math.max(0, failedAttemptIndex));
+  return Math.min(30000, 1000 * 2 ** exponent);
+}
+
+function parseRetryAfterHeaderMs(value: string | null): number | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const retryAt = Date.parse(trimmed);
+  return Number.isFinite(retryAt) ? Math.max(0, retryAt - Date.now()) : undefined;
+}
+
+function visionFailureStatusCode(error: unknown): number {
+  const name = error instanceof Error ? error.name : "";
+  return name === "AbortError" || name === "TimeoutError" ? 504 : 502;
+}
+
+function throwVisionError(lastError: unknown, failures: VisionAttemptFailure[]): never {
+  if (failures.length <= 1) {
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
+    throw new Error(formatError(lastError));
+  }
+  throw new Error(
+    `Vision request failed after ${failures.length} attempts. ` +
+    `${formatVisionAttemptFailures(failures)} Last error: ${formatError(lastError)}`
+  );
+}
+
+function formatVisionAttemptFailures(failures: VisionAttemptFailure[]): string {
+  return `Failures: ${failures.map((failure) =>
+    `${failure.model} ${failure.statusCode ? `HTTP ${failure.statusCode}` : "network"}`
+  ).join("; ")}.`;
+}
+
+function readVisionUsage(response: Response | undefined, payload: unknown): Record<string, number | undefined> {
+  const root = isRecord(payload) ? payload : {};
+  const usage = isRecord(root.usage) ? root.usage : {};
+  const inputDetails = isRecord(usage.input_tokens_details)
+    ? usage.input_tokens_details
+    : isRecord(usage.prompt_tokens_details)
+      ? usage.prompt_tokens_details
+      : {};
+  const headerNumber = (name: string) => readNumber(response?.headers.get(name));
+  return {
+    cache_read_tokens:
+      headerNumber("x-gateway-billing-cache-read-tokens") ??
+      readNumber(usage.cache_read_tokens) ??
+      readNumber(usage.cache_read_input_tokens) ??
+      readNumber(inputDetails.cached_tokens) ??
+      readNumber(usage.prompt_cache_hit_tokens),
+    cache_write_tokens:
+      headerNumber("x-gateway-billing-cache-write-tokens") ??
+      readNumber(usage.cache_write_tokens) ??
+      readNumber(usage.cache_creation_input_tokens) ??
+      readNumber(inputDetails.cache_creation_tokens),
+    input_tokens:
+      headerNumber("x-gateway-billing-input-tokens") ??
+      readNumber(usage.input_tokens) ??
+      readNumber(usage.prompt_tokens),
+    output_tokens:
+      headerNumber("x-gateway-billing-output-tokens") ??
+      readNumber(usage.output_tokens) ??
+      readNumber(usage.completion_tokens),
+    total_tokens:
+      headerNumber("x-gateway-billing-total-tokens") ??
+      readNumber(usage.total_tokens)
+  };
+}
+
+function readVisionCost(response: Response | undefined, payload: unknown): number | undefined {
+  const headerCost = readNumber(response?.headers.get("x-gateway-billing-total-cost"));
+  if (headerCost !== undefined) {
+    return headerCost;
+  }
+  const root = isRecord(payload) ? payload : {};
+  const billing = isRecord(root.billing) ? root.billing : {};
+  const cost = isRecord(billing.cost) ? billing.cost : {};
+  return readNumber(cost.total);
+}
+
+function splitGatewayVisionModelTarget(model: string): { credentialId?: string; model: string; providerName?: string } {
+  const separator = model.indexOf("/");
+  const providerName = separator > 0 ? model.slice(0, separator).trim() : undefined;
+  const physicalModel = separator > 0 && separator < model.length - 1 ? model.slice(separator + 1).trim() : model;
+  const credentialId = providerName
+    ?.split("::")
+    .find((part) => part.startsWith("cred:"))
+    ?.slice("cred:".length)
+    .trim();
+  return {
+    ...(credentialId ? { credentialId } : {}),
+    model: physicalModel,
+    ...(providerName ? { providerName } : {})
+  };
+}
+
+function usageOutcome(statusCode: number): "error" | "rate-limited" | "success" | "timeout" {
+  if (statusCode >= 200 && statusCode < 400) {
+    return "success";
+  }
+  if (statusCode === 429) {
+    return "rate-limited";
+  }
+  if (statusCode === 408 || statusCode === 504) {
+    return "timeout";
+  }
+  return "error";
+}
+
+async function analyzeWebSearch(args: Record<string, unknown>): Promise<string> {
+  const prompt = readString(args.prompt);
+  if (!prompt) {
+    throw new Error(`${toolName} requires prompt.`);
+  }
+
+  const provider = resolveSearchProvider();
+  const count = clampInteger(readNumber(args.count) ?? readNumber(env("SEARCH_RESULT_COUNT")) ?? 5, 1, 20);
+  const timeoutMs = clampInteger(readNumber(args.timeoutMs) ?? readNumber(env("SEARCH_TIMEOUT_MS")) ?? defaultTimeoutMs, 100, 600000);
+  const input = {
+    count,
+    country: readString(args.country),
+    excludeDomains: uniqueStrings([
+      ...readStringArray(args.excludeDomains),
+      ...readStringArray(args.blockedDomains),
+      ...readStringArray(args.blocked_domains)
+    ]),
+    freshness: readString(args.freshness),
+    includeDomains: uniqueStrings([
+      ...readStringArray(args.includeDomains),
+      ...readStringArray(args.allowedDomains),
+      ...readStringArray(args.allowed_domains)
+    ]),
+    includeRaw: args.includeRaw === true,
+    language: readString(args.language),
+    prompt,
+    safeSearch: readString(args.safeSearch),
+    timeoutMs
+  };
+  const results = await searchWithProvider(provider, input);
+  if (results.length === 0) {
+    return `Search provider: ${provider}\nNo results.`;
+  }
+  return [
+    `Search provider: ${provider}`,
+    ...results.slice(0, count).map((result, index) => [
+      `${index + 1}. ${result.title || result.url || "Untitled"}`,
+      result.url ? `URL: ${result.url}` : "",
+      result.snippet ? `Snippet: ${result.snippet}` : ""
+    ].filter(Boolean).join("\n"))
+  ].join("\n\n");
+}
+
+async function searchWithProvider(
+  provider: Exclude<SearchProvider, "auto">,
+  input: {
+    count: number;
+    country?: string;
+    excludeDomains: string[];
+    freshness?: string;
+    includeDomains: string[];
+    includeRaw: boolean;
+    language?: string;
+    prompt: string;
+    safeSearch?: string;
+    timeoutMs: number;
+  }
+): Promise<Array<{ snippet?: string; title?: string; url?: string }>> {
+  if (provider === "brave") return searchBrave(input);
+  if (provider === "bing") return searchBing(input);
+  if (provider === "google_cse") return searchGoogleCse(input);
+  if (provider === "serper") return searchSerper(input);
+  if (provider === "serpapi") return searchSerpApi(input);
+  if (provider === "serply") return searchSerply(input);
+  if (provider === "tavily") return searchTavily(input);
+  return searchExa(input);
+}
+
+async function searchBrave(input: SearchInput): Promise<SearchResult[]> {
+  const apiKey = requireEnv("BRAVE_SEARCH_API_KEY", "Brave Search API key");
+  const url = new URL(env("BRAVE_SEARCH_ENDPOINT") || "https://api.search.brave.com/res/v1/web/search");
+  url.searchParams.set("q", scopedSearchQuery(input));
+  url.searchParams.set("count", String(input.count));
+  if (input.country) url.searchParams.set("country", input.country);
+  if (input.language) url.searchParams.set("search_lang", input.language);
+  if (input.safeSearch) url.searchParams.set("safesearch", input.safeSearch);
+  const raw = await fetchJson(url.toString(), {
+    headers: { "x-subscription-token": apiKey },
+    signal: AbortSignal.timeout(input.timeoutMs)
+  });
+  const items = isRecord(raw) && isRecord(raw.web) && Array.isArray(raw.web.results) ? raw.web.results : [];
+  return items.map((item) => normalizeSearchResult(item, "title", "url", "description")).filter(isSearchResult);
+}
+
+async function searchBing(input: SearchInput): Promise<SearchResult[]> {
+  const apiKey = requireEnv("BING_SEARCH_API_KEY", "Bing Web Search API key");
+  const url = new URL(env("BING_SEARCH_ENDPOINT") || "https://api.bing.microsoft.com/v7.0/search");
+  url.searchParams.set("q", scopedSearchQuery(input));
+  url.searchParams.set("count", String(input.count));
+  if (input.country || input.language) url.searchParams.set("mkt", [input.language, input.country].filter(Boolean).join("-"));
+  if (input.safeSearch) url.searchParams.set("safeSearch", input.safeSearch);
+  const raw = await fetchJson(url.toString(), {
+    headers: { "ocp-apim-subscription-key": apiKey },
+    signal: AbortSignal.timeout(input.timeoutMs)
+  });
+  const items = isRecord(raw) && isRecord(raw.webPages) && Array.isArray(raw.webPages.value) ? raw.webPages.value : [];
+  return items.map((item) => normalizeSearchResult(item, "name", "url", "snippet")).filter(isSearchResult);
+}
+
+async function searchGoogleCse(input: SearchInput): Promise<SearchResult[]> {
+  const apiKey = requireEnv("GOOGLE_SEARCH_API_KEY", "Google Programmable Search API key");
+  const cx = requireEnv("GOOGLE_SEARCH_CX", "Google Programmable Search Engine ID");
+  const url = new URL(env("GOOGLE_SEARCH_ENDPOINT") || "https://www.googleapis.com/customsearch/v1");
+  url.searchParams.set("key", apiKey);
+  url.searchParams.set("cx", cx);
+  url.searchParams.set("q", scopedSearchQuery(input));
+  url.searchParams.set("num", String(Math.min(input.count, 10)));
+  if (input.country) url.searchParams.set("gl", input.country);
+  if (input.language) url.searchParams.set("hl", input.language);
+  const raw = await fetchJson(url.toString(), { signal: AbortSignal.timeout(input.timeoutMs) });
+  const items = isRecord(raw) && Array.isArray(raw.items) ? raw.items : [];
+  return items.map((item) => normalizeSearchResult(item, "title", "link", "snippet")).filter(isSearchResult);
+}
+
+async function searchSerper(input: SearchInput): Promise<SearchResult[]> {
+  const apiKey = requireEnv("SERPER_API_KEY", "Serper API key");
+  const raw = await fetchJson(env("SERPER_SEARCH_ENDPOINT") || "https://google.serper.dev/search", {
+    body: JSON.stringify({
+      gl: input.country,
+      hl: input.language,
+      num: input.count,
+      q: scopedSearchQuery(input),
+      tbs: freshnessToGoogleTbs(input.freshness)
+    }),
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey
+    },
+    method: "POST",
+    signal: AbortSignal.timeout(input.timeoutMs)
+  });
+  const items = isRecord(raw) && Array.isArray(raw.organic) ? raw.organic : [];
+  return items.map((item) => normalizeSearchResult(item, "title", "link", "snippet")).filter(isSearchResult);
+}
+
+async function searchSerpApi(input: SearchInput): Promise<SearchResult[]> {
+  const apiKey = requireEnv("SERPAPI_API_KEY", "SerpAPI key");
+  const url = new URL(env("SERPAPI_SEARCH_ENDPOINT") || "https://serpapi.com/search.json");
+  url.searchParams.set("api_key", apiKey);
+  url.searchParams.set("engine", "google");
+  url.searchParams.set("q", scopedSearchQuery(input));
+  url.searchParams.set("num", String(input.count));
+  if (input.country) url.searchParams.set("gl", input.country);
+  if (input.language) url.searchParams.set("hl", input.language);
+  if (input.safeSearch) url.searchParams.set("safe", input.safeSearch === "off" ? "off" : "active");
+  const raw = await fetchJson(url.toString(), { signal: AbortSignal.timeout(input.timeoutMs) });
+  const items = isRecord(raw) && Array.isArray(raw.organic_results) ? raw.organic_results : [];
+  return items.map((item) => normalizeSearchResult(item, "title", "link", "snippet")).filter(isSearchResult);
+}
+
+async function searchSerply(input: SearchInput): Promise<SearchResult[]> {
+  const apiKey = requireEnv("SERPLY_API_KEY", "Serply API key");
+  const url = new URL(env("SERPLY_SEARCH_ENDPOINT") || "https://api.serply.io/v1/search");
+  url.searchParams.set("q", scopedSearchQuery(input));
+  url.searchParams.set("num", String(Math.min(input.count, 10)));
+  if (input.country) url.searchParams.set("gl", input.country);
+  if (input.language) url.searchParams.set("hl", input.language);
+  const raw = await fetchJson(url.toString(), {
+    headers: {
+      "user-agent": "claude-code-router",
+      "x-api-key": apiKey
+    },
+    signal: AbortSignal.timeout(input.timeoutMs)
+  });
+  const items = isRecord(raw) && Array.isArray(raw.results) ? raw.results.slice(0, input.count) : [];
+  return items.map((item) => normalizeSearchResult(item, "title", "link", "description")).filter(isSearchResult);
+}
+
+async function searchTavily(input: SearchInput): Promise<SearchResult[]> {
+  const apiKey = requireEnv("TAVILY_API_KEY", "Tavily API key");
+  const raw = await fetchJson(env("TAVILY_SEARCH_ENDPOINT") || "https://api.tavily.com/search", {
+    body: JSON.stringify({
+      api_key: apiKey,
+      include_raw_content: input.includeRaw,
+      max_results: input.count,
+      query: scopedSearchQuery(input),
+      search_depth: "basic"
+    }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+    signal: AbortSignal.timeout(input.timeoutMs)
+  });
+  const items = isRecord(raw) && Array.isArray(raw.results) ? raw.results : [];
+  return items.map((item) => normalizeSearchResult(item, "title", "url", "content")).filter(isSearchResult);
+}
+
+async function searchExa(input: SearchInput): Promise<SearchResult[]> {
+  const apiKey = requireEnv("EXA_API_KEY", "Exa API key");
+  const raw = await fetchJson(env("EXA_SEARCH_ENDPOINT") || "https://api.exa.ai/search", {
+    body: JSON.stringify({
+      numResults: input.count,
+      query: scopedSearchQuery(input)
+    }),
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json"
+    },
+    method: "POST",
+    signal: AbortSignal.timeout(input.timeoutMs)
+  });
+  const items = isRecord(raw) && Array.isArray(raw.results) ? raw.results : [];
+  return items.map((item) => normalizeSearchResult(item, "title", "url", "text")).filter(isSearchResult);
+}
+
+async function buildImageParts(args: Record<string, unknown>, detail: "auto" | "high" | "low"): Promise<JsonValue[]> {
+  const inputs: Array<{ base64?: string; label?: string; mimeType?: string; path?: string; url?: string }> = [];
+  const imageUrl = readString(args.imageUrl);
+  const imagePath = readString(args.imagePath);
+  const imageBase64 = readString(args.imageBase64);
+  if (imageUrl) inputs.push({ url: imageUrl });
+  if (imagePath) inputs.push({ path: imagePath });
+  if (imageBase64) inputs.push({ base64: imageBase64, mimeType: readString(args.mimeType) });
+
+  const images = Array.isArray(args.images) ? args.images : [];
+  for (const item of images) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    inputs.push({
+      base64: readString(item.base64),
+      label: readString(item.label),
+      mimeType: readString(item.mimeType),
+      path: readString(item.path),
+      url: readString(item.url)
+    });
+  }
+
+  const parts: JsonValue[] = [];
+  const skipped: string[] = [];
+  for (const input of inputs) {
+    const result = await imageInputToUrl(input);
+    if ("skip" in result) {
+      skipped.push(result.skip);
+      continue;
+    }
+    if (input.label) {
+      parts.push({ text: `Image: ${input.label}`, type: "text" });
+    }
+    parts.push({
+      image_url: {
+        detail,
+        url: result.url
+      },
+      type: "image_url"
+    });
+  }
+  // Dropping bad images must not look like dropping the argument: surface every
+  // reason to the caller instead of silently proceeding without the image.
+  if (parts.length === 0) {
+    if (skipped.length === 0) {
+      throw new Error(`${toolName} requires imageUrl, imagePath, imageBase64, or images.`);
+    }
+    throw new Error(`${toolName} found no usable image. Skipped: ${skipped.join("; ")}.`);
+  }
+  return parts;
+}
+
+type ImageInputToUrlResult = { url: string } | { skip: string };
+
+/**
+ * Turn one image input into a data URL ready for the upstream, or say why it cannot
+ * be used. The upstream (commonly litellm in front of a strict vision provider)
+ * rejects any image whose payload is not strictly valid base64 and reports that as
+ * a 400 which surfaces to the caller as a raw provider error -- so anything that
+ * cannot be made into a well-formed data URL is dropped here instead of forwarded.
+ *
+ * Failure shapes seen in production: a local file path passed as imageUrl, a bare
+ * [media_ref:...] id passed verbatim, a base64 payload whose length mod 4 is 1
+ * (irreparably truncated mid-image), and an XML/SVG payload -- which the typical
+ * upstream rejects outright (supported formats are jpeg/png/gif/webp), so
+ * relabeling it buys nothing. A remainder of 2 or 3 is repairable by padding.
+ * Local files (imagePath/images[].path) go through the same content checks.
+ */
+async function imageInputToUrl(input: { base64?: string; mimeType?: string; path?: string; url?: string }): Promise<ImageInputToUrlResult> {
+  if (input.url) {
+    const url = input.url.trim();
+    if (/^https?:\/\//i.test(url)) {
+      return { url };
+    }
+    if (url.startsWith("data:")) {
+      return dataUrlResult(url, input.mimeType);
+    }
+    // Not an HTTP(S) URL and not a data URL. Either a bare base64 payload (the
+    // virtual-model tool loop's usual shape; wrapped here because strict gateways
+    // reject it as an invalid URL) or garbage that must not be forwarded as-is.
+    const normalized = normalizeImagePayload(url);
+    if (!normalized) {
+      return { skip: `imageUrl is neither an HTTP(S) URL, a data URL, nor base64 (${preview(url)})` };
+    }
+    return imageDataUrlOrSkip(normalized, "image/png");
+  }
+  if (input.base64) {
+    const value = input.base64.trim();
+    if (value.startsWith("data:")) {
+      // The schema documents imageBase64 as "Single raw base64 image payload or
+      // data URL"; both shapes must behave alike, so a data URL takes the same
+      // path as imageUrl above.
+      return dataUrlResult(value, input.mimeType);
+    }
+    const normalized = normalizeImagePayload(value);
+    if (!normalized) {
+      return { skip: "imageBase64 is not usable base64" };
+    }
+    return imageDataUrlOrSkip(normalized, input.mimeType);
+  }
+  if (!input.path) {
+    return { skip: "image entry has no url, base64, or path" };
+  }
+  const buffer = await readFile(input.path);
+  if (buffer.byteLength > maxLocalImageBytes) {
+    throw new Error(`Local image exceeds ${maxLocalImageBytes} bytes: ${input.path}`);
+  }
+  // File contents get the same checks as every other input: a .svg on disk must
+  // not be forwarded as a fake raster data URL.
+  const normalized = normalizeImagePayload(buffer.toString("base64"));
+  if (!normalized) {
+    return { skip: `file at ${preview(input.path)} is not usable image data` };
+  }
+  return imageDataUrlOrSkip(normalized, input.mimeType || mimeTypeFromPath(input.path));
+}
+
+/** Only these media types are ever emitted on a data URL; strict upstreams validate them. */
+const supportedImageMimeTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+
+/**
+ * Parse and validate a full `data:...;base64,...` URL. Shared by the imageUrl and
+ * imageBase64 fields so both accept the same shapes. Non-base64 data URLs are
+ * rejected; a header media type outside the supported set is dropped and the
+ * payload's sniffed type is used instead.
+ */
+function dataUrlResult(value: string, fallbackMimeType: string | undefined): ImageInputToUrlResult {
+  const comma = value.indexOf(",");
+  if (comma < 1) {
+    return { skip: `malformed data URL (${preview(value)})` };
+  }
+  const header = value.slice(5, comma);
+  if (!/;base64/i.test(header)) {
+    return { skip: `data URL is not base64 (${preview(value)})` };
+  }
+  const headerMimeType = header.split(";")[0] || undefined;
+  const normalized = normalizeImagePayload(value.slice(comma + 1));
+  if (!normalized) {
+    return { skip: `data URL payload is not usable base64 (${preview(value)})` };
+  }
+  return imageDataUrlOrSkip(normalized, headerMimeType || fallbackMimeType);
+}
+
+const base64PayloadPattern = /^[A-Za-z0-9+/]*={0,2}$/;
+const svgHeadPattern = /^(?:\uFEFF)?\s*(?:<\?xml|<svg)/i;
+
+/**
+ * Validate and repair a base64 image payload. Returns undefined when the bytes are
+ * not usable: non-base64 characters, an empty decode, or a length mod 4 of 1, which
+ * means the image was cut off mid-stream and padding cannot restore it. A remainder
+ * of 2 or 3 is fixed by adding `=` padding. SVG/XML payloads are flagged from the
+ * decoded head so the caller can reject them with a precise reason, and the raster
+ * format is sniffed so the caller can label the data URL with a supported type.
+ */
+function normalizeImagePayload(value: string): { payload: string; svg: boolean; sniffedType?: string } | undefined {
+  if (!value || !base64PayloadPattern.test(value) || value.length % 4 === 1) {
+    return undefined;
+  }
+  const padded = value.padEnd(value.length + ((4 - value.length % 4) % 4), "=");
+  const buffer = Buffer.from(padded, "base64");
+  if (buffer.byteLength === 0) {
+    return undefined;
+  }
+  return {
+    payload: padded,
+    svg: svgHeadPattern.test(buffer.subarray(0, 64).toString("utf8")),
+    sniffedType: sniffImageType(buffer)
+  };
+}
+
+/** Detect a raster format from its leading bytes; only the supported types are returned. */
+function sniffImageType(buffer: Buffer): string | undefined {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (buffer.length >= 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+    return "image/png";
+  }
+  if (buffer.length >= 6 && buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38 && (buffer[4] === 0x37 || buffer[4] === 0x39) && buffer[5] === 0x61) {
+    return "image/gif";
+  }
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString("latin1") === "RIFF" && buffer.subarray(8, 12).toString("latin1") === "WEBP") {
+    return "image/webp";
+  }
+  return undefined;
+}
+
+/**
+ * Pick the media-type label for the data URL. Only the supported raster types are
+ * ever emitted: an explicit label in that set wins, otherwise the sniffed format,
+ * otherwise image/png. The label is validated for its own sake -- it is part of the
+ * data URL a strict upstream checks -- while the bytes decide whether the image is
+ * decodable at all.
+ */
+function imageLabel(mimeType: string | undefined, image: { sniffedType?: string }): string {
+  const explicit = mimeType?.trim().toLowerCase();
+  if (explicit && supportedImageMimeTypes.has(explicit)) {
+    return explicit;
+  }
+  return image.sniffedType ?? "image/png";
+}
+
+function imageDataUrlOrSkip(image: { payload: string; svg: boolean; sniffedType?: string }, mimeType: string | undefined): ImageInputToUrlResult {
+  if (image.svg) {
+    return { skip: "SVG/XML image payload is not supported by the vision upstream (supported: image/jpeg, image/png, image/gif, image/webp)" };
+  }
+  return { url: `data:${imageLabel(mimeType, image)};base64,${image.payload}` };
+}
+
+/** Short, quoted head of a value for skip reasons and error messages. */
+function preview(value: string): string {
+  return JSON.stringify(value.length > 40 ? `${value.slice(0, 37)}…` : value);
+}function mimeTypeFromPath(path: string): string {
+  const ext = extname(path).toLowerCase();
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  return "image/png";
+}
+
+function resolveChatCompletionsUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, "");
+  return trimmed.endsWith("/chat/completions") ? trimmed : `${trimmed}/chat/completions`;
+}
+
+function extractResponseText(value: unknown): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const choices = Array.isArray(value.choices) ? value.choices : [];
+  const first = isRecord(choices[0]) ? choices[0] : undefined;
+  const message = isRecord(first?.message) ? first.message : undefined;
+  const content = message?.content;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    const text = content
+      .map((item) => isRecord(item) ? readString(item.text) : undefined)
+      .filter((item): item is string => Boolean(item))
+      .join("\n");
+    return text || undefined;
+  }
+  return readString(value.output_text);
+}
+
+function extractProviderError(rawText: string, json: unknown): string {
+  if (isRecord(json)) {
+    const error = json.error;
+    if (typeof error === "string") return error;
+    if (isRecord(error) && typeof error.message === "string") return error.message;
+    if (typeof json.message === "string") return json.message;
+  }
+  return rawText.slice(0, 500);
+}
+
+function parseJson(rawText: string): unknown {
+  try {
+    return JSON.parse(rawText) as unknown;
+  } catch {
+    throw new Error(`Invalid JSON from provider: ${rawText.slice(0, 500)}`);
+  }
+}
+
+function parseToolKind(value: string | undefined): FusionBuiltinToolKind {
+  return value === "web_search" ? "web_search" : "vision";
+}
+
+function resolveSearchProvider(): Exclude<SearchProvider, "auto"> {
+  const configured = parseSearchProvider(env("SEARCH_PROVIDER")) ?? "auto";
+  if (configured !== "auto") {
+    return configured;
+  }
+  const candidates: Array<Exclude<SearchProvider, "auto">> = ["brave", "bing", "google_cse", "serper", "serpapi", "serply", "tavily", "exa"];
+  const provider = candidates.find(searchProviderIsConfigured);
+  if (!provider) {
+    throw new Error("No search provider configured. Set SEARCH_PROVIDER and its API key.");
+  }
+  return provider;
+}
+
+function parseSearchProvider(value: string | undefined): SearchProvider | undefined {
+  if (
+    value === "auto" ||
+    value === "brave" ||
+    value === "bing" ||
+    value === "google_cse" ||
+    value === "serper" ||
+    value === "serpapi" ||
+    value === "serply" ||
+    value === "tavily" ||
+    value === "exa"
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+function searchProviderIsConfigured(provider: Exclude<SearchProvider, "auto">): boolean {
+  if (provider === "brave") return Boolean(env("BRAVE_SEARCH_API_KEY"));
+  if (provider === "bing") return Boolean(env("BING_SEARCH_API_KEY"));
+  if (provider === "google_cse") return Boolean(env("GOOGLE_SEARCH_API_KEY") && env("GOOGLE_SEARCH_CX"));
+  if (provider === "serper") return Boolean(env("SERPER_API_KEY"));
+  if (provider === "serpapi") return Boolean(env("SERPAPI_API_KEY"));
+  if (provider === "serply") return Boolean(env("SERPLY_API_KEY"));
+  if (provider === "tavily") return Boolean(env("TAVILY_API_KEY"));
+  return Boolean(env("EXA_API_KEY"));
+}
+
+function requireEnv(name: string, label: string): string {
+  const value = env(name);
+  if (!value) {
+    throw new Error(`Missing ${label}. Set ${name}.`);
+  }
+  return value;
+}
+
+async function fetchJson(url: string, init: RequestInit): Promise<unknown> {
+  const response = await fetch(url, init);
+  const rawText = await response.text();
+  const payload = rawText ? parseJson(rawText) : {};
+  if (!response.ok) {
+    throw new Error(`Search request failed (${response.status}): ${extractProviderError(rawText, payload)}`);
+  }
+  return payload;
+}
+
+function scopedSearchQuery(input: SearchInput): string {
+  const include = input.includeDomains.map((domain) => `site:${domain}`).join(" ");
+  const exclude = input.excludeDomains.map((domain) => `-site:${domain}`).join(" ");
+  return [input.prompt, include, exclude].filter(Boolean).join(" ");
+}
+
+function freshnessToGoogleTbs(value: string | undefined): string | undefined {
+  if (value === "day") return "qdr:d";
+  if (value === "week") return "qdr:w";
+  if (value === "month") return "qdr:m";
+  return undefined;
+}
+
+function normalizeSearchResult(value: unknown, titleKey: string, urlKey: string, snippetKey: string): SearchResult {
+  if (!isRecord(value)) {
+    return {};
+  }
+  return {
+    snippet: readString(value[snippetKey]),
+    title: readString(value[titleKey]),
+    url: readString(value[urlKey])
+  };
+}
+
+function isSearchResult(value: SearchResult): value is Required<Pick<SearchResult, "url">> & SearchResult {
+  return Boolean(value.title || value.url || value.snippet);
+}
+
+function readStringArray(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map(readString).filter((item): item is string => Boolean(item));
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function textResult(text: string): ToolCallResult {
+  return {
+    content: [{ text, type: "text" }]
+  };
+}
+
+function objectSchema(properties: Record<string, JsonValue>, required: string[] = []): JsonValue {
+  return {
+    additionalProperties: false,
+    properties,
+    required,
+    type: "object"
+  };
+}
+
+function jsonRpcResult(id: null | number | string, result: JsonValue): JsonRpcResponse {
+  return {
+    id,
+    jsonrpc: "2.0",
+    result
+  };
+}
+
+function jsonRpcError(id: null | number | string, code: number, message: string, data?: JsonValue): JsonRpcResponse {
+  return {
+    error: {
+      code,
+      ...(data === undefined ? {} : { data }),
+      message
+    },
+    id,
+    jsonrpc: "2.0"
+  };
+}
+
+function writeJsonRpc(response: JsonRpcResponse): void {
+  const payload = JSON.stringify(response);
+  process.stdout.write(`Content-Length: ${Buffer.byteLength(payload, "utf8")}\r\n\r\n${payload}`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+function env(name: string): string | undefined {
+  return readString(process.env[name]);
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

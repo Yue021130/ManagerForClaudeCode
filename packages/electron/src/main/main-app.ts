@@ -1,0 +1,332 @@
+import { refreshModelCatalog } from "@ccr/core/models/catalog-file";
+import { app, BrowserWindow, dialog, shell } from "electron";
+import { setupApplicationMenu } from "./app-menu";
+import { loadAppConfig } from "@ccr/core/config/config";
+import { loadOnboardingFinished } from "@ccr/core/config/onboarding-state";
+import { restoreClaudeAppGatewayConfig, syncClaudeAppGatewayConfig } from "@ccr/core/agents/claude-app/gateway-service";
+import { deepLinkService } from "./deep-link";
+import { gatewayService } from "@ccr/core/gateway/service";
+import "./ipc";
+import { applyProfileConfig, restoreGlobalProfileConfigsOnExit } from "@ccr/core/profiles/service";
+import { ensureCcrCliLauncher, persistPreparedCcrCliPath, prepareCcrCliLauncherRuntime, type CcrCliLauncherPreparation } from "@ccr/core/profiles/launch-service";
+import { syncLaunchAtLogin } from "./launch-at-login";
+import { proxyService } from "@ccr/core/proxy/service";
+import trayController from "./tray-controller";
+import { appUpdateService } from "./update-service";
+import { browserAutomationMcpService } from "./browser-automation-mcp";
+import { browserWebSearchMcpService } from "./electron-web-search-mcp";
+import { applyNativeThemePreference } from "./native-theme";
+import windowsManager from "./windows";
+import { closeRequestLogRuntime } from "@ccr/core/observability/request-log-store";
+import { stopProviderModelAutoRefreshService, syncProviderModelAutoRefreshService } from "@ccr/core/providers/model-auto-refresh";
+import type { AppConfig } from "@ccr/core/contracts/app";
+
+const gotTheLock = app.requestSingleInstanceLock();
+const quitProxyRestoreTimeoutMs = 30_000;
+let quitPrepared = false;
+let stoppingForQuit = false;
+let ensureProxyModePromise: Promise<void> | undefined;
+let startServicesPromise: Promise<void> | undefined;
+let stopForQuitPromise: Promise<void> | undefined;
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  startPrimaryInstance();
+}
+
+function startPrimaryInstance(): void {
+  gatewayService.setBrowserAutomationMcpIntegration(browserAutomationMcpService);
+  gatewayService.setBrowserWebSearchMcpIntegration(browserWebSearchMcpService);
+  deepLinkService.register();
+  deepLinkService.handleArgv(process.argv);
+
+  app.on("second-instance", (_event, argv) => {
+    windowsManager.showMainWindow();
+    deepLinkService.handleArgv(argv);
+    queueEnsureConfiguredProxyModeActive("second-instance");
+  });
+
+  void app.whenReady().then(async () => {
+    await refreshModelCatalog();
+    const config = await loadAppConfig();
+    applyNativeThemePreference(config.theme);
+    windowsManager.setOnboardingFinished(await loadOnboardingFinished());
+    configureProxyDesktopIntegration();
+    let ccrLauncherPreparation: CcrCliLauncherPreparation | undefined;
+    try {
+      ccrLauncherPreparation = prepareCcrCliLauncherRuntime();
+    } catch (error) {
+      console.error(`Failed to prepare ccr CLI runtime: ${formatError(error)}`);
+    }
+    setupApplicationMenu();
+    const mainWindow = windowsManager.createMainWindow();
+    if (ccrLauncherPreparation?.persistentPathRequired) {
+      mainWindow.once("ready-to-show", () => {
+        setTimeout(() => {
+          try {
+            persistPreparedCcrCliPath(ccrLauncherPreparation);
+          } catch (error) {
+            console.error(`Failed to persist ccr CLI PATH: ${formatError(error)}`);
+          }
+        }, 0);
+      });
+    }
+    trayController.start();
+    appUpdateService.start();
+    appUpdateService.setInstallPreparation(prepareForUpdateInstall);
+    void startConfiguredServices("startup");
+
+    app.on("activate", () => {
+      const mainWindow = windowsManager.getWindow("main");
+      if (!trayController.consumeMainWindowActivationSuppression() && (!mainWindow || !mainWindow.isVisible())) {
+        windowsManager.showMainWindow();
+      }
+      queueEnsureConfiguredProxyModeActive("activate");
+    });
+  }).catch((error) => {
+    const detail = formatErrorDetail(error);
+    console.error(`Failed to initialize ${app.name || "application"}: ${detail}`);
+    try {
+      dialog.showErrorBox("Claude Code Router failed to start", detail);
+    } catch {
+      // Keep the console log as the fallback diagnostic channel.
+    }
+    app.exit(1);
+  });
+
+  app.on("before-quit", (event) => {
+    if (quitPrepared || appUpdateService.isInstallingUpdate()) {
+      return;
+    }
+    event.preventDefault();
+    prepareAndQuit();
+  });
+
+  app.on("will-quit", (event) => {
+    if (quitPrepared || appUpdateService.isInstallingUpdate()) {
+      return;
+    }
+    event.preventDefault();
+    prepareAndQuit();
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") {
+      app.quit();
+    }
+  });
+
+  process.once("SIGINT", () => handleTerminationSignal("SIGINT"));
+  process.once("SIGTERM", () => handleTerminationSignal("SIGTERM"));
+}
+
+function configureProxyDesktopIntegration(): void {
+  proxyService.setDesktopIntegration({
+    requestMacosCertificateInstallPermission,
+    revealFile: async (file) => {
+      shell.showItemInFolder(file);
+    }
+  });
+}
+
+async function requestMacosCertificateInstallPermission(): Promise<boolean> {
+  const window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const options = {
+    buttons: ["Continue", "Cancel"],
+    cancelId: 1,
+    defaultId: 0,
+    detail:
+      "macOS will ask for administrator credentials. This is required so Chrome can trust HTTPS certificates generated by CCR proxy mode.",
+    message: "Install CCR Proxy CA into the macOS System keychain?",
+    noLink: true,
+    type: "warning" as const
+  };
+  const result = window ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options);
+  return result.response === 0;
+}
+
+function prepareAndQuit(): void {
+  if (stoppingForQuit) {
+    return;
+  }
+
+  stoppingForQuit = true;
+  void stopServicesForQuit().finally(() => {
+    quitPrepared = true;
+    app.quit();
+  });
+}
+
+async function prepareForUpdateInstall(): Promise<void> {
+  if (!stoppingForQuit) {
+    stoppingForQuit = true;
+  }
+  await stopServicesForQuit();
+  quitPrepared = true;
+}
+
+function handleTerminationSignal(signal: NodeJS.Signals): void {
+  if (stoppingForQuit) {
+    return;
+  }
+
+  stoppingForQuit = true;
+  void stopServicesForQuit().finally(() => {
+    quitPrepared = true;
+    app.exit(signal === "SIGINT" ? 130 : 143);
+  });
+}
+
+function stopServicesForQuit(): Promise<void> {
+  if (!stopForQuitPromise) {
+    stopProviderModelAutoRefreshService();
+    stopForQuitPromise = gatewayService
+      .stop({ proxyRestoreTimeoutMs: quitProxyRestoreTimeoutMs })
+      .then(() => undefined)
+      .catch((error) => {
+        console.error(`Failed to stop services before quit: ${formatError(error)}`);
+      })
+      .finally(async () => {
+        await closeRequestLogRuntime().catch((error) => {
+          console.error(`Failed to flush request logs before quit: ${formatError(error)}`);
+        });
+        try {
+          const config = await loadAppConfig();
+          for (const status of restoreGlobalProfileConfigsOnExit(config.profile.profiles)) {
+            if (!status.ok) {
+              console.error(`Failed to restore ${status.client} global profile config before quit: ${status.message}`);
+            }
+          }
+        } catch (error) {
+          console.error(`Failed to restore global profile configs before quit: ${formatError(error)}`);
+        }
+        try {
+          restoreClaudeAppGatewayConfig();
+        } catch (error) {
+          console.error(`Failed to restore Claude App gateway config before quit: ${formatError(error)}`);
+        }
+        trayController.destroy();
+      });
+  }
+  return stopForQuitPromise;
+}
+
+function startConfiguredServices(reason: string): Promise<void> {
+  if (!startServicesPromise) {
+    startServicesPromise = loadAppConfig()
+      .then(async (config) => {
+        try {
+          config = (await syncClaudeAppGatewayConfig(config)).config;
+        } catch (error) {
+          console.error(`Failed to sync Claude App gateway config during ${reason}: ${formatError(error)}`);
+        }
+        try {
+          ensureCcrCliLauncher(config, { persistPath: false });
+        } catch (error) {
+          console.error(`Failed to install ccr CLI launcher during ${reason}: ${formatError(error)}`);
+        }
+        try {
+          syncLaunchAtLogin(config);
+        } catch (error) {
+          console.error(`Failed to sync launch-at-login setting during ${reason}: ${formatError(error)}`);
+        }
+        const status = await gatewayService.ensureStarted(config);
+        if (status.state === "error") {
+          console.error(`Failed to start gateway during ${reason}: ${status.lastError}`);
+        }
+        if (status.state === "running") {
+          const profileResult = await applyProfileConfig(config, { excludeAgents: ["zcode"] });
+          for (const client of profileResult.clients) {
+            if (!client.ok) {
+              console.error(`Failed to apply ${client.client} profile during ${reason}: ${client.message}`);
+            }
+          }
+        }
+        if (config.proxy.enabled && config.proxy.systemProxy) {
+          const proxyStatus = await proxyService.ensureSystemProxyActive();
+          logProxySystemProxyIssue(reason, proxyStatus);
+        }
+        syncProviderModelAutoRefresh(config);
+      })
+      .catch((error) => {
+        console.error(`Failed to start configured services during ${reason}: ${formatError(error)}`);
+      })
+      .finally(() => {
+        trayController.refreshUsageTitle();
+        startServicesPromise = undefined;
+      });
+  }
+  return startServicesPromise;
+}
+
+function syncProviderModelAutoRefresh(config: AppConfig): void {
+  syncProviderModelAutoRefreshService(config, {
+    logger: console,
+    onConfigChanged: async (nextConfig) => {
+      await gatewayService.updateConfig(nextConfig);
+      if (gatewayService.getStatus().state === "running") {
+        const profileResult = await applyProfileConfig(nextConfig);
+        for (const client of profileResult.clients) {
+          if (!client.ok) {
+            console.error(`Failed to apply ${client.client} profile during provider model refresh: ${client.message}`);
+          }
+        }
+      }
+      trayController.refreshUsageTitle();
+    }
+  });
+}
+
+function queueEnsureConfiguredProxyModeActive(reason: string): void {
+  void (startServicesPromise ?? Promise.resolve())
+    .then(() => ensureConfiguredProxyModeActive(reason))
+    .catch((error) => {
+      console.error(`Failed to ensure proxy mode during ${reason}: ${formatError(error)}`);
+    });
+}
+
+function ensureConfiguredProxyModeActive(reason: string): Promise<void> {
+  if (stoppingForQuit) {
+    return Promise.resolve();
+  }
+
+  if (!ensureProxyModePromise) {
+    ensureProxyModePromise = loadAppConfig()
+      .then(async (config) => {
+        if (!config.proxy.enabled || !config.proxy.systemProxy) {
+          return;
+        }
+
+        const proxyStatus = proxyService.getStatus();
+        if (proxyStatus.state !== "running") {
+          await startConfiguredServices(reason);
+          return;
+        }
+
+        const ensuredStatus = await proxyService.ensureSystemProxyActive();
+        logProxySystemProxyIssue(reason, ensuredStatus);
+      })
+      .finally(() => {
+        ensureProxyModePromise = undefined;
+      });
+  }
+  return ensureProxyModePromise;
+}
+
+function logProxySystemProxyIssue(reason: string, status: ReturnType<typeof proxyService.getStatus>): void {
+  if (status.systemProxy.state === "active") {
+    return;
+  }
+
+  const details = status.systemProxy.lastError ? `: ${status.systemProxy.lastError}` : "";
+  console.error(`Proxy mode is enabled, but system proxy is ${status.systemProxy.state} during ${reason}${details}`);
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function formatErrorDetail(error: unknown): string {
+  return error instanceof Error ? error.stack || error.message : String(error);
+}

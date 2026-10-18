@@ -1,0 +1,22 @@
+---
+import DocPage from "../../components/DocPage.astro";
+import { pageKeyFromSlug } from "../../docs-structure";
+import { configurationSlugFromPath, zhConfigurationDocs } from "../../configuration-docs";
+
+export function getStaticPaths() {
+  return Object.entries(zhConfigurationDocs).flatMap(([filePath, mod]) => {
+    const slug = configurationSlugFromPath(filePath);
+    const pageKey = pageKeyFromSlug("configuration", "zh", slug);
+    if (!pageKey) return [];
+
+    return {
+      params: { slug },
+      props: { mod, activeSidebarItem: pageKey },
+    };
+  });
+}
+
+const { mod, activeSidebarItem } = Astro.props;
+---
+
+<DocPage locale="zh" pageKey="configuration" doc={mod} activeSidebarItem={activeSidebarItem} />

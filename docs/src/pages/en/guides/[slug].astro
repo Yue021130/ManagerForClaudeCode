@@ -1,0 +1,24 @@
+---
+import DocPage from "../../../components/DocPage.astro";
+import { pageKeyFromSlug } from "../../../docs-structure";
+import { enGuideDocs, sectionSlugFromPath } from "../../../section-docs";
+
+// provider, agent-profile and observability have dedicated pages with embedded interactive UI.
+export function getStaticPaths() {
+  const dedicated = new Set(["provider", "agent-profile", "observability"]);
+  return Object.entries(enGuideDocs)
+    .filter(([filePath]) => !dedicated.has(sectionSlugFromPath(filePath)))
+    .map(([filePath, mod]) => {
+      const slug = sectionSlugFromPath(filePath);
+
+      return {
+        params: { slug },
+        props: { mod, activeSidebarItem: pageKeyFromSlug("guides", "en", slug) },
+      };
+    });
+}
+
+const { mod, activeSidebarItem } = Astro.props;
+---
+
+<DocPage locale="en" pageKey="guides" doc={mod} activeSidebarItem={activeSidebarItem} />

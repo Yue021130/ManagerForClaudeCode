@@ -1,0 +1,613 @@
+import { useEffect, useRef, useState } from "react";
+import { MorphIcon } from "@musistudio/lucide-morph-react";
+import { AnimatePresence } from "motion/react";
+import {
+  Check,
+  Copy,
+  Plus,
+  X
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { PopoverContent } from "@/components/ui/popover";
+import { Select } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { playPauseMorph } from "@/lib/morph-icon";
+import { cn } from "@/lib/utils";
+import type {
+  AppConfig,
+  GatewayStatus,
+  ProfileConfig,
+  UsageSeriesPoint,
+  UsageStatsRange,
+  UsageTotals
+} from "@ccr/core/contracts/app";
+import {
+  translateOptions,
+  useAppText
+} from "./i18n";
+import {
+  AnimatedIconSwap,
+  AnimatedPopover
+} from "./motion";
+import {
+  formatDuration
+} from "./network";
+import {
+  formatCompactNumber,
+  formatPercent
+} from "./usage";
+
+import { metricToneBar, normalizeProviderModelSelector } from "./common";
+import { profileAgentLabel, profileAgentLogoUrl } from "./profiles";
+import { routeTargetOptions } from "./providers";
+import { createKeyValueDraftRow } from "./virtual-models";
+import type { KeyValueDraftRow } from "./types";
+
+export function Field({
+  children,
+  className,
+  label,
+  requirement,
+  requirementLabel
+}: {
+  children: React.ReactNode;
+  className?: string;
+  label: string;
+  requirement?: "optional" | "required";
+  requirementLabel?: string;
+}) {
+  return (
+    <Label className={cn("block min-w-0 space-y-1", className)}>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate text-[12px] font-medium text-muted-foreground">{label}</span>
+        {requirement ? (
+          <span className={cn(
+            "shrink-0 rounded border px-1 py-0 text-[11px] font-semibold leading-4 tracking-wide",
+            requirement === "required"
+              ? "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+              : "border-border bg-muted/35 text-muted-foreground"
+          )}>
+            {requirementLabel ?? (requirement === "required" ? "Required" : "Optional")}
+          </span>
+        ) : null}
+      </span>
+      {children}
+    </Label>
+  );
+}
+
+export function FieldGroup({ children, className, label }: { children: React.ReactNode; className?: string; label: string }) {
+  return (
+    <div className={cn("block min-w-0 space-y-1", className)}>
+      <span className="block truncate text-[12px] font-medium text-muted-foreground">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+export function AgentLogo({ agent, className }: { agent: ProfileConfig["agent"]; className?: string }) {
+  const label = profileAgentLabel(agent);
+
+  return (
+    <span
+      className={cn("flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-[5px]", className)}
+      title={label}
+    >
+      <img alt={`${label} icon`} className="h-full w-full rounded-[inherit] object-cover" src={profileAgentLogoUrl(agent)} />
+    </span>
+  );
+}
+
+export function SelectControl({
+  className,
+  onChange,
+  options,
+  value
+}: {
+  className?: string;
+  onChange: (value: string) => void;
+  options: Array<{ disabled?: boolean; label: string; value: string }>;
+  value: string;
+}) {
+  return <Select className={className} onValueChange={onChange} options={options} value={value} />;
+}
+
+export function RouteTargetControl({
+  modelOptions,
+  onChange,
+  value
+}: {
+  modelOptions: Array<{ label: string; value: string }>;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const t = useAppText();
+  const normalizedValue = normalizeProviderModelSelector(value);
+
+  if (modelOptions.length === 0) {
+    return <Input onChange={(event) => onChange(event.target.value)} value={normalizedValue} />;
+  }
+
+  const options = routeTargetOptions(modelOptions, normalizedValue);
+  return <SelectControl onChange={onChange} options={translateOptions(options, t)} value={normalizedValue} />;
+}
+
+export function TextAreaControl({
+  className,
+  minHeight,
+  onChange,
+  value
+}: {
+  className?: string;
+  minHeight: number;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const responsiveMinHeight = `min(${minHeight}px, max(132px, calc(100dvh - 220px)))`;
+
+  return (
+    <Textarea
+      className={cn(
+        "min-h-0",
+        className
+      )}
+      onChange={(event) => onChange(event.target.value)}
+      spellCheck={false}
+      style={{ minHeight: responsiveMinHeight }}
+      value={value}
+    />
+  );
+}
+
+export function KeyValueRowsControl({
+  addLabel,
+  onChange,
+  rows
+}: {
+  addLabel: string;
+  onChange: (rows: KeyValueDraftRow[]) => void;
+  rows: KeyValueDraftRow[];
+}) {
+  const t = useAppText();
+  const visibleRows = rows.length > 0 ? rows : [createKeyValueDraftRow()];
+
+  function updateRow(index: number, patch: Partial<KeyValueDraftRow>) {
+    const nextRows = [...visibleRows];
+    nextRows[index] = { ...nextRows[index], ...patch };
+    onChange(nextRows);
+  }
+
+  function addRow() {
+    onChange([...visibleRows, createKeyValueDraftRow()]);
+  }
+
+  function removeRow(index: number) {
+    onChange(visibleRows.filter((_, rowIndex) => rowIndex !== index));
+  }
+
+  return (
+    <div className="space-y-2">
+      {visibleRows.map((row, index) => (
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_28px_28px] gap-2" key={row.id}>
+          <Input
+            aria-label={t("Key")}
+            onChange={(event) => updateRow(index, { key: event.target.value })}
+            placeholder={t("Key")}
+            value={row.key}
+          />
+          <Input
+            aria-label={t("Value")}
+            onChange={(event) => updateRow(index, { value: event.target.value })}
+            placeholder={t("Value")}
+            value={row.value}
+          />
+          <Button
+            aria-label={addLabel}
+            onClick={addRow}
+            size="iconSm"
+            title={addLabel}
+            type="button"
+            variant="outline"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            aria-label={t("Remove")}
+            disabled={visibleRows.length === 1 && !row.key.trim() && !row.value.trim()}
+            onClick={() => removeRow(index)}
+            size="iconSm"
+            title={t("Remove")}
+            type="button"
+            variant="ghost"
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function Toggle({
+  ariaLabel,
+  checked,
+  disabled = false,
+  onChange,
+  title
+}: {
+  ariaLabel?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+  title?: string;
+}) {
+  return <Switch aria-label={ariaLabel ?? title} checked={checked} disabled={disabled} onCheckedChange={onChange} title={title} />;
+}
+
+export type MetricTone = "amber" | "blue" | "indigo" | "rose" | "slate" | "teal";
+
+export function MetricCard({ className, label, tone, value }: { className?: string; label: string; tone: MetricTone; value: string }) {
+  return (
+    <Card className={cn("flex h-full min-h-0 min-w-0 flex-col overflow-hidden", className)}>
+      <div className={cn("h-1", metricToneBar(tone))} />
+      <CardContent className="flex min-h-[88px] flex-1 flex-col justify-center">
+        <div className="min-w-0">
+          <div className="truncate text-[11px] font-medium text-muted-foreground">{label}</div>
+          <div className="mt-1 truncate text-[20px] font-semibold">{value}</div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export type SystemStatusTone = "error" | "idle" | "ok" | "warn";
+
+export type SystemStatusPoint = {
+  dateLabel: string;
+  point: UsageSeriesPoint;
+  tone: SystemStatusTone;
+};
+
+export function usageStatusTone(point: Pick<UsageTotals, "requestCount" | "successRate">): SystemStatusTone {
+  if (point.requestCount <= 0) return "idle";
+  if (point.successRate >= 0.995) return "ok";
+  if (point.successRate >= 0.98) return "warn";
+  return "error";
+}
+
+export function formatSystemStatusRange(segments: SystemStatusPoint[], range: UsageStatsRange): string {
+  if (segments.length === 0) {
+    return range;
+  }
+  const first = segments[0]?.dateLabel ?? "";
+  const last = segments.at(-1)?.dateLabel ?? first;
+  return first === last ? first : `${first} - ${last}`;
+}
+
+export function formatStatusBucketDate(bucket: string, range: UsageStatsRange): string {
+  const parsed = parseStatusBucketDate(bucket);
+  if (!parsed) {
+    return bucket;
+  }
+  const dateOptions: Intl.DateTimeFormatOptions = range === "today" || range === "24h"
+    ? { day: "2-digit", hour: "2-digit", hour12: false, month: "2-digit" }
+    : { day: "2-digit", month: "2-digit" };
+  return new Intl.DateTimeFormat(undefined, dateOptions).format(parsed);
+}
+
+export function parseStatusBucketDate(bucket: string): Date | undefined {
+  if (/^\d{4}-\d{1,2}-\d{1,2}T\d{1,2}:\d{2}/.test(bucket)) {
+    const isoDate = new Date(bucket);
+    if (Number.isFinite(isoDate.getTime())) {
+      return isoDate;
+    }
+  }
+  const match = bucket.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2})(?::00)?)?$/);
+  if (!match) {
+    return undefined;
+  }
+  const [, year, month, day, hour] = match;
+  return new Date(Number(year), Number(month) - 1, Number(day), hour === undefined ? 0 : Number(hour), 0, 0, 0);
+}
+
+export function systemStatusPointTooltip(segment: SystemStatusPoint, t: (value: string) => string): string {
+  return [
+    segment.dateLabel,
+    `${t("Requests")}: ${formatCompactNumber(segment.point.requestCount)}`,
+    `${t("Success rate")}: ${segment.point.requestCount > 0 ? formatPercent(segment.point.successRate) : "—"}`,
+    `${t("Failed requests")}: ${formatCompactNumber(segment.point.errorCount)}`,
+    `${t("Duration")}: ${formatDuration(segment.point.avgDurationMs)}`
+  ].join("\n");
+}
+
+export function systemStatusIconClass(tone: SystemStatusTone): string {
+  if (tone === "ok") return "bg-emerald-500 text-white";
+  if (tone === "warn") return "bg-amber-400 text-amber-950";
+  if (tone === "error") return "bg-rose-500 text-white";
+  return "bg-muted text-muted-foreground";
+}
+
+export function systemStatusSegmentClass(tone: SystemStatusTone): string {
+  if (tone === "ok") return "bg-emerald-500";
+  if (tone === "warn") return "bg-amber-400";
+  if (tone === "error") return "bg-rose-500";
+  return "bg-muted-foreground/25";
+}
+
+export function ServiceControlButton({
+  busy,
+  onClick,
+  state,
+  targetActive
+}: {
+  busy: boolean;
+  onClick: () => void;
+  state: GatewayStatus["state"];
+  targetActive?: boolean;
+}) {
+  const t = useAppText();
+  const runtimeActive = state === "running" || state === "starting";
+  const active = targetActive ?? runtimeActive;
+  const title = active ? t("Pause service") : t("Start service");
+
+  return (
+    <Button
+      aria-label={title}
+      className={cn(
+        "app-no-drag app-service-control inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent bg-transparent p-0 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/25",
+        active && "text-emerald-700 hover:text-emerald-800"
+      )}
+      disabled={busy}
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={onClick}
+      title={title}
+      type="button"
+      unstyled
+    >
+      <MorphIcon
+        active={active}
+        asset={playPauseMorph}
+        color="currentColor"
+        duration={300}
+        size={14}
+        strokeWidth={2}
+      />
+    </Button>
+  );
+}
+
+export function EndpointTitleBar({
+  config,
+  endpoint,
+  gatewayStatus
+}: {
+  config: AppConfig;
+  endpoint: string;
+  gatewayStatus: GatewayStatus;
+}) {
+  const t = useAppText();
+  const [open, setOpen] = useState(false);
+  const [copiedKey, setCopiedKey] = useState("");
+  const copyResetTimer = useRef<number>();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const running = gatewayStatus.state === "running";
+  const statusLabel = running ? t("running") : t("not running");
+  const value = endpoint.trim() || t("Not configured");
+  const loopbackEndpoint = loopbackEndpointFromStatus(value, config);
+  const loopbackBaseUrl = gatewayBaseUrlFromEndpoint(loopbackEndpoint);
+  const networkEndpoints = running ? gatewayStatus.networkEndpoints ?? [] : [];
+
+  async function copyEndpoint(valueToCopy: string, key: string) {
+    await copyEndpointTextToClipboard(valueToCopy);
+    setCopiedKey(key);
+    if (copyResetTimer.current) {
+      window.clearTimeout(copyResetTimer.current);
+    }
+    copyResetTimer.current = window.setTimeout(() => setCopiedKey(""), 1300);
+  }
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimer.current) {
+        window.clearTimeout(copyResetTimer.current);
+      }
+    };
+  }, []);
+
+  return (
+    <div
+      className="app-no-drag fixed left-1/2 top-2 z-50 w-[min(560px,56vw,calc(100%_-_48px))] min-w-[220px] -translate-x-1/2 max-[720px]:static max-[720px]:w-full max-[720px]:min-w-0 max-[720px]:translate-x-0"
+      ref={rootRef}
+      title={`${t("Endpoint")} ${value} - ${statusLabel}`}
+    >
+      <Button
+        aria-controls="endpoint-info-panel"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className={cn(
+          "flex h-8 w-full min-w-0 items-center gap-2 rounded-md border border-input bg-card px-3 text-left shadow-sm outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/25",
+          open && "border-ring/35 bg-muted/40"
+        )}
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+        unstyled
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            "h-2.5 w-2.5 shrink-0 rounded-full",
+            running ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]" : "bg-muted-foreground/45"
+          )}
+        />
+        <span className="shrink-0 text-[11px] font-medium text-muted-foreground">{t("Endpoint")}</span>
+        <span className="h-3 w-px shrink-0 bg-border" />
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground">{value}</span>
+        <span className="sr-only">{t("Service status")}: {statusLabel}</span>
+      </Button>
+
+      <AnimatePresence initial={false}>
+        {open ? (
+          <AnimatedPopover className="absolute left-1/2 top-full z-50 mt-2 w-[340px] max-w-[calc(100vw-24px)] -translate-x-1/2">
+            <PopoverContent
+              aria-label={t("Endpoint information")}
+              className="p-3"
+              id="endpoint-info-panel"
+              role="dialog"
+            >
+              <div className="space-y-1.5">
+                <EndpointInfoRow
+                  copied={copiedKey === `loopback:${loopbackBaseUrl}`}
+                  label="Loopback"
+                  value={loopbackBaseUrl}
+                  onCopy={(valueToCopy) => void copyEndpoint(valueToCopy, `loopback:${loopbackBaseUrl}`)}
+                />
+                {networkEndpoints.map((entry, index) => {
+                  const baseUrl = gatewayBaseUrlFromEndpoint(entry.endpoint);
+                  return (
+                    <EndpointInfoRow
+                      copied={copiedKey === `network:${entry.interfaceName}:${entry.address}`}
+                      key={`${entry.interfaceName}-${entry.address}`}
+                      label={index === 0 ? "Network" : ""}
+                      meta={entry.interfaceName}
+                      value={baseUrl}
+                      onCopy={(valueToCopy) => void copyEndpoint(valueToCopy, `network:${entry.interfaceName}:${entry.address}`)}
+                    />
+                  );
+                })}
+              </div>
+
+            </PopoverContent>
+          </AnimatedPopover>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+export function EndpointInfoRow({
+  copied,
+  label,
+  meta,
+  value,
+  onCopy
+}: {
+  copied: boolean;
+  label: string;
+  meta?: string;
+  value: string;
+  onCopy: (value: string) => void;
+}) {
+  const t = useAppText();
+
+  return (
+    <div className="grid grid-cols-[76px_minmax(0,1fr)_24px] items-center gap-2 text-[12px]">
+      <span className="text-right text-muted-foreground">{label ? `${label}:` : null}</span>
+      <span className="min-w-0 truncate font-medium text-foreground">
+        {value}
+        {meta ? <span className="ml-1 text-[11px] font-normal text-muted-foreground">({meta})</span> : null}
+      </span>
+      <Button
+        aria-label={copied ? t("Copied") : t("Copy")}
+        className={cn(
+          "flex h-6 w-6 shrink-0 items-center justify-center rounded-md border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/25",
+          copied
+            ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-600"
+            : "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+        )}
+        title={copied ? t("Copied") : t("Copy")}
+        type="button"
+        unstyled
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          onCopy(value);
+        }}
+      >
+        <AnimatedIconSwap iconKey={copied ? "copied" : "copy"}>
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        </AnimatedIconSwap>
+      </Button>
+    </div>
+  );
+}
+
+function loopbackEndpointFromStatus(endpoint: string, config: AppConfig): string {
+  try {
+    const parsed = new URL(endpoint);
+    return `http://127.0.0.1:${parsed.port || config.gateway.port}`;
+  } catch {
+    return `http://127.0.0.1:${config.gateway.port}`;
+  }
+}
+
+function gatewayBaseUrlFromEndpoint(endpoint: string): string {
+  try {
+    const parsed = new URL(endpoint);
+    parsed.pathname = appendGatewayBasePath(parsed.pathname);
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return `${endpoint.replace(/\/+$/, "")}/v1`;
+  }
+}
+
+function appendGatewayBasePath(pathname: string): string {
+  const normalized = pathname.replace(/\/+$/, "");
+  if (!normalized || normalized === "/") {
+    return "/v1";
+  }
+  if (normalized.endsWith("/v1")) {
+    return normalized;
+  }
+  return `${normalized}/v1`;
+}
+
+async function copyEndpointTextToClipboard(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // Fall back to a temporary textarea for Electron/file contexts where clipboard permissions vary.
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.left = "-9999px";
+  textarea.style.position = "fixed";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}

@@ -1,0 +1,339 @@
+---
+title: 扩展机制
+pageTitle: 扩展机制
+eyebrow: 扩展
+lead: 了解 CCR 扩展如何加载、能注册哪些能力，并从零创建、安装和调试自己的扩展。
+---
+
+## 扩展类型
+
+CCR 的扩展分为两层：
+
+| 类型 | 配置位置 | 运行位置 | 适合做什么 |
+| --- | --- | --- | --- |
+| Wrapper plugin | `plugins` | CCR Desktop 的 Electron wrapper 进程 | 注册本地 HTTP 路由、启动本地后端、拦截代理流量、添加内置浏览器入口、连接供应商账号用量 |
+| Core gateway plugin | `providerPlugins` 或 `plugins[].coreGateway.providerPlugins` | core gateway runtime | 扩展上游供应商、认证方式或 core gateway 内部能力 |
+
+多数用户自定义扩展应从 Wrapper plugin 开始。它能拿到 CCR 配置、私有数据目录和日志对象，并通过 `ctx` 注册能力。
+
+`plugins[]` 是扩展包的安装单位。一个扩展包可以分别暴露三个运行面：
+
+| 运行面 | 配置键 | 启用内容 |
+| --- | --- | --- |
+| App | `surfaces.apps` | 来自 `apps` 或 `ctx.registerApp` 的内置浏览器入口 |
+| Gateway | `surfaces.gateway` | 网关路由、代理路由、HTTP 后端、core gateway 配置和虚拟模型配置 |
+| Provider | `surfaces.provider` | Core provider plugins 和 Provider 账号连接器 |
+
+为了兼容旧配置，三个运行面默认都启用。可以把某个运行面设为 `false`，保留扩展包但禁用对应能力。静态 App 入口可以只声明 `apps` 且不配置 `module`；动态 App 入口仍可通过 App 运行面从 JavaScript 注册，并且必须声明 `trusted-code`。
+
+## 加载机制
+
+启动网关时，CCR 会读取配置里的 `plugins` 数组，并按顺序处理每个 `enabled !== false` 的扩展：
+
+1. 先按启用的运行面应用配置：App 运行面的 `apps`，Gateway 运行面的 `proxy.routes`、`coreGateway.virtualModelProfiles` 和 `coreGateway.config`，以及 Provider 运行面的 `coreGateway.providerPlugins`。
+2. 当任一启用的运行面需要 JavaScript 注册能力时，会加载扩展模块。`module` 必须解析到明确的本地 JavaScript 文件路径，例如绝对路径、`~/` 开头路径，或相对 CCR 配置目录的 `./...` 路径。
+3. 任何通过 `module` 加载 JavaScript 的扩展都必须显式声明 `trusted-code` 权限。权限不是操作系统级沙箱；它用于限制 CCR 插件 API，并把“执行本地代码”的信任边界显式化。
+4. 如果没有配置 `module`，CCR 不会再加载内置兜底扩展。
+5. 模块可以导出函数，也可以导出包含 `setup(ctx)` 或 `activate(ctx)` 的对象。
+6. 扩展停止时，CCR 会反向执行 `stop`、`onStop` 钩子，并关闭该扩展注册的 HTTP 后端和 SQLite store。
+
+扩展模块常见导出形式：
+
+```js
+"use strict";
+
+module.exports = {
+  async setup(ctx) {
+    ctx.logger.info("extension loaded");
+  },
+  async stop() {
+    // 可选：释放扩展自己持有的资源。
+  }
+};
+```
+
+也可以直接导出函数：
+
+```js
+"use strict";
+
+module.exports = async function setup(ctx) {
+  ctx.logger.info(`loaded ${ctx.pluginId}`);
+};
+```
+
+`setup(ctx)` 或 `activate(ctx)` 可以直接调用 `ctx.register...` 方法，也可以返回注册对象。返回对象支持 `apps`、`gatewayRoutes`、`proxyRoutes`、`providerAccountConnectors`、`coreGateway`、`virtualModelProfiles`、`stop` 和 `onStop`。
+
+## ctx 能力参考
+
+`setup(ctx)` 的 `ctx` 包含这些常用字段和方法：
+
+| 字段或方法 | 说明 |
+| --- | --- |
+| `ctx.pluginId` | 当前扩展 ID |
+| `ctx.pluginConfig` | `plugins[].config` 中的自定义配置 |
+| `ctx.config` | 当前 CCR AppConfig 快照 |
+| `ctx.logger` | 带 `[plugin:<id>]` 前缀的 `debug/info/warn/error` 日志 |
+| `ctx.paths.configDir` | CCR 配置目录 |
+| `ctx.paths.dataDir` | CCR 数据目录 |
+| `ctx.paths.pluginDataDir` | 当前扩展专属数据目录 |
+| `ctx.registerGatewayRoute(route)` | 在 CCR 网关上注册本地 HTTP 路由 |
+| `ctx.registerHttpBackend(backend)` | 启动一个本地 HTTP 后端，返回 `{ url, host, port }` |
+| `ctx.registerProxyRoute(route)` | 把代理模式捕获到的某个 host/path 转发到扩展后端或其他 upstream |
+| `ctx.registerApp(app)` | 在内置浏览器应用列表里添加入口 |
+| `ctx.openSqliteStore(options)` | 在扩展数据目录打开 SQLite store |
+| `ctx.registerProviderAccountConnector(connector)` | 注册供应商账号余额或额度读取器 |
+| `ctx.registerCoreGatewayProviderPlugin(plugin)` | 向 core gateway 注入 provider plugin |
+| `ctx.registerCoreGatewayVirtualModelProfile(profile)` | 向 core gateway 注入虚拟模型配置 |
+
+Provider account connector 的 `resolve(request)` 会收到 `request.fetchProviderAccountJson({ endpoint, method, requestOrigin, credentials, headers, body, timeoutMs })`。它通过 CCR Desktop 的内置浏览器会话发请求，因此 `credentials: "include"` 可以为同源账号 API 带上浏览器 Cookie。
+
+Gateway route handler 会额外收到 helper：
+
+| Helper | 说明 |
+| --- | --- |
+| `helpers.readBody(request)` | 读取请求 body，返回 `Buffer` |
+| `helpers.readJson(request)` | 读取并解析 JSON body |
+| `helpers.sendJson(response, statusCode, body)` | 返回 JSON 响应 |
+
+`registerGatewayRoute` 默认使用 `auth: "gateway"`。如果 CCR 配置了 API Key，请求必须带 `Authorization: Bearer <key>` 或 `x-api-key: <key>`。仅调试或本地公开状态页建议使用 `auth: "none"`。
+
+## 创建第一个扩展
+
+创建一个目录，例如 `~/ccr-extensions/hello-extension`：
+
+```text
+hello-extension/
+  plugin.json
+  index.cjs
+```
+
+`plugin.json` 用于让 CCR 的本地扩展选择器识别扩展 ID、名称和入口文件：
+
+```json
+{
+  "id": "hello-extension",
+  "name": "Hello Extension",
+  "module": "index.cjs",
+  "surfaces": ["apps", "gateway"],
+  "permissions": ["trusted-code", "apps", "gateway-routes", "http-backends", "proxy-routes"],
+  "apps": [
+    {
+      "id": "hello-status",
+      "name": "Hello Status",
+      "url": "http://127.0.0.1:3456/plugins/hello"
+    }
+  ]
+}
+```
+
+`index.cjs` 注册一个状态路由、一个 echo 后端，以及一个代理转发规则：
+
+```js
+"use strict";
+
+module.exports = {
+  async setup(ctx) {
+    ctx.registerGatewayRoute({
+      auth: "none",
+      id: "hello-status",
+      method: "GET",
+      path: "/plugins/hello",
+      handler(_request, response, helpers) {
+        helpers.sendJson(response, 200, {
+          ok: true,
+          plugin: ctx.pluginId,
+          message: ctx.pluginConfig?.message || "hello from CCR"
+        });
+      }
+    });
+
+    const backend = await ctx.registerHttpBackend({
+      id: "hello-echo",
+      async handler(request, response, helpers) {
+        const body = request.method === "POST"
+          ? (await helpers.readBody(request)).toString("utf8")
+          : "";
+
+        helpers.sendJson(response, 200, {
+          method: request.method,
+          path: request.url,
+          body
+        });
+      }
+    });
+
+    ctx.registerProxyRoute({
+      host: "api.example.local",
+      id: "hello-example-api",
+      paths: ["/v1"],
+      preserveHost: true,
+      upstream: backend.url
+    });
+
+    ctx.logger.info(`hello backend listening at ${backend.url}`);
+  }
+};
+```
+
+这个扩展会暴露：
+
+- `GET /plugins/hello`：直接挂在 CCR 网关上，用来验证扩展是否加载。
+- 一个本地 echo 后端：由 CCR 自动分配端口。
+- 一个代理规则：当代理模式捕获到 `api.example.local/v1...` 时转发到 echo 后端。
+
+## 安装扩展
+
+推荐使用桌面 UI 安装本地扩展：
+
+1. 打开 **Extensions** 页面。
+2. 点击添加扩展，选择本地扩展目录。
+3. 选择刚创建的 `hello-extension` 目录。
+4. 保存配置。
+5. 打开 **Server** 页面，重启网关。
+
+CCR 的运行配置存储在 SQLite 中。请通过 UI 添加扩展；旧版 JSON 配置文件仅用于参考。扩展条目的配置结构如下：
+
+```json
+{
+  "plugins": [
+    {
+      "id": "hello-extension",
+      "enabled": true,
+      "module": "/Users/you/ccr-extensions/hello-extension/index.cjs",
+      "surfaces": { "apps": true, "gateway": true, "provider": false },
+      "permissions": ["trusted-code", "apps", "gateway-routes", "http-backends", "proxy-routes"],
+      "config": {
+        "message": "hello from my config"
+      }
+    }
+  ]
+}
+```
+
+保存扩展配置后需要重启网关。配置数据库位置见 [配置数据库位置](/configuration/configuration-file/)。
+
+本地目录选择器会按顺序识别这些入口信息：
+
+- `plugin.json`
+- `ccr-plugin.json`
+- `.ccr-plugin/plugin.json`
+- `.codex-plugin/plugin.json`
+- `package.json` 里的 `main`、`ccr.module` 或 `ccrPlugin.module`
+
+如果没有显式入口文件，CCR 会尝试目录里的 `index.cjs`、`index.mjs`、`index.js`、`plugin.cjs`、`plugin.mjs` 或 `plugin.js`。
+
+## 调试扩展
+
+### 1. 先做语法检查
+
+CommonJS 扩展可以运行：
+
+```bash
+node --check ~/ccr-extensions/hello-extension/index.cjs
+```
+
+如果扩展依赖 npm 包，先在扩展目录安装依赖，并确保入口文件能被 Node 解析。
+
+### 2. 用源码模式启动 CCR
+
+在 CCR 仓库根目录运行：
+
+```bash
+npm install
+npm run dev
+```
+
+扩展里的 `ctx.logger.info/warn/error` 会出现在启动 CCR 的终端中，前缀类似 `[plugin:hello-extension]`。
+
+### 3. 验证 Gateway route
+
+启动网关后，请求状态路由：
+
+```bash
+curl http://127.0.0.1:3456/plugins/hello
+```
+
+如果路由使用默认的 `auth: "gateway"`，并且 CCR 已配置 API Key：
+
+```bash
+curl -H "Authorization: Bearer <CCR_API_KEY>" http://127.0.0.1:3456/plugins/hello
+```
+
+也可以使用：
+
+```bash
+curl -H "x-api-key: <CCR_API_KEY>" http://127.0.0.1:3456/plugins/hello
+```
+
+### 4. 验证 HTTP 后端和代理规则
+
+`registerHttpBackend` 返回的 `backend.url` 会写入日志。先直接请求这个地址，确认后端工作正常；再开启代理模式，验证目标 host/path 是否被 `registerProxyRoute` 命中。
+
+代理规则匹配逻辑：
+
+- `host` 必须匹配目标 hostname，支持精确 host、`.example.com` 后缀和 `*.example.com` 通配。
+- `paths` 为空时匹配该 host 的所有路径。
+- 多个路径匹配时，CCR 会选最长的 path prefix。
+- `stripPathPrefix` 会从转发路径中移除匹配前缀。
+- `rewritePathPrefix` 会把匹配前缀替换成指定前缀。
+
+### 5. 常见问题
+
+| 现象 | 排查方向 |
+| --- | --- |
+| 扩展没有加载 | 检查 `plugins[].enabled`、`plugins[].module` 路径和终端里的 `[plugin:<id>]` 报错 |
+| `GET /plugins/hello` 返回 404 | 确认网关已重启，路由 `path` 或 `pathPrefix` 是否以 `/` 开头 |
+| 返回 401 | 路由默认需要 gateway API Key；调试路由可显式设置 `auth: "none"` |
+| 修改代码不生效 | Wrapper plugin 会在网关重启时重新加载；只有进程卡住时才需要重启 CCR |
+| 端口被占用 | `registerHttpBackend` 不传 `port` 会自动分配端口；固定端口冲突时改回自动分配 |
+| 代理规则不命中 | 检查代理模式是否开启、证书是否安装、host 是否匹配真实请求的 hostname |
+
+## 安全建议
+
+- 只有状态页、健康检查或本机调试路由才使用 `auth: "none"`。
+- 不要在日志里打印 API Key、OAuth token、Cookie 或完整请求头。
+- 扩展写入文件时优先使用 `ctx.paths.pluginDataDir`。
+- 对 `readJson` 得到的外部输入做类型校验。
+- 代理转发到外部 upstream 时，明确处理 header 白名单，避免把本地鉴权信息转发到不可信服务。
+
+## 分发扩展与市场清单
+
+**安装本地目录是受支持的第三方分发方式。** 可以发布包含 `plugin.json`、入口 JS 文件及运行依赖的 ZIP 或 Git 仓库。用户解压后在 **扩展 → 安装本地目录** 选择目录、确认运行面与权限、保存并重启网关。CCR 直接加载所选目录，因此安装后需要保留该目录；依赖应事先安装或打包。Release 附件不是本地安装或市场加载的必要条件。
+
+截至 2026-09-26，默认市场仓库 `musistudio/ccr-extensions` 的公开 URL 返回 404。此时可用本地安装；该状态不代表第三方插件格式有误。CCR 会尝试已缓存的市场清单，没有缓存时市场列表为空。市场仓库的公开与投稿安排需要仓库维护者确认。
+
+市场作者可参考 [JSON Schema](/schemas/plugin-marketplace.schema.json)。这是推荐字段的编写格式；运行时也兼容部分旧字段别名。最小目录示例：
+
+```text
+marketplace/plugins.json
+plugins/example-usage/index.cjs
+```
+
+`marketplace/plugins.json`：
+
+```json
+{
+  "plugins": [
+    {
+      "id": "example-usage",
+      "name": "Example account usage",
+      "description": "Provider account usage connector",
+      "module": "../plugins/example-usage/index.cjs",
+      "surfaces": { "apps": false, "gateway": false, "provider": true },
+      "permissions": ["trusted-code", "provider-account-connectors"]
+    }
+  ]
+}
+```
+
+- 清单与模块地址必须使用 HTTPS；模块相对路径以清单 URL 为基准，支持 `.cjs`、`.mjs`、`.js`。
+- `module` 应是自包含构建产物：市场下载器只获取这个文件，不会安装 npm 依赖或相邻文件。多文件扩展可先用本地目录分发。
+- 建议加 `integrity`，值为实际模块的 64 位十六进制 SHA-256，或 `sha256-<base64>`。修改模块后必须同步更新摘要。可使用 `shasum -a 256 index.cjs` 计算。
+- `dependencies` 可列依赖插件 ID，或带 `id`、`module`、`integrity`、`permissions`、`surfaces` 的对象。它表示插件依赖，不是 npm 安装清单。
+- `apps` 可列 `{ "id": "status", "name": "Status", "url": "/plugins/status" }`；只有 App 入口时可以省略 `module`。`capabilities` 为描述字符串数组。
+- 自建市场可在启动 CCR 前设置 `CCR_PLUGIN_MARKETPLACE_URL` 为自己的 HTTPS 清单地址。
+
+### 桌面插件调用外部 CLI
+
+桌面进程的 PATH 可能与终端不同。发现 CLI 时允许用户配置绝对路径，并检查可执行文件是否存在。对于已确认的 Node.js 入口脚本，可以用 `process.execPath` 执行，并在 Electron 宿主下传入 `ELECTRON_RUN_AS_NODE=1`；原生二进制应直接执行。使用 `execFile`/`spawn` 的参数数组，避免把凭据放进 shell 命令字符串或日志。

@@ -1,0 +1,2515 @@
+import claudeCodeLogoUrl from "@/assets/agent-logos/claude-code.png";
+import codexLogoUrl from "@/assets/agent-logos/codex.png";
+import grokLogoUrl from "@/assets/agent-logos/grok.ico";
+import openCodeLogoUrl from "@/assets/agent-logos/opencode.ico";
+import zcodeLogoUrl from "@/assets/agent-logos/zcode.png";
+import moonshotProviderIconUrl from "@/assets/provider-icons/moonshot.ico";
+import {
+  ROUTER_SCRIPT_API_VERSION,
+  ROUTER_SCRIPT_MAX_TIMEOUT_MS
+} from "@ccr/core/contracts/app";
+import type {
+  AppConfig,
+  ApiKeyLimitConfig,
+  GatewayProviderConfig,
+  GatewayProviderCapability,
+  GatewayProviderCapabilityProtocol,
+  GatewayProviderProbeResult,
+  GatewayProviderProtocol,
+  LocalAgentProviderKind,
+  ProviderAccountConfig,
+  ProviderAccountConnectorConfig,
+  ProviderAccountHttpJsonConnectorConfig,
+  ProviderAccountMappedMeterConfig,
+  ProviderAccountStandardConnectorConfig,
+  ProviderAccountWebContentJsonConnectorConfig,
+  ProviderCredentialConfig,
+  ProviderDeepLinkPayload,
+  ProviderModelMetadata,
+  RouterFallbackConfig,
+  RouterRule,
+  RouterRuleCondition,
+  RouterRuleRewrite,
+  RouterRuleType,
+  VirtualModelProfileConfig
+} from "@ccr/core/contracts/app";
+import {
+  customProviderPresetId,
+  defaultProviderAccountConfig,
+  standardProviderAccountConfig,
+  type ProviderIdentitySafetyIssue,
+  type ProviderPreset
+} from "@ccr/core/providers/presets/types";
+import {
+  primaryProviderPresetEndpoint as primaryProviderPresetEndpointFromPreset
+} from "@ccr/core/providers/presets/utils";
+import { newApiUserSelfConnectorConfig } from "@ccr/core/providers/new-api";
+import { normalizeProviderBaseUrl, providerUrlWithDefaultScheme } from "@ccr/core/providers/url";
+import {
+  providerPresetIconUrls,
+  providerProtocolOptions,
+  routerConditionSourceOptions
+} from "./options";
+import type { RouterConditionSource } from "./options";
+
+import { normalizeApiKeyLimits, positiveInteger } from "./api-keys";
+import { isPlainRecord, normalizeProviderModelSelector, stringValue, uniqueStrings } from "./common";
+import { formatEditableJson } from "./extensions";
+import { findProviderPreset, findProviderPresetByBaseUrl, findProviderPresetByIdentity, providerApiKeySafetyIssue, providerEndpointCanReceiveProviderApiKey, providerIdentitySafetyIssue } from "./external";
+import { fusionModelProviderName } from "./profiles";
+import { normalizeRouterFallbackConfig } from "./routing";
+import { keyValueRowsFromRecord, recordFromKeyValueRows, validateKeyValueRows, virtualModelMatchSummary } from "./virtual-models";
+import { isGatewayProviderEnabled } from "@ccr/core/contracts/app";
+import type { AddProviderDraft, AddRoutingRuleDraft, ModelCatalogItem, ProviderCredentialDraft, ProviderProbeCandidate, ProviderProbeCandidateResult, ProviderUsageFieldTarget, RoutingRewriteDraftRow, RoutingRuleRow, ViewId } from "./types";
+
+export const localAgentProviderIconUrls: Record<LocalAgentProviderKind, string> = {
+  "claude-code": claudeCodeLogoUrl,
+  codex: codexLogoUrl,
+  grok: grokLogoUrl,
+  kimi: moonshotProviderIconUrl,
+  opencode: openCodeLogoUrl,
+  zcode: zcodeLogoUrl
+};
+
+const localAgentProviderApiKeyValue = "ccr-local-agent-login";
+
+export function createModelCatalogItems(config: AppConfig): ModelCatalogItem[] {
+  const rows: ModelCatalogItem[] = [];
+  config.Providers.forEach((provider, providerIndex) => {
+    const providerName = provider.name?.trim();
+    if (!isGatewayProviderEnabled(provider) || !providerName) {
+      return;
+    }
+    for (const model of mergeProviderModelLists(provider.models)) {
+      const description = provider.modelDescriptions?.[model]?.trim();
+      const displayName = provider.modelDisplayNames?.[model]?.trim();
+      rows.push({
+        ...(description ? { description } : {}),
+        ...(displayName ? { displayName } : {}),
+        key: `provider-model:${providerIndex}:${providerName}:${model}`,
+        model,
+        providerIndex,
+        providerName
+      });
+    }
+  });
+  const virtualModels = (config.virtualModelProfiles ?? [])
+    .filter(virtualModelIsCatalogVisible)
+    .flatMap(virtualModelCatalogNames);
+
+  return [
+    ...rows,
+    ...uniqueStrings(virtualModels).map((model, index) => ({
+      key: `virtual-model:${index}:${model}`,
+      model
+    }))
+  ];
+}
+
+export function virtualModelIsCatalogVisible(profile: VirtualModelProfileConfig): boolean {
+  return profile.enabled !== false &&
+    profile.materialization?.enabled !== false &&
+    profile.materialization?.includeInGatewayModels !== false;
+}
+
+export function virtualModelCatalogNames(profile: VirtualModelProfileConfig): string[] {
+  return virtualModelRawCatalogNames(profile).map(fusionModelSelector);
+}
+
+export function virtualModelProfileModelNames(profiles: VirtualModelProfileConfig[]): string[] {
+  return uniqueStrings(
+    profiles
+      .filter(virtualModelIsCatalogVisible)
+      .flatMap(virtualModelRawCatalogNames)
+      .map(fusionModelNameFromSelector)
+      .filter(Boolean)
+  );
+}
+
+export function fusionModelSelector(model: string): string {
+  const normalized = fusionModelNameFromSelector(model);
+  return normalized ? `${fusionModelProviderName}/${normalized}` : "";
+}
+
+export function fusionModelNameFromSelector(model: string): string {
+  const trimmed = model.trim();
+  const prefix = `${fusionModelProviderName}/`;
+  return trimmed.toLowerCase().startsWith(prefix.toLowerCase())
+    ? trimmed.slice(prefix.length).trim()
+    : trimmed;
+}
+
+function virtualModelRawCatalogNames(profile: VirtualModelProfileConfig): string[] {
+  const exactAliases = uniqueStrings(profile.match?.exactAliases ?? []);
+  if (exactAliases.length > 0) {
+    return exactAliases;
+  }
+  const matchSummary = virtualModelMatchSummary(profile);
+  if (matchSummary && matchSummary !== "-") {
+    return [matchSummary];
+  }
+  return [profile.key || profile.displayName].filter(Boolean);
+}
+
+export function modelCatalogItemMatchesQuery(row: ModelCatalogItem, query: string): boolean {
+  if (!query) {
+    return true;
+  }
+
+  return row.model.toLowerCase().includes(query) ||
+    (row.providerName ?? "").toLowerCase().includes(query) ||
+    (row.displayName ?? "").toLowerCase().includes(query) ||
+    (row.description ?? "").toLowerCase().includes(query);
+}
+
+export function createRouteModelOptions(providers: GatewayProviderConfig[]): Array<{ label: string; value: string }> {
+  return providers.flatMap((provider) => {
+    if (!isGatewayProviderEnabled(provider) || !provider.name || !Array.isArray(provider.models)) {
+      return [];
+    }
+    return provider.models
+      .filter(Boolean)
+      .map((model) => ({
+        label: `${provider.name}/${providerModelDisplayName(provider, model)}`,
+        value: `${provider.name}/${model}`
+      }));
+  });
+}
+
+export function routeTargetOptions(modelOptions: Array<{ label: string; value: string }>, value: string): Array<{ label: string; value: string }> {
+  const normalizedValue = normalizeProviderModelSelector(value);
+  const options = [{ label: "Unset", value: "" }, ...modelOptions];
+  if (normalizedValue && !options.some((option) => option.value === normalizedValue)) {
+    return [{ label: normalizedValue, value: normalizedValue }, ...options];
+  }
+  return options;
+}
+
+export function routerRuleTypeLabel(type: RouterRuleType): string {
+  if (type === "condition") return "Condition";
+  if (type === "script") return "Node.js script";
+  return "Legacy";
+}
+
+export function formatRouterRuleCondition(rule: RouterRule): string {
+  if (rule.type === "script") {
+    return `Node.js · ${rule.script?.timeoutMs ?? 2000}ms`;
+  }
+  const condition = routerRuleConditionFromRule(rule);
+  if (condition) {
+    return `${condition.left} ${condition.operator} ${condition.right}`;
+  }
+  return "condition unset";
+}
+
+export function routerRuleConditionFromRule(rule: RouterRule, _config?: AppConfig): RouterRuleCondition | undefined {
+  if (rule.condition) {
+    return rule.condition;
+  }
+  if (rule.type === "condition") {
+    return undefined;
+  }
+  if (rule.type === "model-prefix") {
+    return {
+      left: "request.body.model",
+      operator: "starts-with",
+      right: rule.pattern ?? ""
+    };
+  }
+  return undefined;
+}
+
+export function formatRouterRuleTarget(rule: RouterRule): string {
+  const rewrites = routerRuleRewritesFromRule(rule);
+  const action = rewrites.length
+    ? rewrites.map(formatRouterRewriteSummary).join("; ")
+    : rule.type === "script" ? "Dynamic script decision" : "No request rewrite";
+  return rule.fallback ? `${action} · ${formatRouterFallbackSummary(rule.fallback)}` : action;
+}
+
+export function routerRuleRewriteFromRule(rule: RouterRule): RouterRuleRewrite | undefined {
+  return routerRuleRewritesFromRule(rule)[0];
+}
+
+export function routerRuleRewritesFromRule(rule: RouterRule): RouterRuleRewrite[] {
+  if (rule.rewrites?.length) {
+    return rule.rewrites.map(normalizeRouterModelRewrite);
+  }
+  if (rule.rewrite) {
+    return [normalizeRouterModelRewrite(rule.rewrite)];
+  }
+  return rule.target
+    ? [{ key: "request.body.model", operation: "set", value: normalizeProviderModelSelector(rule.target) }]
+    : [];
+}
+
+export function formatRouterRewriteSummary(rewrite: RouterRuleRewrite): string {
+  const operation = rewrite.operation ?? "set";
+  if (operation === "delete") {
+    return `delete ${rewrite.key}`;
+  }
+  if (operation === "array-replace") {
+    return `array-replace ${rewrite.key}: ${rewrite.match ?? ""} -> ${rewrite.value ?? ""}`;
+  }
+  if (operation.startsWith("array-")) {
+    return `${operation} ${rewrite.key}: ${rewrite.value ?? ""}`;
+  }
+  return `set ${rewrite.key} = ${rewrite.value ?? ""}`;
+}
+
+export function formatRouterFallbackSummary(fallback: RouterFallbackConfig): string {
+  if (fallback.mode === "off") {
+    return "fallback off";
+  }
+  if (fallback.mode === "retry") {
+    return `retry ${fallback.retryCount}x`;
+  }
+  const models = fallback.models.map(normalizeProviderModelSelector);
+  return models.length ? `on failure ${models.join(" > ")}` : "fallback targets unset";
+}
+
+export function routerRuleMatchesQuery(rule: RouterRule, query: string): boolean {
+  if (!query) {
+    return true;
+  }
+
+  return [
+    rule.id,
+    rule.name,
+    routerRuleTypeLabel(rule.type),
+    formatRouterRuleCondition(rule),
+    formatRouterRuleTarget(rule)
+  ]
+    .filter(Boolean)
+    .some((value) => value.toLowerCase().includes(query));
+}
+
+export function routingRuleRowMatchesQuery(row: RoutingRuleRow, query: string): boolean {
+  if (!query) {
+    return true;
+  }
+
+  return [
+    row.condition,
+    row.name,
+    row.ruleId,
+    row.sourceLabel,
+    row.target,
+    row.typeLabel
+  ].some((value) => value.toLowerCase().includes(query));
+}
+
+export function createRoutingRuleDraft(config?: AppConfig): AddRoutingRuleDraft {
+  const rewrite = createRoutingRewriteDraftRow();
+  return {
+    conditionField: "",
+    conditionLeft: "request.header.",
+    conditionOperator: "==",
+    conditionRight: "",
+    conditionSource: "request.header",
+    enabled: true,
+    fallback: normalizeRouterFallbackConfig(config?.Router.fallback),
+    name: "Condition",
+    pattern: "",
+    rewriteKey: rewrite.key,
+    rewriteValue: rewrite.value,
+    rewrites: [rewrite],
+    scriptFile: "",
+    scriptTimeoutMs: "2000",
+    target: "",
+    threshold: "200000",
+    type: "condition"
+  };
+}
+
+export function createRoutingRuleDraftFromRule(rule: RouterRule, config?: AppConfig): AddRoutingRuleDraft {
+  const condition = routerRuleConditionFromRule(rule, config);
+  const conditionPath = splitRouterConditionPath(condition?.left);
+  const rewrites = routerRuleRewritesFromRule(rule).map(createRoutingRewriteDraftRowFromRewrite);
+  const firstRewrite = rewrites[0] ?? createRoutingRewriteDraftRow();
+  return {
+    conditionField: conditionPath.field,
+    conditionLeft: condition?.left ?? "request.header.",
+    conditionOperator: condition?.operator ?? "==",
+    conditionRight: condition?.right ?? "",
+    conditionSource: conditionPath.source,
+    enabled: rule.enabled,
+    fallback: normalizeRouterFallbackConfig(rule.fallback ?? config?.Router.fallback),
+    name: rule.name,
+    pattern: rule.pattern ?? "",
+    rewriteKey: firstRewrite.key,
+    rewriteValue: firstRewrite.value,
+    rewrites: rule.type === "script" ? [] : rewrites.length ? rewrites : [firstRewrite],
+    scriptFile: rule.script?.file ?? "",
+    scriptTimeoutMs: String(rule.script?.timeoutMs ?? 2000),
+    target: rule.target ?? "",
+    threshold: String(rule.threshold ?? 200000),
+    type: rule.type === "script" ? "script" : "condition"
+  };
+}
+
+export function buildRouterConditionPath(source: RouterConditionSource, field: string): string {
+  const normalizedField = field.trim().replace(/^\.+/, "");
+  return normalizedField ? `${source}.${normalizedField}` : `${source}.`;
+}
+
+export function splitRouterConditionPath(value: string | undefined): { field: string; source: RouterConditionSource } {
+  const path = value?.trim() ?? "";
+  const source = routerConditionSourceOptions.find((option) =>
+    path === option.value || path.startsWith(`${option.value}.`)
+  )?.value ?? "request.header";
+  return {
+    field: path.startsWith(`${source}.`) ? path.slice(source.length + 1) : "",
+    source
+  };
+}
+
+export function createRoutingRewriteDraftRow(): RoutingRewriteDraftRow {
+  return {
+    id: `rewrite-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    key: "request.body.model",
+    match: "",
+    operation: "set",
+    value: ""
+  };
+}
+
+export function createRoutingRewriteDraftRowFromRewrite(rewrite: RouterRuleRewrite): RoutingRewriteDraftRow {
+  const key = rewrite.key;
+  return {
+    id: `rewrite-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    key,
+    match: rewrite.match ?? "",
+    operation: rewrite.operation ?? "set",
+    value: normalizeRouterModelRewriteValue(key, rewrite.value)
+  };
+}
+
+export function isRoutingRewriteDraftRowValid(row: RoutingRewriteDraftRow): boolean {
+  if (!row.key.trim()) {
+    return false;
+  }
+  if (row.operation === "delete") {
+    return true;
+  }
+  if (row.operation === "array-replace") {
+    return Boolean(row.match.trim() && row.value.trim());
+  }
+  return Boolean(row.value.trim());
+}
+
+export function isRoutingRuleDraftSubmittable(draft: AddRoutingRuleDraft): boolean {
+  if (!draft.name.trim()) return false;
+  if (draft.type === "script") {
+    const timeoutMs = Number(draft.scriptTimeoutMs);
+    return Boolean(draft.scriptFile.trim()) &&
+      Number.isInteger(timeoutMs) &&
+      timeoutMs >= 10 &&
+      timeoutMs <= ROUTER_SCRIPT_MAX_TIMEOUT_MS;
+  }
+  return draft.rewrites.length > 0 &&
+    draft.rewrites.every(isRoutingRewriteDraftRowValid) &&
+    Boolean(draft.conditionField.trim() && draft.conditionOperator && draft.conditionRight.trim());
+}
+
+export function routingRewriteFromDraftRow(row: RoutingRewriteDraftRow): RouterRuleRewrite {
+  const key = row.key.trim();
+  const value = normalizeRouterModelRewriteValue(key, row.value);
+  return {
+    key,
+    ...(row.operation !== "set" ? { operation: row.operation } : { operation: "set" as const }),
+    ...(row.operation === "array-replace" ? { match: row.match.trim() } : {}),
+    ...(row.operation !== "delete" ? { value } : {})
+  };
+}
+
+export function routingRuleFromDraft(
+  draft: AddRoutingRuleDraft,
+  existingRules: RouterRule[],
+  existingRule?: RouterRule
+): RouterRule {
+  const commonRule = {
+    enabled: draft.enabled,
+    fallback: normalizeRouterFallbackConfig(draft.fallback),
+    id: existingRule?.id ?? uniqueRoutingRuleId(existingRules),
+    name: draft.name.trim()
+  };
+  return draft.type === "script"
+    ? {
+        ...commonRule,
+        script: {
+          apiVersion: ROUTER_SCRIPT_API_VERSION,
+          file: draft.scriptFile.trim(),
+          language: "javascript" as const,
+          timeoutMs: Number(draft.scriptTimeoutMs)
+        },
+        type: "script"
+      }
+    : {
+        ...commonRule,
+        condition: {
+          left: buildRouterConditionPath(draft.conditionSource, draft.conditionField),
+          operator: draft.conditionOperator,
+          right: draft.conditionRight.trim()
+        },
+        rewrites: draft.rewrites.map(routingRewriteFromDraftRow),
+        type: "condition"
+      };
+}
+
+function normalizeRouterModelRewrite(rewrite: RouterRuleRewrite): RouterRuleRewrite {
+  return isModelRewriteKey(rewrite.key) && rewrite.value
+    ? { ...rewrite, value: normalizeProviderModelSelector(rewrite.value) }
+    : rewrite;
+}
+
+function normalizeRouterModelRewriteValue(key: string, value: string | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  return isModelRewriteKey(key) ? normalizeProviderModelSelector(trimmed) : trimmed;
+}
+
+function isModelRewriteKey(key: string | undefined): boolean {
+  return key?.trim() === "request.body.model";
+}
+
+export function uniqueRoutingRuleId(rules: RouterRule[]): string {
+  let index = rules.length + 1;
+  let id = `rule-${index}`;
+  while (rules.some((rule) => rule.id === id)) {
+    index += 1;
+    id = `rule-${index}`;
+  }
+  return id;
+}
+
+export async function probeProviderDeepLinkPayload(payload: ProviderDeepLinkPayload): Promise<GatewayProviderProbeResult | undefined> {
+  if (!window.ccr || !shouldAutoProbeProviderBaseUrl(payload.baseUrl)) {
+    return undefined;
+  }
+
+  const apiKey = payload.apiKey?.trim();
+  try {
+    return await window.ccr.probeProvider({
+      apiKey: apiKey || undefined,
+      baseUrl: payload.baseUrl,
+      mode: apiKey ? "models" : "protocols",
+      models: apiKey ? [] : payload.models,
+      protocols: payload.protocol ? [payload.protocol] : providerProtocolOptions.map((option) => option.value)
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+export type ProviderDeepLinkIconResolution = {
+  displayIcon?: string;
+  persistentIcon?: string;
+  preset?: ProviderPreset;
+};
+
+export function resolveProviderDeepLinkPreset(payload: ProviderDeepLinkPayload): ProviderPreset | undefined {
+  const baseUrlPreset = findProviderPresetByBaseUrl(payload.baseUrl);
+  if (baseUrlPreset) {
+    return baseUrlPreset;
+  }
+
+  const identityPreset = findProviderPresetByIdentity(payload.name);
+  if (!identityPreset) {
+    return undefined;
+  }
+
+  const identityIssue = providerIdentitySafetyIssue({
+    baseUrl: payload.baseUrl,
+    name: payload.name,
+    presetId: identityPreset.id
+  });
+  return identityIssue ? undefined : identityPreset;
+}
+
+export function providerDeepLinkDisplayIcon(payload: ProviderDeepLinkPayload): string {
+  const preset = resolveProviderDeepLinkPreset(payload);
+  const presetIcon = preset ? providerPresetIconUrls[preset.id] ?? "" : "";
+  return presetIcon || payload.icon?.trim() || "";
+}
+
+export function providerDisplayIcon(provider: GatewayProviderConfig): string {
+  if (isLocalGrokProvider(provider)) {
+    return grokLogoUrl;
+  }
+  const icon = provider.icon?.trim();
+  if (icon) {
+    return icon;
+  }
+
+  const preset = findProviderPresetByBaseUrl(providerBaseUrl(provider));
+  return preset ? providerPresetIconUrls[preset.id] ?? "" : "";
+}
+
+function isLocalGrokProvider(provider: GatewayProviderConfig): boolean {
+  if (providerApiKey(provider) !== localAgentProviderApiKeyValue) {
+    return false;
+  }
+  const baseUrl = normalizeProviderBaseUrl(providerBaseUrl(provider)).toLowerCase();
+  const name = provider.name?.toLowerCase() ?? "";
+  return baseUrl.includes("cli-chat-proxy.grok.com") || name.includes("grok");
+}
+
+export type ProviderDeepLinkCatalogModelsResolution = {
+  modelDisplayNames?: Record<string, string>;
+  modelMetadata?: Record<string, ProviderModelMetadata>;
+  models: string[];
+};
+
+export async function resolveProviderDeepLinkCatalogModels(payload: ProviderDeepLinkPayload): Promise<ProviderDeepLinkCatalogModelsResolution> {
+  const ccr = window.ccr;
+  if (!ccr?.getProviderCatalogModels) {
+    return {
+      models: []
+    };
+  }
+
+  const preset = resolveProviderDeepLinkPreset(payload);
+  try {
+    const result = await ccr.getProviderCatalogModels({
+      baseUrl: payload.baseUrl,
+      name: payload.name,
+      providerPresetId: preset?.id
+    });
+    return {
+      modelDisplayNames: mergeModelDisplayNames(result.modelDisplayNames),
+      modelMetadata: modelMetadataForModels(result.modelMetadata, result.models),
+      models: mergeProviderModelLists(result.models)
+    };
+  } catch {
+    return {
+      models: []
+    };
+  }
+}
+
+function providerPresetModelDisplayNames(preset: ProviderPreset | undefined): Record<string, string> | undefined {
+  const entries = Object.entries(preset?.defaultModelDisplayNames ?? {})
+    .map(([model, displayName]) => [model.trim(), displayName.trim()] as const)
+    .filter(([model, displayName]) => model && displayName && model !== displayName);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+export async function resolveProviderDeepLinkIcon(payload: ProviderDeepLinkPayload): Promise<ProviderDeepLinkIconResolution> {
+  const existingIcon = payload.icon?.trim();
+  const preset = resolveProviderDeepLinkPreset(payload);
+  const presetIcon = preset ? providerPresetIconUrls[preset.id] ?? "" : "";
+  if (existingIcon || presetIcon) {
+    return {
+      displayIcon: presetIcon || existingIcon || undefined,
+      persistentIcon: existingIcon || undefined,
+      preset
+    };
+  }
+
+  const ccr = window.ccr;
+  if (!ccr?.detectProviderIcon) {
+    return {};
+  }
+
+  try {
+    const result = await ccr.detectProviderIcon({ baseUrl: payload.baseUrl });
+    const detectedIcon = result.icon?.trim();
+    return {
+      displayIcon: detectedIcon || undefined,
+      persistentIcon: detectedIcon || undefined
+    };
+  } catch {
+    return {};
+  }
+}
+
+export function createProviderDraftFromDeepLinkPayload(
+  payload: ProviderDeepLinkPayload,
+  providers: GatewayProviderConfig[]
+): AddProviderDraft {
+  const baseUrl = payload.baseUrl.trim();
+  const preset = resolveProviderDeepLinkPreset(payload);
+  const endpoint = preset ? primaryProviderPresetEndpointFromPreset(preset) : undefined;
+  const protocol = payload.protocol ?? endpoint?.protocols[0] ?? "openai_chat_completions";
+  const accountDraft = createProviderAccountDraftFromConfig(payload.account ?? defaultProviderAccountConfigForBaseUrl(baseUrl));
+  const models = mergeProviderModelLists(payload.models.length > 0 ? payload.models : preset?.defaultModels ?? []);
+  const baseName = payload.name?.trim() || inferProviderNameFromBaseUrl(baseUrl);
+
+  return {
+    ...accountDraft,
+    apiKey: payload.apiKey?.trim() || "",
+    autoFetchModels: false,
+    autoFetchKnownModels: [],
+    baseUrl,
+    capabilities: payload.capabilities ?? [],
+    catalogModelMetadata: undefined,
+    credentialMode: "apiKey",
+    credentials: [],
+    extraBodyText: "",
+    extraHeadersText: "",
+    icon: payload.icon?.trim() || "",
+    modelDescriptions: modelDescriptionsForModels(payload.modelDescriptions, models),
+    modelDisplayNames: modelDisplayNamesForModels(
+      mergeModelDisplayNames(providerPresetModelDisplayNames(preset), payload.modelDisplayNames),
+      models
+    ),
+    modelMetadata: modelMetadataForModels(payload.modelMetadata, models),
+    modelSearch: "",
+    modelsText: models.join("\n"),
+    name: uniqueProviderName(providers, baseName),
+    presetId: preset?.id ?? customProviderPresetId,
+    protocolDetectionMode: "auto",
+    providerPlugins: [],
+    protocol,
+    selectedModels: [],
+    selectedProtocols: uniqueProviderProtocols(preset?.endpoints.flatMap((item) => item.protocols) ?? [protocol])
+  };
+}
+
+export function createProviderConfigFromDeepLink(
+  payload: ProviderDeepLinkPayload,
+  providers: GatewayProviderConfig[],
+  probe: GatewayProviderProbeResult | undefined
+): GatewayProviderConfig {
+  const protocol = payload.protocol ?? probe?.detectedProtocol ?? "openai_chat_completions";
+  const baseUrl = providerGlobalBaseUrlForProbe(payload.baseUrl, probe, [protocol]);
+  const apiKey = payload.apiKey?.trim() || "";
+  const models = apiKey && probe?.models.length
+    ? mergeProviderModelLists(probe.models)
+    : payload.models.length > 0
+    ? mergeProviderModelLists(payload.models)
+    : mergeProviderModelLists(probe?.models ?? []);
+  if (models.length === 0) {
+    throw new Error("Models are required. Ask the provider to include models=... in the link.");
+  }
+
+  const baseName = payload.name?.trim() || inferProviderNameFromBaseUrl(baseUrl);
+  const name = uniqueProviderName(providers, baseName);
+  const keySafetyIssue = providerApiKeySafetyIssue({ apiKey: payload.apiKey, baseUrl, name });
+  if (keySafetyIssue) {
+    throw new Error(keySafetyIssue.message);
+  }
+  const identityIssue = providerIdentitySafetyIssue({ baseUrl, name });
+  if (identityIssue) {
+    throw new Error(identityIssue.message);
+  }
+  const account = payload.account ?? probe?.account ?? defaultProviderAccountConfigForBaseUrl(baseUrl);
+  const accountKeySafetyIssue = providerAccountApiKeySafetyIssue(account, {
+    apiKey: payload.apiKey,
+    baseUrl,
+    providerName: name
+  });
+  if (accountKeySafetyIssue) {
+    throw new Error(accountKeySafetyIssue.message);
+  }
+
+  const capabilities = mergeProviderCapabilities(
+    payload.capabilities ?? [],
+    providerCapabilitiesForProtocols(payload.baseUrl, [protocol], probe)
+  );
+
+  return {
+    account: cloneProviderAccountConfig(account),
+    api_base_url: normalizeProviderBaseUrl(baseUrl),
+    api_key: apiKey,
+    capabilities: capabilities.length > 0 ? capabilities : undefined,
+    icon: payload.icon?.trim() || undefined,
+    modelDescriptions: modelDescriptionsForModels(payload.modelDescriptions, models),
+    modelDisplayNames: modelDisplayNamesForModels(mergeModelDisplayNames(payload.modelDisplayNames, probe?.modelDisplayNames), models),
+    modelMetadata: modelMetadataForModels(mergeModelMetadata(payload.modelMetadata, probe?.modelMetadata), models),
+    models,
+    name,
+    type: protocol
+  };
+}
+
+export function inferProviderNameFromBaseUrl(baseUrl: string): string {
+  try {
+    const url = new URL(providerUrlWithDefaultScheme(baseUrl));
+    const host = url.hostname.replace(/^api\./i, "");
+    return host || "provider";
+  } catch {
+    return "provider";
+  }
+}
+
+export function createProviderDraft(providers: GatewayProviderConfig[]): AddProviderDraft {
+  const accountDraft = createDefaultProviderAccountDraft();
+  return {
+    ...accountDraft,
+    apiKey: "",
+    autoFetchModels: false,
+    autoFetchKnownModels: [],
+    baseUrl: "",
+    capabilities: [],
+    catalogModelMetadata: undefined,
+    credentialMode: "apiKey",
+    credentials: [],
+    extraBodyText: "",
+    extraHeadersText: "",
+    icon: "",
+    modelDescriptions: undefined,
+    modelDisplayNames: undefined,
+    modelMetadata: undefined,
+    modelSearch: "",
+    modelsText: "",
+    name: uniqueProviderName(providers),
+    presetId: "",
+    protocolDetectionMode: "auto",
+    providerPlugins: [],
+    protocol: "openai_chat_completions",
+    selectedModels: [],
+    selectedProtocols: []
+  };
+}
+
+export function createProviderDraftFromProvider(provider: GatewayProviderConfig): AddProviderDraft {
+  const baseUrl = providerBaseUrl(provider);
+  const preset = findProviderPresetByBaseUrl(baseUrl);
+  const accountDraft = createProviderAccountDraftFromConfig(provider.account);
+  const protocol = toProviderProtocol(provider.type) ?? toProviderProtocol(provider.provider) ?? "openai_chat_completions";
+  const credentials = (provider.credentials ?? []).map(providerCredentialDraftFromConfig);
+  return {
+    ...accountDraft,
+    apiKey: providerApiKey(provider),
+    autoFetchModels: Boolean(provider.autoFetchModels),
+    autoFetchKnownModels: mergeProviderModelLists(provider.autoFetchKnownModels ?? []),
+    baseUrl,
+    capabilities: provider.capabilities ?? [],
+    catalogModelMetadata: undefined,
+    credentialMode: providerDraftHasReadyCredentialPool({ credentials }) ? "pool" : "apiKey",
+    credentials,
+    extraBodyText: providerExtraJsonDraftText(provider.extraBody),
+    extraHeadersText: providerExtraJsonDraftText(provider.extraHeaders),
+    icon: provider.icon ?? "",
+    modelDescriptions: modelDescriptionsForModels(provider.modelDescriptions, provider.models),
+    modelDisplayNames: modelDisplayNamesForModels(
+      mergeModelDisplayNames(providerPresetModelDisplayNames(preset), provider.modelDisplayNames),
+      provider.models
+    ),
+    modelMetadata: modelMetadataForModels(provider.modelMetadata, provider.models),
+    modelSearch: "",
+    modelsText: provider.models.join("\n"),
+    name: provider.name,
+    presetId: preset?.id ?? customProviderPresetId,
+    protocolDetectionMode: provider.protocolDetectionMode === "manual" ? "manual" : "auto",
+    providerPlugins: [],
+    protocol,
+    selectedModels: [],
+    selectedProtocols: selectedProviderProtocolsFromCapabilities(provider.capabilities, protocol)
+  };
+}
+
+export function providerConnectivityProviderPlugins(
+  draft: AddProviderDraft,
+  providerPlugins: unknown[] | undefined,
+  existingProvider?: GatewayProviderConfig
+): unknown[] {
+  if (draft.providerPlugins.length > 0) {
+    return draft.providerPlugins.filter(providerPluginEnabled);
+  }
+  if (providerConnectivityApiKeyFromDraft(draft) !== localAgentProviderApiKeyValue) {
+    return [];
+  }
+
+  const names = localAgentProviderPluginNamesForDraft(draft, existingProvider);
+  return (providerPlugins ?? []).filter((plugin) =>
+    providerPluginEnabled(plugin) &&
+    localAgentProviderPluginMatchesNames(plugin, names)
+  );
+}
+
+export function removeLocalAgentProviderPluginsForProvider(
+  current: unknown[] | undefined,
+  provider: GatewayProviderConfig | undefined
+): unknown[] | undefined {
+  if (!provider || providerApiKey(provider) !== localAgentProviderApiKeyValue) {
+    return current;
+  }
+
+  const names = localAgentProviderPluginNamesForProvider(provider);
+  return (current ?? []).filter((plugin) => !localAgentProviderPluginMatchesNames(plugin, names));
+}
+
+function localAgentProviderPluginNamesForDraft(
+  draft: AddProviderDraft,
+  existingProvider: GatewayProviderConfig | undefined
+): Set<string> {
+  const existingProviderIdOrName = existingProvider?.id || existingProvider?.name;
+  return providerPluginMatchNames([
+    draft.name,
+    existingProvider?.name,
+    existingProvider?.id,
+    existingProviderIdOrName ? providerNameSlug(existingProviderIdOrName) : undefined
+  ], draft.protocol);
+}
+
+function localAgentProviderPluginNamesForProvider(provider: GatewayProviderConfig): Set<string> {
+  const protocol = toProviderProtocol(provider.type) ?? toProviderProtocol(provider.provider);
+  const providerIdOrName = provider.id || provider.name;
+  return providerPluginMatchNames([
+    provider.name,
+    provider.id,
+    providerIdOrName ? providerNameSlug(providerIdOrName) : undefined
+  ], protocol);
+}
+
+function providerPluginMatchNames(
+  names: Array<string | undefined>,
+  protocol: GatewayProviderProtocol | undefined
+): Set<string> {
+  const values = new Set<string>();
+  for (const name of names) {
+    const normalized = normalizeProviderPluginName(name);
+    if (!normalized) {
+      continue;
+    }
+    values.add(normalized);
+    if (protocol) {
+      values.add(normalizeProviderPluginName(`${normalized}::${protocol}`) || "");
+    }
+  }
+  values.delete("");
+  return values;
+}
+
+function localAgentProviderPluginMatchesNames(plugin: unknown, names: Set<string>): boolean {
+  if (!isPlainRecord(plugin)) {
+    return false;
+  }
+  const key = typeof plugin.key === "string" ? plugin.key.trim().toLowerCase() : "";
+  if (!key.startsWith("ccr-local-agent-")) {
+    return false;
+  }
+  const pluginProviderName = typeof plugin.providerName === "string"
+    ? plugin.providerName
+    : typeof plugin.provider === "string"
+      ? plugin.provider
+      : "";
+  const normalizedProviderName = normalizeProviderPluginName(pluginProviderName);
+  return Boolean(normalizedProviderName && names.has(normalizedProviderName));
+}
+
+function providerPluginEnabled(plugin: unknown): boolean {
+  return !isPlainRecord(plugin) || plugin.enabled !== false;
+}
+
+function normalizeProviderPluginName(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.toLowerCase() : undefined;
+}
+
+export function providerNameSlug(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "provider";
+}
+
+export function createProviderCredentialDraft(index = 0): ProviderCredentialDraft {
+  return {
+    apiKey: "",
+    enabled: true,
+    id: "",
+    limitsText: "",
+    name: `Key ${index + 1}`,
+    priority: "",
+    weight: ""
+  };
+}
+
+export function providerDraftHasReadyCredentialPool(draft: Pick<AddProviderDraft, "credentials">): boolean {
+  return draft.credentials.some((credential) => credential.enabled && credential.apiKey.trim());
+}
+
+export function providerConnectivityApiKeyFromDraft(draft: Pick<AddProviderDraft, "apiKey" | "credentialMode" | "credentials">): string {
+  if (draft.credentialMode === "pool") {
+    return draft.credentials.find((credential) => credential.enabled && credential.apiKey.trim())?.apiKey.trim() ?? "";
+  }
+  return draft.apiKey.trim();
+}
+
+export function providerCredentialDraftFromConfig(credential: ProviderCredentialConfig, index: number): ProviderCredentialDraft {
+  return {
+    apiKey: credential.api_key || credential.apiKey || credential.apikey || "",
+    enabled: credential.enabled !== false,
+    id: credential.id ?? "",
+    limitsText: credential.limits ? JSON.stringify(credential.limits, null, 2) : "",
+    name: credential.name ?? credential.label ?? `Key ${index + 1}`,
+    priority: credential.priority !== undefined ? String(credential.priority) : "",
+    weight: credential.weight !== undefined ? String(credential.weight) : ""
+  };
+}
+
+export function providerCredentialsFromDraft(draft: AddProviderDraft): ProviderCredentialConfig[] | string {
+  const credentials: ProviderCredentialConfig[] = [];
+
+  for (const [index, row] of draft.credentials.entries()) {
+    const apiKey = row.apiKey.trim();
+    const name = row.name.trim() || `Key ${index + 1}`;
+    const hasAnyValue = Boolean(
+      apiKey ||
+      row.id.trim() ||
+      row.name.trim() ||
+      row.priority.trim() ||
+      row.weight.trim() ||
+      row.limitsText.trim()
+    );
+    if (!hasAnyValue) {
+      continue;
+    }
+    if (!apiKey) {
+      return "Provider credential rows require API keys.";
+    }
+
+    const priority = row.priority.trim() ? positiveInteger(row.priority) : undefined;
+    if (row.priority.trim() && priority === undefined) {
+      return "Provider credential priority must be a positive number.";
+    }
+    const weight = row.weight.trim() ? positiveInteger(row.weight) : undefined;
+    if (row.weight.trim() && weight === undefined) {
+      return "Provider credential weight must be a positive number.";
+    }
+
+    const limitsResult = providerCredentialLimitsFromText(row.limitsText);
+    if (typeof limitsResult === "string") {
+      return limitsResult;
+    }
+
+    credentials.push({
+      api_key: apiKey,
+      enabled: row.enabled,
+      ...(row.id.trim() ? { id: row.id.trim() } : {}),
+      name,
+      ...(limitsResult ? { limits: limitsResult } : {}),
+      ...(priority !== undefined ? { priority } : {}),
+      ...(weight !== undefined ? { weight } : {})
+    });
+  }
+
+  return credentials;
+}
+
+export function providerCredentialDraftPatchFromJson(text: string): Partial<AddProviderDraft> | string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    return "Provider credential JSON is invalid.";
+  }
+
+  const container = Array.isArray(parsed) ? { credentials: parsed } : parsed;
+  if (!isPlainRecord(container)) {
+    return "Provider credential JSON must be an array or object.";
+  }
+
+  const rawCredentials = Array.isArray(container.credentials)
+    ? container.credentials
+    : Array.isArray(container.keys)
+      ? container.keys
+      : Array.isArray(container.apiKeys)
+        ? container.apiKeys
+        : [];
+  const credentials = rawCredentials
+    .map((item, index) => providerCredentialDraftFromUnknown(item, index))
+    .filter((item): item is ProviderCredentialDraft => Boolean(item));
+  if (credentials.length === 0) {
+    return "Provider credential JSON did not contain any API keys.";
+  }
+
+  return {
+    credentialMode: "pool",
+    credentials
+  };
+}
+
+export function providerCredentialImportExample(): string {
+  return JSON.stringify({
+    credentials: [
+      {
+        name: "Main key",
+        api_key: "sk-..."
+      },
+      {
+        name: "Backup key",
+        api_key: "sk-..."
+      }
+    ]
+  }, null, 2);
+}
+
+function providerCredentialDraftFromUnknown(value: unknown, index: number): ProviderCredentialDraft | undefined {
+  if (!isPlainRecord(value)) {
+    return undefined;
+  }
+  const apiKey =
+    stringValue(value.api_key) ||
+    stringValue(value.apiKey) ||
+    stringValue(value.apikey) ||
+    stringValue(value.key) ||
+    stringValue(value.token);
+  if (!apiKey) {
+    return undefined;
+  }
+  const name = stringValue(value.name) || stringValue(value.label) || `Key ${index + 1}`;
+  return {
+    apiKey,
+    enabled: typeof value.enabled === "boolean" ? value.enabled : true,
+    id: stringValue(value.id) || "",
+    limitsText: isPlainRecord(value.limits) ? JSON.stringify(value.limits, null, 2) : "",
+    name,
+    priority: numberDraftString(value.priority),
+    weight: numberDraftString(value.weight)
+  };
+}
+
+function providerCredentialLimitsFromText(value: string): ApiKeyLimitConfig | undefined | string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!isPlainRecord(parsed)) {
+      return "Provider credential limits must be a JSON object.";
+    }
+    return normalizeApiKeyLimits(parsed);
+  } catch {
+    return "Provider credential limits JSON is invalid.";
+  }
+}
+
+function numberDraftString(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return stringValue(value) || "";
+}
+
+export function parseProviderAccountDraft(draft: AddProviderDraft): GatewayProviderConfig["account"] | string | undefined {
+  const refreshIntervalMs = positiveInteger(draft.accountRefreshIntervalMs);
+  if (!draft.accountEnabled) {
+    return undefined;
+  }
+
+  if (draft.accountMode === "standard") {
+    return {
+      connectors: cloneProviderAccountConnectors(standardProviderAccountConfig.connectors ?? []),
+      enabled: true,
+      refreshIntervalMs: refreshIntervalMs && refreshIntervalMs > 0 ? refreshIntervalMs : undefined
+    };
+  }
+
+  if (draft.accountMode === "browser") {
+    const connector = providerBrowserConnectorFromDraft(draft);
+    if (typeof connector === "string") {
+      return connector;
+    }
+    return {
+      connectors: [connector],
+      enabled: true,
+      refreshIntervalMs: refreshIntervalMs && refreshIntervalMs > 0 ? refreshIntervalMs : undefined
+    };
+  }
+
+  if (draft.accountMode === "http-json") {
+    const connector = providerHttpJsonConnectorFromDraft(draft);
+    if (typeof connector === "string") {
+      return connector;
+    }
+    return {
+      connectors: [connector],
+      enabled: true,
+      refreshIntervalMs: refreshIntervalMs && refreshIntervalMs > 0 ? refreshIntervalMs : undefined
+    };
+  }
+
+  let connectors: unknown;
+  try {
+    connectors = JSON.parse(draft.accountConnectorsText.trim() || "[]");
+  } catch (error) {
+    return `Account connectors JSON is invalid: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  if (!Array.isArray(connectors)) {
+    return "Account connectors must be a JSON array.";
+  }
+  if (connectors.length === 0) {
+    return "Add at least one account connector or disable account balance.";
+  }
+
+  return {
+    connectors: connectors as ProviderAccountConnectorConfig[],
+    enabled: true,
+    refreshIntervalMs: refreshIntervalMs && refreshIntervalMs > 0 ? refreshIntervalMs : undefined
+  };
+}
+
+export function createDefaultProviderAccountDraft(): Pick<
+  AddProviderDraft,
+  | "accountConnectorsText"
+  | "accountEnabled"
+  | "accountMode"
+  | "accountRefreshIntervalMs"
+  | "usageBalanceLimitPath"
+  | "usageBalanceRemainingPath"
+  | "usageBalanceUnit"
+  | "usageBalanceUsedPath"
+  | "usageBrowserCredentials"
+  | "usageBrowserHeaderTemplates"
+  | "usageBrowserLoginUrl"
+  | "usageBrowserRequestOrigin"
+  | "usageBrowserTimeoutMs"
+  | "usageMessagePath"
+  | "usageRequestBodyText"
+  | "usageRequestHeaders"
+  | "usageRequestMethod"
+  | "usageRequestUrl"
+  | "usageStatusPath"
+  | "usageSubscriptionLimitPath"
+  | "usageSubscriptionRemainingPath"
+  | "usageSubscriptionResetPath"
+  | "usageSubscriptionUnit"
+> {
+  return {
+    accountConnectorsText: JSON.stringify(defaultProviderAccountConfig.connectors ?? [], null, 2),
+    accountEnabled: defaultProviderAccountConfig.enabled !== false,
+    accountMode: "standard",
+    accountRefreshIntervalMs: "",
+    usageBalanceLimitPath: "",
+    usageBalanceRemainingPath: "",
+    usageBalanceUnit: "USD",
+    usageBalanceUsedPath: "",
+    usageBrowserCredentials: "omit",
+    usageBrowserHeaderTemplates: [],
+    usageBrowserLoginUrl: "",
+    usageBrowserRequestOrigin: "",
+    usageBrowserTimeoutMs: "",
+    usageMessagePath: "",
+    usageRequestBodyText: "",
+    usageRequestHeaders: [],
+    usageRequestMethod: "GET",
+    usageRequestUrl: "",
+    usageStatusPath: "",
+    usageSubscriptionLimitPath: "",
+    usageSubscriptionRemainingPath: "",
+    usageSubscriptionResetPath: "",
+    usageSubscriptionUnit: "tokens"
+  };
+}
+
+export function createProviderAccountDraftFromConfig(account: ProviderAccountConfig | undefined): ReturnType<typeof createDefaultProviderAccountDraft> {
+  const base = createDefaultProviderAccountDraft();
+  if (!account) {
+    return base;
+  }
+
+  const connectors = account.connectors ?? [];
+  const httpJsonConnector = connectors.length === 1 && connectors[0]?.type === "http-json"
+    ? connectors[0] as ProviderAccountHttpJsonConnectorConfig
+    : undefined;
+  const browserConnector = connectors.length === 1 && connectors[0]?.type === "webcontent-json"
+    ? connectors[0] as ProviderAccountWebContentJsonConnectorConfig
+    : undefined;
+  const jsonConnector = httpJsonConnector ?? browserConnector;
+  if (!jsonConnector) {
+    return {
+      ...base,
+      accountConnectorsText: JSON.stringify(connectors, null, 2),
+      accountEnabled: account.enabled === true,
+      accountMode: connectors.length > 0 && !providerAccountConnectorsAreDefaultStandard(connectors) ? "raw" : "standard",
+      accountRefreshIntervalMs: account.refreshIntervalMs ? String(account.refreshIntervalMs) : ""
+    };
+  }
+  if (jsonConnector.parser || flatDraftDropsMeters(jsonConnector.mapping.meters)) {
+    return {
+      ...base,
+      accountConnectorsText: JSON.stringify(connectors, null, 2),
+      accountEnabled: account.enabled === true,
+      accountMode: "raw",
+      accountRefreshIntervalMs: account.refreshIntervalMs ? String(account.refreshIntervalMs) : ""
+    };
+  }
+
+  const balanceMeter = jsonConnector.mapping.meters.find((meter) => meter.kind === "balance" || meter.id === "balance");
+  const subscriptionMeter = jsonConnector.mapping.meters.find((meter) =>
+    meter.kind === "subscription" || meter.id === "subscription" || meter.kind === "quota" || meter.kind === "tokens" || meter.kind === "time_window"
+  );
+  const browser = browserConnector?.browser;
+
+  return {
+    ...base,
+    accountConnectorsText: JSON.stringify(connectors, null, 2),
+    accountEnabled: account.enabled === true,
+    accountMode: browserConnector ? "browser" : "http-json",
+    accountRefreshIntervalMs: account.refreshIntervalMs ? String(account.refreshIntervalMs) : "",
+    usageBalanceLimitPath: stringValue(balanceMeter?.limit) || "",
+    usageBalanceRemainingPath: stringValue(balanceMeter?.remaining) || "",
+    usageBalanceUnit: stringValue(balanceMeter?.unit) || "USD",
+    usageBalanceUsedPath: stringValue(balanceMeter?.used) || "",
+    usageBrowserCredentials: browserCredentialsDraftValue(browser?.credentials, browser?.headerTemplates),
+    usageBrowserHeaderTemplates: keyValueRowsFromRecord(browser?.headerTemplates ?? {}),
+    usageBrowserLoginUrl: browser?.loginUrl ?? "",
+    usageBrowserRequestOrigin: browser?.requestOrigin ?? "",
+    usageBrowserTimeoutMs: browser?.timeoutMs ? String(browser.timeoutMs) : "",
+    usageMessagePath: mappedStringDraftValue(jsonConnector.mapping.message),
+    usageRequestBodyText: jsonConnector.body === undefined ? "" : formatEditableJson(jsonConnector.body),
+    usageRequestHeaders: keyValueRowsFromRecord(jsonConnector.headers ?? {}),
+    usageRequestMethod: jsonConnector.method === "POST" ? "POST" : "GET",
+    usageRequestUrl: jsonConnector.endpoint,
+    usageStatusPath: mappedStringDraftValue(jsonConnector.mapping.status),
+    usageSubscriptionLimitPath: stringValue(subscriptionMeter?.limit) || "",
+    usageSubscriptionRemainingPath: stringValue(subscriptionMeter?.remaining) || "",
+    usageSubscriptionResetPath: stringValue(subscriptionMeter?.resetAt) || "",
+    usageSubscriptionUnit: stringValue(subscriptionMeter?.unit) || "tokens"
+  };
+}
+
+function isBalanceDraftMeter(meter: ProviderAccountMappedMeterConfig): boolean {
+  return meter.kind === "balance" || meter.id === "balance";
+}
+
+function isSubscriptionDraftMeter(meter: ProviderAccountMappedMeterConfig): boolean {
+  return meter.kind === "subscription" || meter.id === "subscription" || meter.kind === "quota" || meter.kind === "tokens" || meter.kind === "time_window";
+}
+
+function flatDraftDropsMeters(meters: ProviderAccountMappedMeterConfig[]): boolean {
+  const balanceMeters = meters.filter(isBalanceDraftMeter);
+  const subscriptionMeters = meters.filter((meter) => !isBalanceDraftMeter(meter) && isSubscriptionDraftMeter(meter));
+  return balanceMeters.length > 1
+    || subscriptionMeters.length > 1
+    || balanceMeters.length + subscriptionMeters.length !== meters.length;
+}
+
+function mappedStringDraftValue(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) {
+    return value.find((item) => stringValue(item)) ?? "";
+  }
+  return stringValue(value) || "";
+}
+
+type ProviderJsonConnectorDraftParts = {
+  body?: unknown;
+  endpoint: string;
+  headers: Record<string, string>;
+  mapping: ProviderAccountHttpJsonConnectorConfig["mapping"];
+  method: "GET" | "POST";
+};
+
+function providerJsonConnectorDraftPartsFromDraft(
+  draft: AddProviderDraft,
+  options: { requireMeters?: boolean } = { requireMeters: true }
+): ProviderJsonConnectorDraftParts | string {
+  const endpoint = draft.usageRequestUrl.trim();
+  if (!endpoint) {
+    return "Usage request URL is required.";
+  }
+  if (!/^https?:\/\//i.test(endpoint)) {
+    return "Usage request URL must use http or https.";
+  }
+  if (!validateKeyValueRows(draft.usageRequestHeaders)) {
+    return "Header rows require keys.";
+  }
+
+  let body: unknown;
+  if (draft.usageRequestBodyText.trim()) {
+    try {
+      body = JSON.parse(draft.usageRequestBodyText);
+    } catch (error) {
+      return `Usage request body JSON is invalid: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  const meters: ProviderAccountHttpJsonConnectorConfig["mapping"]["meters"] = [];
+  const balanceLimitPath = draft.usageBalanceLimitPath.trim();
+  const balanceRemainingPath = draft.usageBalanceRemainingPath.trim();
+  const balanceUsedPath = draft.usageBalanceUsedPath.trim();
+  if (balanceLimitPath || balanceRemainingPath || balanceUsedPath) {
+    meters.push({
+      id: "balance",
+      kind: "balance",
+      label: "Balance",
+      limit: balanceLimitPath || undefined,
+      remaining: balanceRemainingPath || undefined,
+      used: balanceUsedPath || undefined,
+      unit: draft.usageBalanceUnit.trim() || "USD"
+    });
+  }
+  if (draft.usageSubscriptionRemainingPath.trim() || draft.usageSubscriptionLimitPath.trim()) {
+    meters.push({
+      id: "subscription",
+      kind: "subscription",
+      label: "Subscription",
+      limit: draft.usageSubscriptionLimitPath.trim() || undefined,
+      remaining: draft.usageSubscriptionRemainingPath.trim() || undefined,
+      resetAt: draft.usageSubscriptionResetPath.trim() || undefined,
+      unit: draft.usageSubscriptionUnit.trim() || "tokens",
+      window: "monthly"
+    });
+  }
+
+  if (options.requireMeters !== false && meters.length === 0) {
+    return "Select at least one usage response field.";
+  }
+
+  return {
+    ...(body !== undefined ? { body } : {}),
+    endpoint,
+    headers: recordFromKeyValueRows(draft.usageRequestHeaders),
+    mapping: {
+      ...(draft.usageMessagePath.trim() ? { message: draft.usageMessagePath.trim() } : {}),
+      meters,
+      ...(draft.usageStatusPath.trim() ? { status: draft.usageStatusPath.trim() } : {})
+    },
+    method: draft.usageRequestMethod
+  };
+}
+
+export function providerHttpJsonConnectorFromDraft(draft: AddProviderDraft, options: { requireMeters?: boolean } = { requireMeters: true }): ProviderAccountHttpJsonConnectorConfig | string {
+  const parts = providerJsonConnectorDraftPartsFromDraft(draft, options);
+  if (typeof parts === "string") {
+    return parts;
+  }
+
+  return {
+    auth: "provider-api-key",
+    ...parts,
+    type: "http-json"
+  };
+}
+
+export function providerBrowserConnectorFromDraft(draft: AddProviderDraft, options: { requireMeters?: boolean } = { requireMeters: true }): ProviderAccountWebContentJsonConnectorConfig | string {
+  const parts = providerJsonConnectorDraftPartsFromDraft(draft, options);
+  if (typeof parts === "string") {
+    return parts;
+  }
+
+  const loginUrl = draft.usageBrowserLoginUrl.trim();
+  if (loginUrl && !/^https?:\/\//i.test(loginUrl)) {
+    return "Browser login URL must use http or https.";
+  }
+  const requestOrigin = draft.usageBrowserRequestOrigin.trim();
+  if (requestOrigin && !/^https?:\/\//i.test(requestOrigin)) {
+    return "Browser storage origin must use http or https.";
+  }
+  if (!validateKeyValueRows(draft.usageBrowserHeaderTemplates)) {
+    return "Browser header template rows require keys.";
+  }
+
+  const headerTemplates = recordFromKeyValueRows(draft.usageBrowserHeaderTemplates);
+  const timeoutMs = positiveInteger(draft.usageBrowserTimeoutMs);
+  return {
+    ...parts,
+    browser: {
+      credentials: draft.usageBrowserCredentials,
+      ...(Object.keys(headerTemplates).length > 0 ? { headerTemplates } : {}),
+      ...(loginUrl ? { loginUrl } : {}),
+      partition: "built-in-browser",
+      ...(requestOrigin ? { requestOrigin } : {}),
+      ...(timeoutMs && timeoutMs > 0 ? { timeoutMs } : {})
+    },
+    type: "webcontent-json"
+  };
+}
+
+function browserCredentialsDraftValue(
+  credentials: unknown,
+  headerTemplates: Record<string, string> | undefined
+): AddProviderDraft["usageBrowserCredentials"] {
+  if (credentials === "include" || credentials === "omit" || credentials === "same-origin") {
+    return credentials;
+  }
+  return headerTemplates && Object.keys(headerTemplates).length > 0 ? "omit" : "include";
+}
+
+export type ProviderApiKeyTargetSafetyInput = {
+  apiKey?: string;
+  baseUrl: string;
+  providerName?: string;
+  providerPresetId?: string;
+};
+
+export function providerAccountApiKeySafetyIssue(
+  account: ProviderAccountConfig | undefined,
+  input: ProviderApiKeyTargetSafetyInput
+): ProviderIdentitySafetyIssue | undefined {
+  for (const connector of account?.connectors ?? []) {
+    const issue = providerAccountConnectorApiKeySafetyIssue(connector, input);
+    if (issue) {
+      return issue;
+    }
+  }
+  return undefined;
+}
+
+export function providerAccountConnectorApiKeySafetyIssue(
+  connector: ProviderAccountConnectorConfig,
+  input: ProviderApiKeyTargetSafetyInput
+): ProviderIdentitySafetyIssue | undefined {
+  if (connector.type === "http-json") {
+    const httpJsonConnector = connector as ProviderAccountHttpJsonConnectorConfig;
+    if ((httpJsonConnector.auth ?? "provider-api-key") === "none") {
+      return undefined;
+    }
+    return providerAccountEndpointApiKeySafetyIssue(httpJsonConnector.endpoint, input);
+  }
+
+  if (connector.type === "standard") {
+    const standardConnector = connector as ProviderAccountStandardConnectorConfig;
+    if ((standardConnector.auth ?? "provider-api-key") === "none") {
+      return undefined;
+    }
+    const endpoints = [
+      standardConnector.endpoint,
+      ...(standardConnector.endpoints ?? [])
+    ].filter((endpoint): endpoint is string => Boolean(endpoint?.trim()));
+    for (const endpoint of endpoints) {
+      const issue = providerAccountEndpointApiKeySafetyIssue(endpoint, input);
+      if (issue) {
+        return issue;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function providerAccountEndpointApiKeySafetyIssue(
+  endpoint: string,
+  input: ProviderApiKeyTargetSafetyInput
+): ProviderIdentitySafetyIssue | undefined {
+  return providerEndpointCanReceiveProviderApiKey({
+    apiKey: input.apiKey?.trim() || "provider-api-key",
+    endpoint: absoluteProviderAccountEndpoint(input.baseUrl, endpoint),
+    providerName: input.providerName,
+    providerPresetId: findProviderPreset(input.providerPresetId)?.id ?? findProviderPresetByBaseUrl(input.baseUrl)?.id
+  });
+}
+
+export function absoluteProviderAccountEndpoint(baseUrl: string, endpoint: string): string {
+  const trimmedEndpoint = endpoint.trim();
+  if (/^https?:\/\//i.test(trimmedEndpoint)) {
+    return trimmedEndpoint;
+  }
+  if (!baseUrl.trim()) {
+    return trimmedEndpoint;
+  }
+  try {
+    const url = new URL(providerUrlWithDefaultScheme(normalizeProviderBaseUrl(baseUrl)));
+    url.pathname = trimmedEndpoint.startsWith("/") ? trimmedEndpoint : joinProviderAccountPath(url.pathname, trimmedEndpoint);
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return trimmedEndpoint;
+  }
+}
+
+export function joinProviderAccountPath(basePath: string, suffix: string): string {
+  const left = basePath.replace(/\/+$/, "");
+  const right = suffix.replace(/^\/+/, "");
+  if (!left) {
+    return `/${right}`;
+  }
+  return `${left}/${right}`;
+}
+
+export function providerUsageFieldPatch(target: ProviderUsageFieldTarget, path: string): Partial<AddProviderDraft> {
+  if (target === "balance") {
+    return { usageBalanceRemainingPath: path };
+  }
+  if (target === "balanceLimit") {
+    return { usageBalanceLimitPath: path };
+  }
+  if (target === "balanceUsed") {
+    return { usageBalanceUsedPath: path };
+  }
+  if (target === "message") {
+    return { usageMessagePath: path };
+  }
+  if (target === "status") {
+    return { usageStatusPath: path };
+  }
+  if (target === "subscriptionLimit") {
+    return { usageSubscriptionLimitPath: path };
+  }
+  if (target === "subscriptionRemaining") {
+    return { usageSubscriptionRemainingPath: path };
+  }
+  return { usageSubscriptionResetPath: path };
+}
+
+export function createProviderInstallLinkFromDraft(draft: AddProviderDraft, probe: GatewayProviderProbeResult | undefined): string {
+  const providerName = draft.name.trim();
+  const selectedProtocols = uniqueProviderProtocols(draft.selectedProtocols);
+  const protocol = selectedProtocols.includes(draft.protocol)
+    ? draft.protocol
+    : selectedProtocols.length === 1
+    ? selectedProtocols[0]
+    : probe?.detectedProtocol ?? draft.protocol;
+  const baseUrl = providerGlobalBaseUrlForProbe(draft.baseUrl, probe, selectedProtocols.length > 0 ? selectedProtocols : [protocol]);
+  const models = mergeProviderModelLists(draft.selectedModels, splitLines(draft.modelsText));
+  const apiKey = providerConnectivityApiKeyFromDraft(draft);
+  if (!providerName || !baseUrl) {
+    return "Provider name and Base URL are required.";
+  }
+  if (models.length === 0) {
+    return "Select or enter at least one model.";
+  }
+  const keySafetyIssue = providerApiKeySafetyIssue({
+    apiKey,
+    baseUrl,
+    name: providerName,
+    presetId: draft.presetId
+  });
+  if (keySafetyIssue) {
+    return keySafetyIssue.message;
+  }
+  const identityIssue = providerIdentitySafetyIssue({
+    baseUrl,
+    name: providerName,
+    presetId: draft.presetId
+  });
+  if (identityIssue) {
+    return identityIssue.message;
+  }
+
+  const account = parseProviderAccountDraft(draft);
+  if (typeof account === "string") {
+    return account;
+  }
+  const accountKeySafetyIssue = providerAccountApiKeySafetyIssue(account, {
+    apiKey,
+    baseUrl,
+    providerName,
+    providerPresetId: draft.presetId
+  });
+  if (accountKeySafetyIssue) {
+    return accountKeySafetyIssue.message;
+  }
+
+  const modelDescriptions = modelDescriptionsForModels(draft.modelDescriptions, models);
+  const modelDisplayNames = modelDisplayNamesForModels(draft.modelDisplayNames, models);
+  const modelMetadata = modelMetadataForModels(draft.modelMetadata, models);
+  const payload: ProviderDeepLinkPayload = {
+    ...(account ? { account } : {}),
+    baseUrl,
+    ...(draft.icon.trim() ? { icon: draft.icon.trim() } : {}),
+    ...(modelDescriptions ? { modelDescriptions } : {}),
+    ...(modelDisplayNames ? { modelDisplayNames } : {}),
+    ...(modelMetadata ? { modelMetadata } : {}),
+    models,
+    name: providerName,
+    protocol
+  };
+  return `ccr://provider?payload=${base64UrlEncodeText(JSON.stringify(payload))}`;
+}
+
+export function base64UrlEncodeText(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+export function providerAccountConnectorsAreDefaultStandard(connectors: ProviderAccountConnectorConfig[]): boolean {
+  return connectors.length === 1 && connectors[0]?.type === "standard";
+}
+
+export function cloneProviderAccountConfig(account: ProviderAccountConfig | undefined): ProviderAccountConfig | undefined {
+  return account ? JSON.parse(JSON.stringify(account)) as ProviderAccountConfig : undefined;
+}
+
+export function cloneProviderAccountConnectors(connectors: ProviderAccountConnectorConfig[]): ProviderAccountConnectorConfig[] {
+  return JSON.parse(JSON.stringify(connectors)) as ProviderAccountConnectorConfig[];
+}
+
+export function defaultProviderAccountConfigForPreset(presetId: string | undefined): ProviderAccountConfig | undefined {
+  if (presetId === "kimi-coding") {
+    return cloneProviderAccountConfig(findProviderPreset(presetId)?.account ?? defaultProviderAccountConfig);
+  }
+  // Keep the advanced settings default on the standard endpoint; main resolves preset-specific connectors at runtime.
+  return cloneProviderAccountConfig(defaultProviderAccountConfig);
+}
+
+export function defaultProviderAccountConfigForBaseUrl(baseUrl: string): ProviderAccountConfig | undefined {
+  return cloneProviderAccountConfig(findProviderPresetByBaseUrl(baseUrl)?.account ?? defaultProviderAccountConfig);
+}
+
+export function providerAccountConnectorExample(): string {
+  return JSON.stringify([
+    {
+      type: "standard",
+      auth: "provider-api-key"
+    },
+    {
+      type: "http-json",
+      endpoint: "https://api.vendor.com/account",
+      auth: "provider-api-key",
+      mapping: {
+        meters: [
+          {
+            id: "balance",
+            label: "Balance",
+            kind: "balance",
+            unit: "USD",
+            remaining: "$.balance.remaining"
+          }
+        ]
+      }
+    },
+    {
+      type: "webcontent-json",
+      endpoint: "https://api.vendor.example.com/account/usage",
+      browser: {
+        credentials: "omit",
+        headerTemplates: {
+          authorization: "Bearer ${localStorage.accessToken}"
+        },
+        loginUrl: "https://vendor.example.com/login",
+        partition: "built-in-browser",
+        requestOrigin: "https://vendor.example.com",
+        timeoutMs: 15000
+      },
+      mapping: {
+        meters: [
+          {
+            id: "browser_balance",
+            label: "Browser balance",
+            kind: "balance",
+            unit: "USD",
+            remaining: "$.balance"
+          }
+        ]
+      }
+    },
+    {
+      type: "plugin",
+      pluginId: "vendor-plugin",
+      connectorId: "account"
+    },
+    {
+      type: "local-estimate",
+      windows: [
+        {
+          id: "weekly",
+          label: "Weekly estimate",
+          unit: "tokens",
+          limit: 1000000,
+          window: "weekly"
+        }
+      ]
+    }
+  ], null, 2);
+}
+
+export function providerAccountConnectorsTextWithNewApiUserBalanceTemplate(connectorsText: string, baseUrl: string, userId: string): string {
+  const connector = newApiUserSelfConnectorConfig(baseUrl.trim() || "https://new-api.example/v1");
+  connector.headers = {
+    ...(connector.headers ?? {}),
+    "New-Api-User": userId.trim() || "<user-id>"
+  };
+
+  let connectors: unknown[] = [];
+  try {
+    const parsed = JSON.parse(connectorsText.trim() || "[]") as unknown;
+    connectors = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    connectors = [];
+  }
+
+  return JSON.stringify([
+    ...connectors.filter((item) => !isNewApiUserSelfConnector(item)),
+    connector
+  ], null, 2);
+}
+
+function isNewApiUserSelfConnector(value: unknown): boolean {
+  return isPlainRecord(value) && value.type === "http-json" && value.parser === "new-api-user-self";
+}
+
+export function toProviderProtocol(value: string | undefined): GatewayProviderProtocol | undefined {
+  return providerProtocolOptions.some((option) => option.value === value) ? value as GatewayProviderProtocol : undefined;
+}
+
+export function shouldAutoProbeProviderBaseUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || /\s/.test(trimmed)) {
+    return false;
+  }
+
+  try {
+    const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed);
+    const url = new URL(hasScheme ? trimmed : providerUrlWithDefaultScheme(trimmed));
+    return hasScheme || url.hostname === "localhost" || url.hostname.includes(".") || url.hostname.includes(":");
+  } catch {
+    return false;
+  }
+}
+
+export function providerDraftSafetyIssue(draft: AddProviderDraft, baseUrl = draft.baseUrl): ProviderIdentitySafetyIssue | undefined {
+  const targetBaseUrl = baseUrl.trim();
+  if (!targetBaseUrl) {
+    return undefined;
+  }
+  const apiKey = providerConnectivityApiKeyFromDraft(draft);
+  const issue = providerApiKeySafetyIssue({
+    apiKey,
+    baseUrl: targetBaseUrl,
+    name: draft.name,
+    presetId: draft.presetId
+  });
+  if (issue) {
+    return issue;
+  }
+
+  const account = parseProviderAccountDraft(draft);
+  if (typeof account === "string") {
+    return undefined;
+  }
+  return providerAccountApiKeySafetyIssue(account, {
+    apiKey,
+    baseUrl: targetBaseUrl,
+    providerName: draft.name,
+    providerPresetId: draft.presetId
+  });
+}
+
+export function providerProbeCandidates(draft: AddProviderDraft): ProviderProbeCandidate[] {
+  const preset = findProviderPreset(draft.presetId);
+  const mediaProtocols: GatewayProviderCapabilityProtocol[] = [
+    "openai_image_generations",
+    "openai_video_generations"
+  ];
+  const chatProtocols = providerProtocolOptions.map((option) => option.value);
+  const customProtocols: GatewayProviderCapabilityProtocol[] = [
+    ...chatProtocols,
+    ...mediaProtocols
+  ];
+  if (preset) {
+    const probeAllProtocols = preset.endpoints.length === 1;
+    return preset.endpoints.map((endpoint) => ({
+      ...endpoint,
+      declaredProtocols: endpoint.protocols,
+      protocols: probeAllProtocols ? chatProtocols : endpoint.protocols,
+      source: "preset"
+    }));
+  }
+
+  return [
+    {
+      baseUrl: draft.baseUrl.trim(),
+      protocols: customProtocols,
+      source: "custom"
+    }
+  ];
+}
+
+export function isProviderProbeCandidateReady(candidate: ProviderProbeCandidate): boolean {
+  return shouldAutoProbeProviderBaseUrl(candidate.baseUrl);
+}
+
+export function providerProbeCandidatesApiKeySafetyIssue(
+  candidates: ProviderProbeCandidate[],
+  apiKey: string,
+  providerName: string,
+  presetId: string
+): ProviderIdentitySafetyIssue | undefined {
+  for (const candidate of candidates) {
+    const issue = providerApiKeySafetyIssue({
+      apiKey,
+      baseUrl: candidate.baseUrl,
+      name: providerName,
+      presetId
+    });
+    if (issue) {
+      return issue;
+    }
+  }
+  return undefined;
+}
+
+export function providerProbeInputKey(candidates: ProviderProbeCandidate[], apiKey: string, models: string[]): string {
+  return JSON.stringify([
+    candidates.map((candidate) => [candidate.baseUrl, candidate.protocols]),
+    apiKey,
+    models
+  ]);
+}
+
+export async function probeProviderCandidates(
+  candidates: ProviderProbeCandidate[],
+  apiKey: string,
+  models: string[],
+  options: {
+    forceRefresh?: boolean;
+    mode?: "connectivity" | "models" | "protocols";
+    providerPlugins?: unknown[];
+    protocols?: GatewayProviderProtocol[];
+  } = {}
+): Promise<ProviderProbeCandidateResult | undefined> {
+  const mode = options.mode ?? "protocols";
+  return await window.ccr?.probeProviderCandidates({
+    apiKey: apiKey || undefined,
+    candidates,
+    forceRefresh: options.forceRefresh,
+    mode,
+    models: mode === "connectivity" ? models : [],
+    providerPlugins: options.providerPlugins,
+    protocols: options.protocols
+  });
+}
+
+export function providerProbeHasSupportedProtocol(probe: GatewayProviderProbeResult | undefined, protocol?: GatewayProviderProtocol): boolean {
+  return Boolean(probe?.protocols.some((item) => item.supported && (!protocol || item.protocol === protocol)));
+}
+
+export function presetCapabilitiesFromDraft(draft: AddProviderDraft): GatewayProviderCapability[] {
+  const preset = findProviderPreset(draft.presetId);
+  if (!preset) {
+    return [];
+  }
+
+  return preset.endpoints.flatMap((endpoint) =>
+    endpoint.protocols.map((type) => ({
+      baseUrl: endpoint.baseUrl,
+      source: "preset" as const,
+      type
+    }))
+  );
+}
+
+export function providerSelectableProtocolsFromProbe(probe: GatewayProviderProbeResult | undefined): GatewayProviderProtocol[] {
+  if (!probe) {
+    return [];
+  }
+
+  return uniqueProviderProtocols([
+    ...probe.protocols.filter((item) => item.supported).map((item) => item.protocol),
+    ...(probe.capabilities ?? []).map((capability) => capability.type)
+  ]);
+}
+
+export function selectedProviderProtocolsFromCapabilities(
+  capabilities: GatewayProviderCapability[] | undefined,
+  fallback: GatewayProviderProtocol
+): GatewayProviderProtocol[] {
+  const selected = uniqueProviderProtocols((capabilities ?? []).map((capability) => capability.type));
+  return selected.length > 0 ? selected : [fallback];
+}
+
+export function selectedProviderProtocolsForProbe(
+  selectedProtocols: GatewayProviderProtocol[],
+  probe: GatewayProviderProbeResult,
+  _fallback: GatewayProviderProtocol,
+  presetId?: string
+): GatewayProviderProtocol[] {
+  const selectable = providerSelectableProtocolsFromProbe(probe);
+  if (selectable.length === 0) {
+    return [];
+  }
+
+  if (selectedProtocolsMatchPresetDefault(selectedProtocols, presetId)) {
+    return selectable;
+  }
+
+  const selected = uniqueProviderProtocols(selectedProtocols).filter((protocol) => selectable.includes(protocol));
+  return selected.length > 0 ? selected : selectable;
+}
+
+function selectedProtocolsMatchPresetDefault(
+  selectedProtocols: GatewayProviderProtocol[],
+  presetId: string | undefined
+): boolean {
+  const preset = findProviderPreset(presetId);
+  if (!preset) {
+    return false;
+  }
+
+  const selected = uniqueProviderProtocols(selectedProtocols);
+  const defaults = uniqueProviderProtocols(preset.endpoints.flatMap((endpoint) => endpoint.protocols));
+  return defaults.length > 0 &&
+    selected.length === defaults.length &&
+    defaults.every((protocol, index) => selected[index] === protocol);
+}
+
+export function uniqueProviderProtocols(values: Array<GatewayProviderProtocol | string | undefined>): GatewayProviderProtocol[] {
+  const allowed = new Set(providerProtocolOptions.map((option) => option.value));
+  const seen = new Set<GatewayProviderProtocol>();
+  const selected: GatewayProviderProtocol[] = [];
+
+  for (const value of values) {
+    if (!value || !allowed.has(value as GatewayProviderProtocol)) {
+      continue;
+    }
+    const protocol = value as GatewayProviderProtocol;
+    if (seen.has(protocol)) {
+      continue;
+    }
+    seen.add(protocol);
+    selected.push(protocol);
+  }
+
+  return providerProtocolOptions
+    .map((option) => option.value)
+    .filter((protocol) => seen.has(protocol) && selected.includes(protocol));
+}
+
+export function mergeProviderCapabilities(...groups: GatewayProviderCapability[][]): GatewayProviderCapability[] {
+  const seen = new Set<string>();
+  const capabilities: GatewayProviderCapability[] = [];
+  for (const group of groups) {
+    for (const capability of group) {
+      const baseUrl = capability.baseUrl.trim();
+      if (!baseUrl) {
+        continue;
+      }
+      const key = `${capability.type}\n${baseUrl}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      capabilities.push({
+        ...capability,
+        baseUrl
+      });
+    }
+  }
+  return capabilities;
+}
+
+export function providerCapabilitiesForSave(
+  currentCapabilities: GatewayProviderCapability[],
+  preservedCapabilities: GatewayProviderCapability[],
+  existingBaseUrl: string | undefined,
+  nextBaseUrl: string
+): GatewayProviderCapability[] {
+  const normalizedExistingBaseUrl = existingBaseUrl === undefined
+    ? undefined
+    : normalizeProviderBaseUrl(existingBaseUrl) || existingBaseUrl.trim();
+  const normalizedNextBaseUrl = normalizeProviderBaseUrl(nextBaseUrl) || nextBaseUrl.trim();
+  const preserveExisting = normalizedExistingBaseUrl === undefined ||
+    normalizedExistingBaseUrl === normalizedNextBaseUrl;
+  const selectedTypes = new Set(currentCapabilities.map((capability) => capability.type));
+  const retainedCapabilities = preservedCapabilities.filter((capability) =>
+    selectedTypes.has(capability.type) ||
+    !providerProtocolOptions.some((option) => option.value === capability.type)
+  );
+  return mergeProviderCapabilities(
+    currentCapabilities,
+    ...(preserveExisting ? [retainedCapabilities] : [])
+  );
+}
+
+export type ProviderManualFields = Pick<
+  GatewayProviderConfig,
+  "billing" | "provider" | "transformer"
+>;
+
+/**
+ * Provider fields the setup dialog cannot edit.
+ *
+ * Saving rebuilds the provider from the dialog draft, so a field the form does
+ * not know about is dropped unless it is carried over explicitly. These fields
+ * only ever come from a hand-written config, and losing them is silent: the
+ * provider keeps working, just without the billing metadata or transformers it
+ * was configured with.
+ *
+ * `extraBody` and `extraHeaders` are not listed here — the Advanced settings
+ * section edits them, so they round-trip through the draft instead.
+ *
+ * The legacy `apiKey` / `apikey` / `baseUrl` / `baseurl` aliases are deliberately
+ * not carried over — the form writes the canonical `api_key` / `api_base_url`,
+ * and a stale alias would shadow the value the user just typed.
+ */
+export function providerManualFieldsForSave(
+  existingProvider: GatewayProviderConfig | undefined
+): ProviderManualFields {
+  if (!existingProvider) {
+    return {};
+  }
+  const preserved: ProviderManualFields = {
+    billing: existingProvider.billing,
+    provider: existingProvider.provider,
+    transformer: existingProvider.transformer
+  };
+  // Keep the saved provider free of keys it never had, so an unrelated edit does
+  // not show up as a config change.
+  for (const field of Object.keys(preserved) as Array<keyof ProviderManualFields>) {
+    if (preserved[field] === undefined) {
+      delete preserved[field];
+    }
+  }
+  return preserved;
+}
+
+export type ProviderExtraJsonField = "extraBody" | "extraHeaders";
+
+const providerExtraJsonInvalidMessages: Record<ProviderExtraJsonField, string> = {
+  extraBody: "Extra request body JSON is invalid.",
+  extraHeaders: "Extra request headers JSON is invalid."
+};
+
+const providerExtraJsonShapeMessages: Record<ProviderExtraJsonField, string> = {
+  extraBody: "Extra request body must be a JSON object.",
+  extraHeaders: "Extra request headers must be a JSON object."
+};
+
+export function providerExtraJsonDraftText(value: unknown): string {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  return JSON.stringify(value, null, 2);
+}
+
+/**
+ * Parses one of the Advanced settings JSON boxes.
+ *
+ * Returns the parsed object, `undefined` when the box is empty, or an error
+ * message string the caller surfaces the same way as the other draft issues.
+ */
+export function parseProviderExtraJsonDraft(
+  text: string,
+  field: ProviderExtraJsonField
+): Record<string, unknown> | undefined | string {
+  if (!text.trim()) {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return providerExtraJsonInvalidMessages[field];
+  }
+  if (!isPlainRecord(parsed)) {
+    return providerExtraJsonShapeMessages[field];
+  }
+  return parsed;
+}
+
+export function providerGlobalBaseUrlForProbe(
+  inputBaseUrl: string,
+  _probe: GatewayProviderProbeResult | undefined,
+  _protocols: GatewayProviderProtocol[] = []
+): string {
+  return normalizeProviderBaseUrl(inputBaseUrl) || inputBaseUrl.trim();
+}
+
+export function providerCapabilityBaseUrlForProtocol(
+  inputBaseUrl: string,
+  protocol: GatewayProviderProtocol,
+  probe: GatewayProviderProbeResult | undefined
+): string {
+  const detectedCapability = (probe?.capabilities ?? []).find((capability) =>
+    capability.type === protocol && capability.baseUrl.trim()
+  );
+  if (detectedCapability) {
+    return detectedCapability.baseUrl.trim();
+  }
+
+  if (probe?.detectedProtocol === protocol && probe.normalizedBaseUrl.trim()) {
+    return probe.normalizedBaseUrl.trim();
+  }
+
+  return normalizeProviderBaseUrl(inputBaseUrl, protocol) || normalizeProviderBaseUrl(inputBaseUrl) || inputBaseUrl.trim();
+}
+
+export function providerCapabilitiesForProtocols(
+  inputBaseUrl: string,
+  protocols: GatewayProviderProtocol[],
+  probe: GatewayProviderProbeResult | undefined,
+  presetCapabilities: GatewayProviderCapability[] = []
+): GatewayProviderCapability[] {
+  const detectedCapabilities = probe?.capabilities ?? [];
+  const selectedCapabilities = uniqueProviderProtocols(protocols)
+    .map((type) => {
+      const capability =
+        detectedCapabilities.find((item) => item.type === type && item.baseUrl.trim()) ??
+        presetCapabilities.find((item) => item.type === type && item.baseUrl.trim());
+      if (capability) {
+        return capability;
+      }
+
+      const baseUrl = providerCapabilityBaseUrlForProtocol(inputBaseUrl, type, probe);
+      return baseUrl
+        ? {
+            baseUrl,
+            source: probe?.detectedProtocol ? ("detected" as const) : ("preset" as const),
+            type
+          }
+        : undefined;
+    })
+    .filter((item): item is GatewayProviderCapability => Boolean(item));
+
+  const detectedMediaCapabilities = detectedCapabilities.filter((capability) =>
+    capability.type === "openai_image_generations" ||
+    capability.type === "openai_video_generations" ||
+    capability.type === "xai_video_generations"
+  );
+  return mergeProviderCapabilities(selectedCapabilities, detectedMediaCapabilities);
+}
+
+export function providerProbeModelsForProtocol(
+  probe: GatewayProviderProbeResult | undefined,
+  protocol: GatewayProviderProtocol
+): string[] {
+  return probe?.protocolModels?.[protocol] ?? probe?.models ?? [];
+}
+
+export function applyProviderProbeResult(draft: AddProviderDraft, probe: GatewayProviderProbeResult): AddProviderDraft {
+  const detectedProtocol = probe.detectedProtocol ?? draft.protocol;
+  const selectedProtocols = selectedProviderProtocolsForProbe(draft.selectedProtocols, probe, detectedProtocol, draft.presetId);
+  const protocol = selectedProtocols.includes(draft.protocol)
+    ? draft.protocol
+    : selectedProtocols.includes(detectedProtocol)
+    ? detectedProtocol
+    : selectedProtocols[0] ?? detectedProtocol;
+  const probeModels = providerProbeModelsForProtocol(probe, protocol);
+  const modelDisplayNames = mergeModelDisplayNames(draft.modelDisplayNames, probe.modelDisplayNames);
+  const catalogModelMetadata = mergeModelMetadata(draft.catalogModelMetadata, probe.catalogModelMetadata);
+  const modelMetadata = mergeModelMetadata(draft.modelMetadata, probe.modelMetadata);
+  const accountDraft = providerProbeAccountDraftPatch(draft, probe.account);
+  const baseUrl = providerGlobalBaseUrlForProbe(draft.baseUrl, probe, selectedProtocols);
+
+  if (probeModels.length === 0) {
+    return {
+      ...draft,
+      ...accountDraft,
+      baseUrl,
+      catalogModelMetadata,
+      modelDisplayNames,
+      modelMetadata,
+      protocol,
+      selectedModels: mergeProviderModelLists(draft.selectedModels),
+      selectedProtocols
+    };
+  }
+
+  const detectedModels = new Set(probeModels);
+  const typedModels = splitLines(draft.modelsText);
+  const selectedCatalogModels = draft.selectedModels.filter((model) => detectedModels.has(model));
+  const selectedCustomModels = draft.selectedModels.filter((model) => !detectedModels.has(model));
+  const typedCatalogModels = typedModels.filter((model) => detectedModels.has(model));
+  const typedCustomModels = typedModels.filter((model) => !detectedModels.has(model));
+  const selectedModels = mergeProviderModelLists(selectedCatalogModels, typedCatalogModels);
+  const customModels = mergeProviderModelLists(selectedCustomModels, typedCustomModels);
+  const nextSelectedModels = selectedModels.length > 0 || customModels.length > 0
+    ? selectedModels
+    : pickRecommendedProviderModels(probeModels, probe.detectedProtocol);
+
+  return {
+    ...draft,
+    ...accountDraft,
+    baseUrl,
+    catalogModelMetadata,
+    modelDisplayNames,
+    modelMetadata,
+    protocol,
+    modelsText: customModels.join("\n"),
+    selectedModels: nextSelectedModels,
+    selectedProtocols
+  };
+}
+
+function providerProbeAccountDraftPatch(
+  draft: AddProviderDraft,
+  account: ProviderAccountConfig | undefined
+): Partial<AddProviderDraft> {
+  if (!account || (draft.accountEnabled && draft.accountMode !== "standard")) {
+    return {};
+  }
+  return createProviderAccountDraftFromConfig(account);
+}
+
+export function mergeModelDisplayNames(
+  ...groups: Array<Record<string, string> | undefined>
+): Record<string, string> | undefined {
+  const merged: Record<string, string> = {};
+  for (const group of groups) {
+    for (const [rawModel, rawDisplayName] of Object.entries(group ?? {})) {
+      const model = rawModel.trim();
+      const displayName = rawDisplayName.trim();
+      if (!model || !displayName || model === displayName) {
+        continue;
+      }
+      merged[model] = displayName;
+    }
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+export function mergeModelMetadata(
+  ...groups: Array<Record<string, ProviderModelMetadata> | undefined>
+): Record<string, ProviderModelMetadata> | undefined {
+  const merged: Record<string, ProviderModelMetadata> = {};
+  for (const group of groups) {
+    for (const [rawModel, metadata] of Object.entries(group ?? {})) {
+      const model = rawModel.trim();
+      if (!model || !metadata || typeof metadata !== "object") {
+        continue;
+      }
+      const pinned = merged[model]?.contextWindowPinned ? merged[model] : undefined;
+      merged[model] = pinned
+        ? {
+            ...metadata,
+            contextWindow: pinned.contextWindow,
+            contextWindowPinned: true,
+            maxContextWindow: pinned.maxContextWindow
+          }
+        : metadata;
+    }
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+export function modelMetadataForModels(
+  value: Record<string, ProviderModelMetadata> | undefined,
+  models: string[]
+): Record<string, ProviderModelMetadata> | undefined {
+  const modelIds = new Set(models);
+  const entries = Object.entries(value ?? {})
+    .map(([rawModel, metadata]) => [rawModel.trim(), metadata] as const)
+    .filter(([model, metadata]) => model && modelIds.has(model) && metadata && typeof metadata === "object");
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+export function modelDisplayNamesForModels(
+  value: Record<string, string> | undefined,
+  models: string[]
+): Record<string, string> | undefined {
+  const modelIds = new Set(models);
+  const entries = Object.entries(value ?? {})
+    .map(([rawModel, rawDisplayName]) => [rawModel.trim(), rawDisplayName.trim()] as const)
+    .filter(([model, displayName]) => model && displayName && model !== displayName && modelIds.has(model));
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+export function modelDescriptionsForModels(
+  value: Record<string, string> | undefined,
+  models: string[]
+): Record<string, string> | undefined {
+  const modelIds = new Set(models);
+  const entries = Object.entries(value ?? {})
+    .map(([rawModel, rawDescription]) => [rawModel.trim(), rawDescription.trim()] as const)
+    .filter(([model, description]) => model && description && modelIds.has(model));
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+export function providerModelDisplayName(provider: GatewayProviderConfig, model: string): string {
+  return provider.modelDisplayNames?.[model]?.trim() || model;
+}
+
+export function providerModelDisplayTitle(provider: GatewayProviderConfig, model: string): string {
+  return providerModelDisplayName(provider, model);
+}
+
+export function providerAutoFetchKnownModelsForSave({
+  currentModels,
+  detectedModels = [],
+  draftKnownModels = [],
+  existingProvider,
+  nextBaseUrl
+}: {
+  currentModels: string[];
+  detectedModels?: string[];
+  draftKnownModels?: string[];
+  existingProvider?: GatewayProviderConfig;
+  nextBaseUrl: string;
+}): string[] | undefined {
+  const current = mergeProviderModelLists(currentModels);
+  const matchedExistingProvider = existingProvider && providerModelSourceMatches(existingProvider, nextBaseUrl)
+    ? existingProvider
+    : undefined;
+  const existingKnown = matchedExistingProvider
+    ? mergeProviderModelLists(matchedExistingProvider.autoFetchKnownModels ?? [], matchedExistingProvider.models)
+    : [];
+  const draftKnown = matchedExistingProvider ? mergeProviderModelLists(draftKnownModels) : [];
+  const detected = mergeProviderModelLists(detectedModels);
+  const known = mergeProviderModelLists(existingKnown, draftKnown, detected, current);
+  const currentKeys = new Set(current.map((model) => model.toLowerCase()));
+  const hasKnownModelsOutsideCurrentSelection = known.some((model) => !currentKeys.has(model.toLowerCase()));
+  const hasObservedCatalogBaseline = detected.length > 0;
+  const hasExistingBaseline = existingKnown.length > 0 || draftKnown.length > 0;
+
+  return hasKnownModelsOutsideCurrentSelection || hasObservedCatalogBaseline || hasExistingBaseline ? known : undefined;
+}
+
+function providerModelSourceMatches(provider: GatewayProviderConfig, nextBaseUrl: string): boolean {
+  const currentBaseUrl = normalizeProviderBaseUrl(providerBaseUrl(provider)).toLowerCase();
+  const nextNormalizedBaseUrl = normalizeProviderBaseUrl(nextBaseUrl).toLowerCase();
+  return Boolean(currentBaseUrl && nextNormalizedBaseUrl && currentBaseUrl === nextNormalizedBaseUrl);
+}
+
+export function pickRecommendedProviderModels(models: string[], protocol?: GatewayProviderProtocol): string[] {
+  const candidates = mergeProviderModelLists(models);
+  if (candidates.length === 0) {
+    return [];
+  }
+
+  const preferred = candidates.find((model) => recommendedModelRank(model, protocol) === 0) ??
+    candidates
+      .map((model) => ({ model, rank: recommendedModelRank(model, protocol) }))
+      .sort((left, right) => left.rank - right.rank)[0]?.model;
+
+  return preferred ? [preferred] : [candidates[0]];
+}
+
+export function recommendedModelRank(model: string, protocol?: GatewayProviderProtocol): number {
+  const normalized = model.toLowerCase();
+  if (protocol === "anthropic_messages" || normalized.includes("claude")) {
+    if (normalized.includes("sonnet")) return 0;
+    if (normalized.includes("opus")) return 1;
+    if (normalized.includes("haiku")) return 2;
+  }
+  if (protocol === "gemini_generate_content" || protocol === "gemini_interactions" || normalized.includes("gemini")) {
+    if (normalized.includes("pro")) return 0;
+    if (normalized.includes("flash")) return 1;
+  }
+  if (/gpt-4|gpt-5|o3|o4/.test(normalized)) return 0;
+  if (/deepseek-chat|qwen|max|kimi|mistral-large|llama/.test(normalized)) return 1;
+  return 5;
+}
+
+export function mergeProviderModelLists(...groups: string[][]): string[] {
+  const seen = new Set<string>();
+  const models: string[] = [];
+  for (const group of groups) {
+    for (const model of group) {
+      const trimmed = model.trim();
+      if (!trimmed || seen.has(trimmed)) {
+        continue;
+      }
+      seen.add(trimmed);
+      models.push(trimmed);
+    }
+  }
+  return models;
+}
+
+export function numberValue(value: string): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
+}
+
+export function splitLines(value: string): string[] {
+  return value
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function splitModelTagInput(value: string): string[] {
+  return value
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function providerBaseUrl(provider: GatewayProviderConfig): string {
+  return provider.api_base_url || provider.baseurl || provider.baseUrl || "";
+}
+
+export function providerApiKey(provider: GatewayProviderConfig): string {
+  return provider.api_key || provider.apiKey || provider.apikey || "";
+}
+
+export function providerCapabilitiesSummary(provider: GatewayProviderConfig, translate: (value: string) => string = (value) => value): string {
+  const capabilities = provider.capabilities ?? [];
+  if (capabilities.length === 0) {
+    return translatedProviderProtocolLabel(toProviderProtocol(provider.type) ?? toProviderProtocol(provider.provider) ?? "openai_chat_completions", translate);
+  }
+  return capabilities.map((capability) => translatedProviderProtocolLabel(capability.type, translate)).join(", ");
+}
+
+export function providerListItemKey(provider: GatewayProviderConfig, index: number): string {
+  return provider.id || `${index}:${provider.name || "provider"}`;
+}
+
+export function providerMatchesQuery(provider: GatewayProviderConfig, query: string): boolean {
+  if (!query) {
+    return true;
+  }
+  const searchableModels = isGatewayProviderEnabled(provider) ? provider.models : [];
+
+  return [
+    provider.name,
+    providerBaseUrl(provider),
+    providerCapabilitiesSummary(provider),
+    ...(provider.capabilities ?? []).map((capability) => capability.baseUrl),
+    ...searchableModels,
+    ...searchableModels.map((model) => providerModelDisplayName(provider, model))
+  ]
+    .filter(Boolean)
+    .some((value) => value.toLowerCase().includes(query));
+}
+
+export function viewUsesInternalScroll(view: ViewId): boolean {
+  return view === "observability" || view === "api-keys" || view === "profile" || view === "networking" || view === "logs" || view === "providers" || view === "models" || view === "routing" || view === "virtual-models" || view === "extensions";
+}
+
+export function uniqueProviderName(providers: GatewayProviderConfig[], baseName = "provider"): string {
+  const trimmedBaseName = baseName.trim();
+  if (trimmedBaseName && trimmedBaseName !== "provider") {
+    let candidate = trimmedBaseName;
+    let index = 2;
+    while (providers.some((provider) => providerNameEquals(provider.name, candidate))) {
+      candidate = `${trimmedBaseName} ${index}`;
+      index += 1;
+    }
+    return candidate;
+  }
+
+  let index = providers.length + 1;
+  while (providers.some((provider) => providerNameEquals(provider.name, `provider-${index}`))) {
+    index += 1;
+  }
+  return `provider-${index}`;
+}
+
+export function isProviderNameDuplicate(providers: GatewayProviderConfig[], name: string, ignoreIndex?: number): boolean {
+  return providers.some((provider, index) => index !== ignoreIndex && providerNameEquals(provider.name, name));
+}
+
+export function providerNameEquals(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+export function providerProtocolLabel(protocol: GatewayProviderProtocol | string): string {
+  return providerProtocolOptions.find((option) => option.value === protocol)?.label ?? String(protocol);
+}
+
+export function translatedProviderProtocolLabel(protocol: GatewayProviderProtocol | string, translate: (value: string) => string): string {
+  return translate(providerProtocolLabel(protocol));
+}
+
+export function translateProbeProtocolMessage(message: string | undefined, translate: (value: string) => string): string {
+  const trimmed = message?.trim() ?? "";
+  if (!trimmed) {
+    return "";
+  }
+  if (isProbeAuthorizationMissingMessage(trimmed)) {
+    return "";
+  }
+
+  const httpMatch = /^HTTP\s+(\d{3})(?::\s*(.*))?$/i.exec(trimmed);
+  if (!httpMatch) {
+    return translate(trimmed);
+  }
+
+  const status = httpMatch[1];
+  const detail = httpMatch[2]?.trim();
+  return detail ? `HTTP ${status}: ${translate(detail)}` : `HTTP ${status}`;
+}
+
+function isProbeAuthorizationMissingMessage(message: string): boolean {
+  const normalized = message
+    .trim()
+    .replace(/[。.\s]+$/g, "")
+    .toLowerCase();
+  const match = /^http\s+401\s*:\s*(.*)$/i.exec(normalized);
+  const detail = match?.[1] ?? normalized;
+  return detail.includes("header中未收到authorization参数") && detail.includes("无法进行身份验证");
+}

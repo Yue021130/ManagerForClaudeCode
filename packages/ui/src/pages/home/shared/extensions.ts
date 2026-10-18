@@ -1,0 +1,726 @@
+import {
+  GATEWAY_PLUGIN_PERMISSION_IDS,
+  GATEWAY_PLUGIN_SURFACE_IDS
+} from "@ccr/core/contracts/app";
+import type {
+  AppConfig,
+  GatewayProviderConfig,
+  GatewayPluginAppConfig,
+  GatewayPluginConfig,
+  GatewayPluginPermission,
+  GatewayPluginSurfacesConfig,
+  PluginDependency,
+  PluginMarketplaceEntry
+} from "@ccr/core/contracts/app";
+
+import { isPlainRecord, stringValue } from "./common";
+import { isClaudeDesignPluginConfig, isCursorProxyPluginConfig, readClaudeDesignRoutingConfig } from "./routing";
+import type { ExtensionInstallDraft, ExtensionListItem, ExtensionSource, PluginInstallCandidate, PluginSettingsDraft } from "./types";
+
+export type PluginSettingsConfigPatch = Pick<
+  GatewayPluginConfig,
+  "apps" | "config" | "coreGateway" | "enabled" | "module" | "permissions" | "proxy" | "surfaces"
+>;
+
+const gatewayPluginPermissionIdSet = new Set<string>(GATEWAY_PLUGIN_PERMISSION_IDS);
+
+export function createPluginSettingsDraft(plugin?: AppConfig["plugins"][number]): PluginSettingsDraft {
+  return {
+    appsText: formatEditableJson(plugin?.apps ?? []),
+    appsSurfaceEnabled: plugin?.surfaces?.apps !== false,
+    coreGatewayText: formatEditableJson(plugin?.coreGateway ?? {}),
+    configText: formatEditableJson(pluginSettingsConfigWithoutRouting(plugin?.config)),
+    enabled: plugin?.enabled !== false,
+    gatewaySurfaceEnabled: plugin?.surfaces?.gateway !== false,
+    modulePath: plugin?.module ?? "",
+    permissionsText: formatEditableJson(plugin?.permissions ?? []),
+    providerSurfaceEnabled: plugin?.surfaces?.provider !== false,
+    proxyText: formatEditableJson(plugin?.proxy ?? {})
+  };
+}
+
+export function pluginSettingsConfigWithoutRouting(config: unknown): Record<string, unknown> {
+  if (!isPlainRecord(config)) {
+    return {};
+  }
+  const { routing: _routing, ...rest } = config;
+  return rest;
+}
+
+export function parsePluginAppsSettingsText(value: string): { ok: true; value?: GatewayPluginAppConfig[] } | { ok: false; message: string } {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { ok: true };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return { ok: false, message: "Invalid JSON." };
+  }
+
+  if (!Array.isArray(parsed)) {
+    return { ok: false, message: "Plugin apps must be a JSON array." };
+  }
+
+  const apps: GatewayPluginAppConfig[] = [];
+  for (const item of parsed) {
+    if (!isPlainRecord(item)) {
+      return { ok: false, message: "Each plugin app requires name and url." };
+    }
+    const name = stringValue(item.name);
+    const urlResult = normalizePluginAppUrlForSettings(stringValue(item.url));
+    if (!urlResult.ok) {
+      return { ok: false, message: urlResult.message };
+    }
+    const url = urlResult.value;
+    if (!name || !url) {
+      return { ok: false, message: "Each plugin app requires name and url." };
+    }
+    apps.push({
+      ...(stringValue(item.description) ? { description: stringValue(item.description) } : {}),
+      ...(stringValue(item.icon) ? { icon: stringValue(item.icon) } : {}),
+      ...(stringValue(item.id) ? { id: stringValue(item.id) } : {}),
+      name,
+      url
+    });
+  }
+  return { ok: true, value: apps };
+}
+
+export function parsePluginConfigSettingsText(value: string): { ok: true; value?: Record<string, unknown> } | { ok: false; message: string } {
+  const result = parsePluginObjectSettingsText(value, "Plugin config must be a JSON object.");
+  if (!result.ok || !result.value) {
+    return result;
+  }
+
+  const { routing: _routing, ...rest } = result.value;
+  return { ok: true, value: rest };
+}
+
+export function parsePluginObjectSettingsText(value: string, objectMessage: string): { ok: true; value?: Record<string, unknown> } | { ok: false; message: string } {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { ok: true };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return { ok: false, message: "Invalid JSON." };
+  }
+
+  if (!isPlainRecord(parsed)) {
+    return { ok: false, message: objectMessage };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+export function parsePluginPermissionsSettingsText(value: string): { ok: true; value?: GatewayPluginPermission[] } | { ok: false; message: string } {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { ok: true };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return { ok: false, message: "Invalid JSON." };
+  }
+
+  const permissions = parsePluginPermissionsValue(parsed);
+  if (!permissions) {
+    return { ok: false, message: "Plugin permissions must be a JSON array, string, or object." };
+  }
+  return { ok: true, value: permissions };
+}
+
+function parsePluginPermissionsValue(value: unknown): GatewayPluginPermission[] | undefined {
+  const permissions: GatewayPluginPermission[] = [];
+  const seen = new Set<GatewayPluginPermission>();
+  const add = (rawValue: unknown) => {
+    const permission = normalizePluginPermission(rawValue);
+    if (!permission || seen.has(permission)) {
+      return;
+    }
+    seen.add(permission);
+    permissions.push(permission);
+  };
+
+  if (typeof value === "string") {
+    add(value);
+  } else if (Array.isArray(value)) {
+    value.forEach(add);
+  } else if (isPlainRecord(value)) {
+    for (const [key, enabled] of Object.entries(value)) {
+      if (enabled === false) {
+        continue;
+      }
+      if (isAllPluginPermissionsKey(key)) {
+        GATEWAY_PLUGIN_PERMISSION_IDS.forEach(add);
+      } else {
+        add(key);
+      }
+    }
+  } else {
+    return undefined;
+  }
+
+  return permissions;
+}
+
+function normalizePluginPermission(value: unknown): GatewayPluginPermission | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  const mapped = pluginPermissionAlias(normalized);
+  return gatewayPluginPermissionIdSet.has(mapped) ? mapped as GatewayPluginPermission : undefined;
+}
+
+function pluginPermissionAlias(value: string): string {
+  switch (value) {
+    case "code":
+    case "execute-code":
+    case "trusted":
+    case "trusted-code":
+      return "trusted-code";
+    case "app":
+    case "browser-app":
+    case "browser-apps":
+      return "apps";
+    case "gateway-route":
+    case "route":
+    case "routes":
+      return "gateway-routes";
+    case "gateway-request-transform":
+    case "gateway-request-transforms":
+    case "request-transform":
+    case "request-transforms":
+      return "gateway-request-transforms";
+    case "proxy":
+    case "proxy-route":
+      return "proxy-routes";
+    case "backend":
+    case "backends":
+    case "http-backend":
+      return "http-backends";
+    case "provider-account":
+    case "provider-account-connector":
+      return "provider-account-connectors";
+    case "core-gateway":
+      return "core-gateway-config";
+    case "core-gateway-plugin":
+    case "core-gateway-plugins":
+    case "gateway-plugin":
+    case "gateway-plugins":
+      return "core-gateway-plugins";
+    case "provider-plugin":
+    case "provider-plugins":
+    case "core-provider-plugin":
+      return "core-provider-plugins";
+    case "fusion-profile":
+    case "fusion-profiles":
+    case "virtual-model":
+    case "virtual-models":
+    case "virtual-model-profile":
+      return "virtual-model-profiles";
+    case "sqlite":
+    case "data-store":
+    case "store":
+      return "sqlite-store";
+    case "launcher":
+    case "mac-launcher":
+      return "system-launcher";
+    default:
+      return value;
+  }
+}
+
+function normalizePluginAppUrlForSettings(value: string | undefined): { ok: true; value: string } | { ok: false; message: string } {
+  const trimmed = value?.trim() || "";
+  if (!trimmed) {
+    return { ok: true, value: "" };
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      return { ok: true, value: new URL(trimmed).toString() };
+    } catch {
+      return { ok: false, message: "Plugin app URL must be valid." };
+    }
+  }
+  if (trimmed.startsWith("//")) {
+    return { ok: false, message: "Plugin app URL cannot be protocol-relative." };
+  }
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return { ok: false, message: "Plugin app URL must be an http(s) URL or a CCR gateway path." };
+  }
+  return { ok: true, value: trimmed.startsWith("/") ? trimmed : `/${trimmed}` };
+}
+
+function isAllPluginPermissionsKey(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "*" || normalized === "all";
+}
+
+export function pluginConfigPatchFromSettingsDraft(
+  previousConfig: unknown,
+  draft: PluginSettingsDraft
+): { ok: true; value: PluginSettingsConfigPatch } | { ok: false; message: string } {
+  const appsResult = parsePluginAppsSettingsText(draft.appsText);
+  if (!appsResult.ok) {
+    return appsResult;
+  }
+
+  const permissionsResult = parsePluginPermissionsSettingsText(draft.permissionsText);
+  if (!permissionsResult.ok) {
+    return permissionsResult;
+  }
+
+  const proxyResult = parsePluginObjectSettingsText(draft.proxyText, "Plugin proxy must be a JSON object.");
+  if (!proxyResult.ok) {
+    return proxyResult;
+  }
+
+  const coreGatewayResult = parsePluginObjectSettingsText(draft.coreGatewayText, "Plugin core gateway must be a JSON object.");
+  if (!coreGatewayResult.ok) {
+    return coreGatewayResult;
+  }
+
+  const configResult = parsePluginConfigSettingsText(draft.configText);
+  if (!configResult.ok) {
+    return configResult;
+  }
+
+  return {
+    ok: true,
+    value: {
+      apps: appsResult.value && appsResult.value.length > 0 ? appsResult.value : undefined,
+      config: pluginSettingsConfigFromDraft(previousConfig, configResult.value),
+      coreGateway: nonEmptyObject(coreGatewayResult.value) as GatewayPluginConfig["coreGateway"],
+      enabled: draft.enabled,
+      module: draft.modulePath.trim() || undefined,
+      permissions: permissionsResult.value && permissionsResult.value.length > 0 ? permissionsResult.value : undefined,
+      proxy: nonEmptyObject(proxyResult.value) as GatewayPluginConfig["proxy"],
+      surfaces: pluginSurfacesFromDraft(draft)
+    }
+  };
+}
+
+export function pluginSettingsConfigFromDraft(previousConfig: unknown, nonRoutingConfig: Record<string, unknown> | undefined): unknown {
+  const output: Record<string, unknown> = nonRoutingConfig ? { ...nonRoutingConfig } : {};
+  if (isPlainRecord(previousConfig) && Object.prototype.hasOwnProperty.call(previousConfig, "routing")) {
+    output.routing = previousConfig.routing;
+  }
+  return Object.keys(output).length > 0 ? output : undefined;
+}
+
+function nonEmptyObject<T extends Record<string, unknown>>(value: T | undefined): T | undefined {
+  return value && Object.keys(value).length > 0 ? value : undefined;
+}
+
+export function formatEditableJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+export function sanitizeConfigId(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+export function buildExtensionList(config: AppConfig): ExtensionListItem[] {
+  return [
+    ...(config.plugins ?? []).map((item, index) => extensionListItem("plugins", item, index)),
+    ...providerPluginExtensionList(config.providerPlugins ?? [])
+  ];
+}
+
+function providerPluginExtensionList(providerPlugins: unknown[]): ExtensionListItem[] {
+  const internalIndexesByBaseKey = new Map<string, number[]>();
+  const visibleKeys = new Set<string>();
+
+  providerPlugins.forEach((item, index) => {
+    const internalBaseKey = localAgentInternalProviderPluginBaseKey(item);
+    if (internalBaseKey) {
+      internalIndexesByBaseKey.set(internalBaseKey, [...(internalIndexesByBaseKey.get(internalBaseKey) ?? []), index]);
+      return;
+    }
+
+    const key = extensionKeyValue(item);
+    if (key) {
+      visibleKeys.add(key);
+    }
+  });
+
+  return providerPlugins.flatMap((item, index) => {
+    const internalBaseKey = localAgentInternalProviderPluginBaseKey(item);
+    if (internalBaseKey && visibleKeys.has(internalBaseKey)) {
+      return [];
+    }
+
+    const extension = extensionListItem("providerPlugins", item, index);
+    const key = extensionKeyValue(item);
+    const foldedIndexes = key ? internalIndexesByBaseKey.get(key) ?? [] : [];
+    if (foldedIndexes.length === 0) {
+      return [extension];
+    }
+
+    const groupIndexes = uniqueIndexes([index, ...foldedIndexes]);
+    const enabled = groupIndexes.every((itemIndex) => pluginEnabled(providerPlugins[itemIndex]));
+    return [{
+      ...extension,
+      enabled,
+      groupIndexes,
+      status: enabled ? "enabled" : "disabled"
+    }];
+  });
+}
+
+function localAgentInternalProviderPluginBaseKey(item: unknown): string | undefined {
+  if (!isPlainRecord(item)) {
+    return undefined;
+  }
+
+  const key = stringValue(item.key);
+  if (!key?.startsWith("ccr-local-agent-") || !key.endsWith("-internal")) {
+    return undefined;
+  }
+
+  const providerName = stringValue(item.providerName) || stringValue(item.provider);
+  if (!providerName?.includes("::")) {
+    return undefined;
+  }
+
+  return key.slice(0, -"-internal".length) || undefined;
+}
+
+function pluginEnabled(item: unknown): boolean {
+  return !isPlainRecord(item) || item.enabled !== false;
+}
+
+function uniqueIndexes(indexes: number[]): number[] {
+  return [...new Set(indexes.filter((index) => Number.isInteger(index) && index >= 0))];
+}
+
+export function resolvePluginInstallPlan(
+  root: PluginInstallCandidate,
+  marketplace: PluginMarketplaceEntry[],
+  installedPlugins: AppConfig["plugins"]
+): { items: PluginInstallCandidate[]; missing: string[] } {
+  const installedById = new Map(installedPlugins.map((plugin) => [plugin.id, plugin]));
+  const marketplaceById = new Map(marketplace.map((entry) => [entry.id, entry]));
+  const planned = new Map<string, PluginInstallCandidate>();
+  const missing = new Set<string>();
+  const visiting = new Set<string>();
+
+  function visit(candidate: PluginInstallCandidate) {
+    const installedPlugin = installedById.get(candidate.id);
+    if (installedPlugin) {
+      if (!installedPluginSatisfiesDependency(installedPlugin, candidate)) {
+        missing.add(candidate.id);
+      }
+      return;
+    }
+    if (planned.has(candidate.id)) {
+      return;
+    }
+    if (visiting.has(candidate.id)) {
+      return;
+    }
+
+    visiting.add(candidate.id);
+    for (const dependency of candidate.dependencies) {
+      const dependencyCandidate = pluginDependencyCandidate(dependency, marketplaceById);
+      if (!dependencyCandidate) {
+        const installedDependency = installedById.get(dependency.id);
+        if (!installedDependency || !installedPluginSatisfiesDependency(installedDependency, dependency)) {
+          missing.add(dependency.id);
+        }
+        continue;
+      }
+      visit(dependencyCandidate);
+    }
+    visiting.delete(candidate.id);
+    planned.set(candidate.id, candidate);
+  }
+
+  visit(root);
+  return {
+    items: [...planned.values()],
+    missing: [...missing]
+  };
+}
+
+export function pluginDependencyCandidate(
+  dependency: PluginDependency,
+  marketplaceById: Map<string, PluginMarketplaceEntry>
+): PluginInstallCandidate | undefined {
+  if (dependency.modulePath) {
+    return {
+      dependencies: [],
+      id: dependency.id,
+      modulePath: dependency.modulePath,
+      name: dependency.name,
+      permissions: dependency.permissions,
+      surfaces: dependency.surfaces
+    };
+  }
+
+  const entry = marketplaceById.get(dependency.id);
+  if (!entry) {
+    return undefined;
+  }
+  return {
+    apps: entry.apps,
+    dependencies: entry.dependencies,
+    id: entry.id,
+    modulePath: entry.modulePath,
+    name: entry.name,
+    permissions: entry.permissions,
+    surfaces: dependency.surfaces ?? entry.surfaces
+  };
+}
+
+export function formatPluginDependencies(dependencies: PluginDependency[]): string {
+  return dependencies.map((dependency) => dependency.name || dependency.id).join(", ");
+}
+
+export function extensionListItem(source: ExtensionSource, item: unknown, index: number): ExtensionListItem {
+  if (!isPlainRecord(item)) {
+    return {
+      canConfigure: false,
+      canToggle: false,
+      capability: "Unsupported format",
+      enabled: false,
+      groupIndexes: [index],
+      index,
+      name: stringValue(item) || `Plugin ${index + 1}`,
+      source,
+      status: "unsupported",
+      surfaces: undefined,
+      target: "Not available"
+    };
+  }
+
+  if (source === "plugins") {
+    const enabled = item.enabled !== false;
+    const surfaces = pluginSurfacesFromConfigRecord(item);
+    return {
+      canConfigure: true,
+      canToggle: true,
+      capability: wrapperPluginCapability(item),
+      enabled,
+      groupIndexes: [index],
+      index,
+      name: stringValue(item.id) || stringValue(item.key) || `wrapper-plugin-${index + 1}`,
+      source,
+      status: enabled ? "enabled" : "disabled",
+      surfaces,
+      target: wrapperPluginTarget(item)
+    };
+  }
+
+  const enabled = item.enabled !== false;
+  return {
+    canConfigure: false,
+    canToggle: true,
+    capability: providerPluginCapability(item),
+    enabled,
+    groupIndexes: [index],
+    index,
+    name: stringValue(item.key) || `provider-plugin-${index + 1}`,
+    source,
+    status: enabled ? "enabled" : "disabled",
+    surfaces: undefined,
+    target: stringValue(item.providerName) || stringValue(item.provider) || "All providers"
+  };
+}
+
+export function extensionMatchesQuery(extension: ExtensionListItem, query: string): boolean {
+  if (!query) {
+    return true;
+  }
+
+  return [
+    extension.name,
+    extension.target,
+    extension.capability,
+    extension.status,
+    extension.source
+  ].some((value) => value.toLowerCase().includes(query));
+}
+
+export function wrapperPluginCapability(item: Record<string, unknown>): string {
+  const capabilities: string[] = ["Wrapper runtime"];
+  capabilities.push(`Surfaces: ${pluginSurfaceSummary(pluginSurfacesFromConfigRecord(item))}`);
+  if (stringValue(item.module)) capabilities.push("Module");
+  const permissions = Array.isArray(item.permissions)
+    ? item.permissions.map(stringValue).filter((value): value is string => Boolean(value))
+    : [];
+  if (permissions.length > 0) capabilities.push(`Permissions: ${permissions.join(", ")}`);
+  const apps = Array.isArray(item.apps) ? item.apps.length : 0;
+  if (apps > 0) capabilities.push(`${apps} browser ${apps === 1 ? "app" : "apps"}`);
+
+  const proxy = isPlainRecord(item.proxy) ? item.proxy : undefined;
+  const proxyRoutes = isPlainRecord(proxy) && Array.isArray(proxy.routes) ? proxy.routes.length : 0;
+  if (proxyRoutes > 0) capabilities.push(`${proxyRoutes} proxy ${proxyRoutes === 1 ? "route" : "routes"}`);
+
+  const coreGateway = isPlainRecord(item.coreGateway) ? item.coreGateway : undefined;
+  const providerPlugins = isPlainRecord(coreGateway) && Array.isArray(coreGateway.providerPlugins) ? coreGateway.providerPlugins.length : 0;
+  if (providerPlugins > 0) capabilities.push(`${providerPlugins} provider ${providerPlugins === 1 ? "plugin" : "plugins"}`);
+
+  const coreGatewayPlugins = isPlainRecord(coreGateway) && Array.isArray(coreGateway.plugins) ? coreGateway.plugins.length : 0;
+  if (coreGatewayPlugins > 0) capabilities.push(`${coreGatewayPlugins} core gateway ${coreGatewayPlugins === 1 ? "plugin" : "plugins"}`);
+
+  const virtualModels = isPlainRecord(coreGateway) && Array.isArray(coreGateway.virtualModelProfiles) ? coreGateway.virtualModelProfiles.length : 0;
+  if (virtualModels > 0) capabilities.push(`${virtualModels} Fusion ${virtualModels === 1 ? "profile" : "profiles"}`);
+
+  if (isClaudeDesignPluginConfig(item)) {
+    const routing = readClaudeDesignRoutingConfig(item.config);
+    const routeCount = routing.rules.length;
+    capabilities.push(routeCount > 0 ? `${routeCount} model ${routeCount === 1 ? "route" : "routes"}` : "Configurable routing");
+  }
+  if (isCursorProxyPluginConfig(item)) {
+    const routing = readClaudeDesignRoutingConfig(item.config);
+    const routeCount = routing.rules.length;
+    capabilities.push(routeCount > 0 ? `${routeCount} model ${routeCount === 1 ? "route" : "routes"}` : "Configurable routing");
+  }
+
+  if (isPlainRecord(coreGateway) && isPlainRecord(coreGateway.config)) capabilities.push("Core gateway config");
+  return capabilities.join(", ");
+}
+
+export function wrapperPluginTarget(item: Record<string, unknown>): string {
+  const modulePath = stringValue(item.module);
+  if (modulePath) {
+    return modulePath;
+  }
+
+  const proxy = isPlainRecord(item.proxy) ? item.proxy : undefined;
+  const routes = isPlainRecord(proxy) && Array.isArray(proxy.routes) ? proxy.routes : [];
+  const hosts = routes
+    .filter(isPlainRecord)
+    .map((route) => stringValue(route.host))
+    .filter((host): host is string => Boolean(host));
+  return hosts.length ? hosts.join(", ") : "Wrapper runtime";
+}
+
+export function providerPluginCapability(item: Record<string, unknown>): string {
+  const capabilities: string[] = ["Provider middleware"];
+  if (item.deepseekThinking || item.deepSeekThinking) capabilities.push("DeepSeek thinking");
+  if (item.codexOauth) capabilities.push("Codex OAuth");
+  if (typeof item.key === "string" && item.key.includes("grok-cli-oauth")) capabilities.push("Grok OAuth");
+  if (typeof item.key === "string" && item.key.includes("kimi-cli-oauth")) capabilities.push("Kimi OAuth");
+  if (item.auth) capabilities.push("Auth mutation");
+  if (item.request) capabilities.push("Request mutation");
+  if (item.response) capabilities.push("Response mutation");
+  return capabilities.join(", ");
+}
+
+export function createExtensionInstallDraft(): ExtensionInstallDraft {
+  return {
+    dependencies: [],
+    key: "",
+    marketplaceId: "",
+    modulePath: "",
+    selectedName: "",
+    surfaces: undefined
+  };
+}
+
+export function pluginRuntimeSurfacesEnabled(surfaces: GatewayPluginSurfacesConfig | undefined): boolean {
+  return surfaces?.apps !== false || surfaces?.gateway !== false || surfaces?.provider !== false;
+}
+
+export function pluginSurfacesFromDraft(draft: Pick<PluginSettingsDraft, "appsSurfaceEnabled" | "gatewaySurfaceEnabled" | "providerSurfaceEnabled">): GatewayPluginSurfacesConfig | undefined {
+  const surfaces: GatewayPluginSurfacesConfig = {
+    apps: draft.appsSurfaceEnabled,
+    gateway: draft.gatewaySurfaceEnabled,
+    provider: draft.providerSurfaceEnabled
+  };
+  return allPluginSurfacesEnabled(surfaces) ? undefined : surfaces;
+}
+
+export function pluginSurfaceSummary(surfaces: GatewayPluginSurfacesConfig | undefined): string {
+  return GATEWAY_PLUGIN_SURFACE_IDS
+    .map((surface) => `${surface}:${surfaces?.[surface] === false ? "off" : "on"}`)
+    .join(", ");
+}
+
+function pluginSurfacesFromConfigRecord(item: Record<string, unknown>): GatewayPluginSurfacesConfig | undefined {
+  const value = item.surfaces;
+  if (!isPlainRecord(value)) {
+    return undefined;
+  }
+  const surfaces: GatewayPluginSurfacesConfig = {};
+  for (const surface of GATEWAY_PLUGIN_SURFACE_IDS) {
+    if (typeof value[surface] === "boolean") {
+      surfaces[surface] = value[surface];
+    }
+  }
+  return Object.keys(surfaces).length > 0 ? surfaces : undefined;
+}
+
+function allPluginSurfacesEnabled(surfaces: GatewayPluginSurfacesConfig): boolean {
+  return GATEWAY_PLUGIN_SURFACE_IDS.every((surface) => surfaces[surface] !== false);
+}
+
+function installedPluginSatisfiesDependency(
+  installedPlugin: AppConfig["plugins"][number],
+  dependency: Pick<PluginInstallCandidate, "surfaces"> | Pick<PluginDependency, "surfaces">
+): boolean {
+  if (installedPlugin.enabled === false) {
+    return false;
+  }
+  return pluginSurfacesSatisfy(installedPlugin.surfaces, dependency.surfaces);
+}
+
+function pluginSurfacesSatisfy(installedSurfaces: GatewayPluginSurfacesConfig | undefined, requiredSurfaces: GatewayPluginSurfacesConfig | undefined): boolean {
+  if (!requiredSurfaces) {
+    return true;
+  }
+  return GATEWAY_PLUGIN_SURFACE_IDS.every((surface) => requiredSurfaces[surface] !== true || installedSurfaces?.[surface] !== false);
+}
+
+export function providerSelectOptions(providers: GatewayProviderConfig[], value: string): Array<{ label: string; value: string }> {
+  const options = [{ label: "Select provider", value: "" }, ...providers.map((provider) => ({ label: provider.name, value: provider.name }))];
+  if (value && !options.some((option) => option.value === value)) {
+    return [{ label: value, value }, ...options];
+  }
+  return options;
+}
+
+export function uniqueExtensionKey(items: unknown[], preferredKey: string): string {
+  const base = slugValue(preferredKey) || "extension";
+  const used = new Set(items.map(extensionKeyValue).filter((value): value is string => Boolean(value)));
+  let key = base;
+  let index = 2;
+  while (used.has(key)) {
+    key = `${base}-${index}`;
+    index += 1;
+  }
+  return key;
+}
+
+export function extensionKeyValue(item: unknown): string | undefined {
+  return isPlainRecord(item) ? stringValue(item.key) || stringValue(item.id) : undefined;
+}
+
+export function slugValue(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export function stringListValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => stringValue(item)).filter((item): item is string => Boolean(item)) : [];
+}
