@@ -5,7 +5,8 @@ $ErrorActionPreference = 'Stop'
 
 $MFC        = Split-Path $PSScriptRoot -Parent
 $CCR        = Join-Path $MFC 'claude-code-router'
-$GLOBAL_PKG = 'Z:\Nodejs_Global\node_global\node_modules\@musistudio\claude-code-router'
+# 全局安装根目录由 npm 自己报告（随 nvm 切换/换机器都能自动跟上）
+$GLOBAL_PKG = Join-Path (npm prefix -g) 'node_modules\@musistudio\claude-code-router'
 
 # 0. 装依赖（仅首次；workspace 会装好 cli/core/ui/electron 全部依赖）
 Push-Location $CCR
