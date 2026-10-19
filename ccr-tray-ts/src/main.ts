@@ -1,6 +1,7 @@
 import { app } from "electron";
 import { startService, stopService } from "./core/ccr";
-import { checkStatus } from "./core/status";
+import { MANAGEMENT_PORT, checkStatus } from "./core/status";
+import { readManagementUrl } from "./core/service-state";
 import type { MenuEvent, StatusInfo } from "./core/types";
 import { currentExePath, isAutostartEnabled, setAutostartEnabled } from "./core/autostart";
 import { ElectronTrayShell } from "./shell/electron-tray";
@@ -30,7 +31,8 @@ if (!gotLock) {
   async function handleEvent(event: MenuEvent): Promise<void> {
     switch (event.kind) {
       case "open-management":
-        shell.openExternal(status.managementUrl);
+        // 与 C# 托盘一致：优先用 service.json 里带令牌的 URL（令牌每次启动都会变）
+        shell.openExternal(readManagementUrl(MANAGEMENT_PORT));
         break;
       case "start-service":
       case "stop-service": {
