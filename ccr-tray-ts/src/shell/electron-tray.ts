@@ -53,28 +53,29 @@ export class ElectronTrayShell implements TrayShell {
     if (!this.tray || !this.lastOptions) return;
     const { status, autostartEnabled, busy } = this.lastOptions;
 
+    // 精简菜单：状态看图标/提示即可，启动/停止合并为一个随状态切换的项
+    const serviceItem: Electron.MenuItemConstructorOptions =
+      status.state === "stopped"
+        ? {
+            label: "启动服务",
+            enabled: !busy,
+            click: () => this.emit({ kind: "start-service" }),
+          }
+        : {
+            label: "停止服务",
+            enabled: !busy,
+            click: () => this.emit({ kind: "stop-service" }),
+          };
+
     const template: Electron.MenuItemConstructorOptions[] = [
-      { label: `状态：${stateLabel[status.state]}`, enabled: false },
-      { type: "separator" },
       { label: "打开管理界面", click: () => this.emit({ kind: "open-management" }) },
-      {
-        label: "启动服务",
-        enabled: status.state === "stopped" && !busy,
-        click: () => this.emit({ kind: "start-service" }),
-      },
-      {
-        label: "停止服务",
-        enabled: status.state === "running" && !busy,
-        click: () => this.emit({ kind: "stop-service" }),
-      },
-      { type: "separator" },
+      serviceItem,
       {
         label: "开机自启",
         type: "checkbox",
         checked: autostartEnabled,
         click: (item) => this.emit({ kind: "toggle-autostart", enabled: item.checked }),
       },
-      { type: "separator" },
       { label: "退出", click: () => this.emit({ kind: "quit" }) },
     ];
     this.tray.setContextMenu(Menu.buildFromTemplate(template));
