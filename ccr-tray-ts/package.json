@@ -1,0 +1,18 @@
+{
+  "name": "ccr-tray-ts",
+  "version": "0.1.0",
+  "description": "CCR 服务托盘（TypeScript，跨平台）",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/main.cjs",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && electron . --dev",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^38.8.6",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  }
+}
