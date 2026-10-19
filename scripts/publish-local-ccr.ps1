@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 
 $MFC        = Split-Path $PSScriptRoot -Parent
 $CCR        = Join-Path $MFC 'claude-code-router'
-# 全局安装根目录由 npm 自己报告（随 nvm 切换/换机器都能自动跟上）
+# 全局安装根目录由 npm 自己报告
 $GLOBAL_PKG = Join-Path (npm prefix -g) 'node_modules\@musistudio\claude-code-router'
 
 # 0. 装依赖（仅首次；workspace 会装好 cli/core/ui/electron 全部依赖）
@@ -41,4 +41,3 @@ Write-Host ""
 Write-Host "发布完成。" -ForegroundColor Green
 Write-Host "  - ccr 服务已重启，补丁版本开始生效"
 Write-Host "  - 浏览器打开 http://127.0.0.1:3458/ ，确认供应商列表正常即可"
-Write-Host "  - 全局目录的 node_modules（better-sqlite3 等）未改动，与本次源码补丁无关"
