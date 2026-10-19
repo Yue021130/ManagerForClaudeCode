@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+  html, body { height: 100%; overflow: hidden; background: transparent; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 12px;
+    color: #d5d6e0;
+  }
+  #menu {
+    height: 100%;
+    background: #22222c;
+    border: 1px solid #3a3a48;
+    border-radius: 10px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+  }
+  /* 状态头 */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px 7px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid #35353f;
+    color: #9a9aa8;
+    font-size: 11px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.running { background: #22c55e; }
+  .dot.partial { background: #eab308; }
+  .dot.stopped { background: #ef4444; }
+  /* 菜单项 */
+  .item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    cursor: default;
+    white-space: nowrap;
+  }
+  .item:hover:not(.disabled) { background: #3b3b4d; }
+  .item.disabled { color: #6b6b78; }
+  .item .grow { flex: 1; }
+  /* 勾选框（开机自启） */
+  .check {
+    width: 14px; height: 14px; flex: none;
+    border: 1px solid #565668;
+    border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; color: #7dd3fc;
+  }
+  .check.on { border-color: #7dd3fc; }
+  .check.on::after { content: "✓"; }
+</style>
+</head>
+<body>
+  <div id="menu">
+    <div class="header"><span class="dot stopped" id="dot"></span><span id="statusText">检测中…</span></div>
+    <div class="item" data-kind="open-management">打开管理界面</div>
+    <div class="item" id="serviceItem">启动服务</div>
+    <div class="item" id="autostartItem"><span class="check" id="autostartCheck"></span>开机自启</div>
+    <div class="item" data-kind="quit">退出</div>
+  </div>
+<script>
+  const stateLabel = { running: "运行中", partial: "启动中…", stopped: "已停止" };
+  let current = null;
+
+  function render(s) {
+    current = s;
+    document.getElementById("dot").className = "dot " + s.status.state;
+    document.getElementById("statusText").textContent = "CCR 服务 — " + stateLabel[s.status.state];
+    const svc = document.getElementById("serviceItem");
+    const start = s.status.state === "stopped";
+    svc.textContent = start ? "启动服务" : "停止服务";
+    svc.className = "item" + (s.busy ? " disabled" : "");
+    svc.dataset.kind = start ? "start-service" : "stop-service";
+    const chk = document.getElementById("autostartCheck");
+    chk.className = "check" + (s.autostartEnabled ? " on" : "");
+  }
+
+  window.ccrMenu.onState(render);
+
+  document.getElementById("menu").addEventListener("click", (e) => {
+    const item = e.target.closest(".item");
+    if (!item || item.classList.contains("disabled")) return;
+    const kind = item.dataset.kind;
+    if (kind === "toggle-autostart") {
+      window.ccrMenu.send({ kind, enabled: !current.autostartEnabled });
+    } else {
+      window.ccrMenu.send({ kind });
+    }
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") window.ccrMenu.send({ kind: "dismiss" });
+  });
+</script>
+</body>
+</html>
