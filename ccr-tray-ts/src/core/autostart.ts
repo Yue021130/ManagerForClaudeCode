@@ -19,26 +19,22 @@ export function setAutostartEnabled(exePath: string, enabled: boolean): void {
 const RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const RUN_NAME = "CCRTrayTS";
 
+// 注意：reg.exe 的报错/成功提示按系统 OEM 代码页（中文系统是 GBK）输出，
+// 继承的 stderr 接到 UTF-8 终端就是乱码，所以这里全部吞掉输出、只看退出码。
 function win32IsEnabled(_exePath: string): boolean {
-  try {
-    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-    const out = execFileSync("reg.exe", ["query", RUN_KEY, "/v", RUN_NAME], { encoding: "utf8" });
-    return out.includes(RUN_NAME);
-  } catch {
-    return false;
-  }
+  const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+  const r = spawnSync("reg.exe", ["query", RUN_KEY, "/v", RUN_NAME], { stdio: ["ignore", "ignore", "ignore"] });
+  return r.status === 0;
 }
 
 function win32Set(exePath: string, enabled: boolean): void {
-  const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+  const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
   if (enabled) {
-    execFileSync("reg.exe", ["add", RUN_KEY, "/v", RUN_NAME, "/t", "REG_SZ", "/d", `"${exePath}"`, "/f"]);
+    spawnSync("reg.exe", ["add", RUN_KEY, "/v", RUN_NAME, "/t", "REG_SZ", "/d", exePath, "/f"], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
   } else {
-    try {
-      execFileSync("reg.exe", ["delete", RUN_KEY, "/v", RUN_NAME, "/f"]);
-    } catch {
-      /* 不存在则忽略 */
-    }
+    spawnSync("reg.exe", ["delete", RUN_KEY, "/v", RUN_NAME, "/f"], { stdio: ["ignore", "ignore", "ignore"] });
   }
 }
 
