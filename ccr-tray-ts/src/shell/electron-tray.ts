@@ -96,7 +96,7 @@ export class ElectronTrayShell implements TrayShell {
       show: false,
       frame: false,
       title: "设置",
-      icon: `${ASSETS}/icon.png`,
+      icon: `${ASSETS}/tray-green-48.png`,
       backgroundColor: "#22222c",
       resizable: false,
       minimizable: false,
