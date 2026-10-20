@@ -82,7 +82,7 @@ export class ElectronTrayShell implements TrayShell {
     });
   }
 
-  /** 设置窗口：无边框深色面板，居中于托盘所在屏；dismiss 隐藏不销毁，复用秒开 */
+  /** 设置窗口：无边框 + 自绘标题栏（可拖拽、手绘✕），保留任务栏图标；dismiss 隐藏不销毁 */
   openSettings(): void {
     if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
       this.pushSettingsState();
@@ -95,14 +95,12 @@ export class ElectronTrayShell implements TrayShell {
       height: 424,
       show: false,
       frame: false,
-      transparent: true,
+      title: "设置",
+      icon: `${ASSETS}/icon.png`,
+      backgroundColor: "#22222c",
       resizable: false,
-      movable: true,
       minimizable: false,
       maximizable: false,
-      skipTaskbar: true,
-      hasShadow: false,
-      focusable: true,
       webPreferences: {
         preload: `${__dirname}/shell/settings-preload.cjs`,
         contextIsolation: true,
