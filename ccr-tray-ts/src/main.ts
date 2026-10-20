@@ -31,8 +31,10 @@ if (!gotLock) {
   async function handleEvent(event: MenuEvent): Promise<void> {
     switch (event.kind) {
       case "open-management":
-        // 与 C# 托盘一致：优先用 service.json 里带令牌的 URL（令牌每次启动都会变）
+
+        // 优先用 service.json 里带令牌的 URL
         shell.openExternal(readManagementUrl(MANAGEMENT_PORT));
+
         break;
       case "start-service":
       case "stop-service": {

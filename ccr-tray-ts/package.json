@@ -1,7 +1,7 @@
 {
   "name": "ccr-tray-ts",
   "version": "0.1.0",
-  "description": "CCR 服务托盘（TypeScript，跨平台）",
+  "description": "CCR 服务托盘",
   "main": "dist/main.cjs",
   "scripts": {
     "build": "esbuild src/main.ts src/shell/menu-preload.ts --bundle --platform=node --format=cjs --external:electron --outdir=dist --out-extension:.js=.cjs",
