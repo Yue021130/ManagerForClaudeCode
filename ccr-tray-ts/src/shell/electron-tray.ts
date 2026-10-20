@@ -5,7 +5,7 @@ import { stateLabel } from "./tray-shell";
 
 const ASSETS = `${__dirname}/../assets`;
 
-// 自绘弹窗尺寸（CSS 像素，不随系统缩放变大是它的意义所在）
+// 自绘弹窗初始尺寸（CSS 像素）；显示前会按内容实测收缩，这只是兜底值
 const POPUP_WIDTH = 210;
 const POPUP_HEIGHT = 162;
 
@@ -32,7 +32,7 @@ export class ElectronTrayShell implements TrayShell {
     this.tray = new Tray(base.isEmpty() ? iconFor("stopped") : base);
     this.tray.setToolTip("CCR 服务");
     this.tray.on("click", () => this.emit({ kind: "open-management" }));
-    this.tray.on("right-click", () => this.openPopup());
+    this.tray.on("right-click", () => void this.openPopup());
     this.createPopup();
   }
 
@@ -71,9 +71,31 @@ export class ElectronTrayShell implements TrayShell {
     });
   }
 
+  /** 等渲染进程应用状态后量内容实际宽高。
+   *  注意不能用 requestAnimationFrame——隐藏窗口不产帧，rAF 不会触发。 */
+  private async measurePopup(): Promise<{ width: number; height: number } | null> {
+    if (!this.popup || this.popup.webContents.isDestroyed()) return null;
+    try {
+      return await this.popup.webContents.executeJavaScript(
+        `new Promise(res => setTimeout(() => {
+           const el = document.getElementById("menu");
+           res({ width: el.scrollWidth, height: el.scrollHeight });
+         }, 60))`
+      );
+    } catch {
+      return null;
+    }
+  }
+
   /** 按托盘图标位置摆放弹窗，并夹取到所在显示器工作区内 */
-  private openPopup(): void {
+  private async openPopup(): Promise<void> {
     if (!this.popup || !this.tray || !this.lastOptions) return;
+    this.pushState();
+    // 先量内容尺寸，再按实际尺寸定位，宽度正好包住内容
+    const size = await this.measurePopup();
+    const w = Math.max(size?.width ?? POPUP_WIDTH, 100);
+    const h = size?.height ?? POPUP_HEIGHT;
+
     const tb = this.tray.getBounds();
     const area = tb.width > 0
       ? screen.getDisplayNearestPoint({ x: tb.x, y: tb.y }).workArea
@@ -81,16 +103,15 @@ export class ElectronTrayShell implements TrayShell {
     const cx = tb.width > 0 ? tb.x + tb.width / 2 : area.x + area.width / 2;
     const cy = tb.height > 0 ? tb.y + tb.height / 2 : area.y + area.height / 2;
 
-    let x = Math.round(cx - POPUP_WIDTH / 2);
+    let x = Math.round(cx - w / 2);
     // 图标在屏幕上半 → 往下弹；在下半 → 往上弹（任务栏在底部时菜单不遮图标）
     const below = cy < area.y + area.height / 2;
-    let y = below ? Math.round(cy + tb.height / 2 + 4) : Math.round(cy - tb.height / 2 - POPUP_HEIGHT - 4);
+    let y = below ? Math.round(cy + tb.height / 2 + 4) : Math.round(cy - tb.height / 2 - h - 4);
 
-    x = Math.max(area.x + 4, Math.min(x, area.x + area.width - POPUP_WIDTH - 4));
-    y = Math.max(area.y + 4, Math.min(y, area.y + area.height - POPUP_HEIGHT - 4));
+    x = Math.max(area.x + 4, Math.min(x, area.x + area.width - w - 4));
+    y = Math.max(area.y + 4, Math.min(y, area.y + area.height - h - 4));
 
-    this.popup.setBounds({ x, y, width: POPUP_WIDTH, height: POPUP_HEIGHT });
-    this.pushState();
+    this.popup.setBounds({ x, y, width: w, height: h });
     this.popup.show();
   }
 
