@@ -1,5 +1,5 @@
 import { BrowserWindow, Tray, app, ipcMain, nativeImage, screen } from "electron";
-import type { MenuEvent, StatusInfo } from "../core/types";
+import type { MenuEvent, SettingsState, StatusInfo } from "../core/types";
 import type { MenuOptions, TrayShell } from "./tray-shell";
 import { stateLabel } from "./tray-shell";
 
@@ -23,8 +23,10 @@ function iconFor(state: StatusInfo["state"]): Electron.NativeImage {
 export class ElectronTrayShell implements TrayShell {
   private tray: Tray | null = null;
   private popup: BrowserWindow | null = null;
+  private settingsWindow: BrowserWindow | null = null;
   private listener: (event: MenuEvent) => void = () => undefined;
   private lastOptions: MenuOptions | null = null;
+  private lastSettings: SettingsState | null = null;
 
   async init(): Promise<void> {
     // 用最大的图标模板，Windows 下 Electron 自动缩放；留空兜底防崩溃
@@ -69,6 +71,64 @@ export class ElectronTrayShell implements TrayShell {
       this.popup?.hide();
       if (event.kind !== "dismiss") this.emit(event as MenuEvent);
     });
+    // 设置窗口事件：dismiss 只隐藏（保留缓存下次快开），其余透传业务层
+    ipcMain.on("settings:event", (_e, event) => {
+      if (!event || typeof event.kind !== "string") return;
+      if (event.kind === "dismiss") {
+        this.settingsWindow?.hide();
+        return;
+      }
+      this.emit(event as MenuEvent);
+    });
+  }
+
+  /** 设置窗口：无边框深色面板，居中于托盘所在屏；dismiss 隐藏不销毁，复用秒开 */
+  openSettings(): void {
+    if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+      this.pushSettingsState();
+      this.settingsWindow.show();
+      this.settingsWindow.focus();
+      return;
+    }
+    this.settingsWindow = new BrowserWindow({
+      width: 340,
+      height: 424,
+      show: false,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      movable: true,
+      minimizable: false,
+      maximizable: false,
+      skipTaskbar: true,
+      hasShadow: false,
+      focusable: true,
+      webPreferences: {
+        preload: `${__dirname}/shell/settings-preload.cjs`,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    void this.settingsWindow.loadFile(`${ASSETS}/settings.html`);
+    this.settingsWindow.once("ready-to-show", () => {
+      if (!this.settingsWindow) return;
+      // 居中于托盘图标所在显示器
+      const tb = this.tray?.getBounds();
+      const area = tb && tb.width > 0
+        ? screen.getDisplayNearestPoint({ x: tb.x, y: tb.y }).workArea
+        : screen.getPrimaryDisplay().workArea;
+      const x = Math.round(area.x + (area.width - 340) / 2);
+      const y = Math.round(area.y + (area.height - 424) / 2);
+      this.settingsWindow.setBounds({ x, y, width: 340, height: 424 });
+      this.pushSettingsState();
+      this.settingsWindow.show();
+    });
+  }
+
+  private pushSettingsState(): void {
+    if (this.settingsWindow && this.lastSettings && !this.settingsWindow.webContents.isDestroyed()) {
+      this.settingsWindow.webContents.send("settings:state", this.lastSettings);
+    }
   }
 
   /** 等渲染进程应用状态后量内容实际宽高。
@@ -138,8 +198,13 @@ export class ElectronTrayShell implements TrayShell {
 
   refreshMenu(options: MenuOptions): void {
     this.lastOptions = options;
-    // 弹窗开着时实时刷新内容（busy 置灰、自启勾选态等）
+    // 弹窗开着时实时刷新内容（busy 置灰、启停切换等）
     if (this.popup?.isVisible()) this.pushState();
+  }
+
+  updateSettings(state: SettingsState): void {
+    this.lastSettings = state;
+    if (this.settingsWindow?.isVisible()) this.pushSettingsState();
   }
 
   openExternal(url: string): void {
@@ -148,9 +213,9 @@ export class ElectronTrayShell implements TrayShell {
 
   quit(): void {
     // 弹窗 closable: false 会让 app.quit() 卡在售窗阶段退不掉；
-;
     // 托盘应用直接销毁资源 + 强制退出
     this.popup?.destroy();
+    this.settingsWindow?.destroy();
     this.tray?.destroy();
     app.exit(0);
   }

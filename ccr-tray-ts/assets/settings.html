@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+  html, body { height: 100%; overflow: hidden; background: transparent; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 12px;
+    color: #d5d6e0;
+    display: flex;
+  }
+  #panel {
+    margin: auto;
+    width: 320px;
+    height: 408px;
+    background: #22222c;
+    border: 1px solid #3a3a48;
+    border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* 标题栏 */
+  .titlebar {
+    display: flex;
+    align-items: center;
+    padding: 10px 8px 10px 14px;
+    border-bottom: 1px solid #35353f;
+    flex: none;
+  }
+  .titlebar .title { font-size: 13px; font-weight: 600; color: #eceef4; }
+  .titlebar .grow { flex: 1; }
+  .close {
+    width: 28px; height: 24px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    color: #9a9aa8; font-size: 13px;
+    cursor: default;
+  }
+  .close:hover { background: #3b3b4d; color: #eceef4; }
+  /* 内容 */
+  .body { padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+  /* 运行时长卡片 */
+  .card {
+    background: #2a2a36;
+    border: 1px solid #3a3a48;
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .card .label { color: #9a9aa8; }
+  .card .value { font-size: 18px; font-weight: 600; color: #7dd3fc; font-variant-numeric: tabular-nums; }
+  .card .value.idle { color: #6b6b78; font-size: 14px; font-weight: 400; }
+  /* 行 */
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px; }
+  .row .label { color: #c9cad6; }
+  /* 开关 */
+  .switch {
+    width: 34px; height: 18px;
+    border-radius: 9px;
+    background: #4a4a5a;
+    position: relative;
+    transition: background 0.15s;
+  }
+  .switch.on { background: #0ea5e9; }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    transition: left 0.15s;
+  }
+  .switch.on::after { left: 18px; }
+  /* 端口输入 */
+  .portrow { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px; gap: 10px; }
+  .portrow .label { color: #c9cad6; flex: none; }
+  .portrow input {
+    width: 110px;
+    background: #2a2a36;
+    border: 1px solid #3a3a48;
+    border-radius: 7px;
+    color: #eceef4;
+    font-size: 12px;
+    padding: 6px 10px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    outline: none;
+    font-family: inherit;
+  }
+  .portrow input:focus { border-color: #0ea5e9; }
+  /* 测试结果 */
+  .testrow { display: none; padding: 0 2px; gap: 14px; color: #9a9aa8; }
+  .testrow.show { display: flex; }
+  .testrow .ok { color: #4ade80; }
+  .testrow .bad { color: #f87171; }
+  /* 按钮 */
+  .actions { display: flex; gap: 10px; margin-top: auto; }
+  .btn {
+    flex: 1;
+    text-align: center;
+    padding: 8px 0;
+    border-radius: 8px;
+    border: 1px solid #3a3a48;
+    background: #2a2a36;
+    color: #c9cad6;
+    cursor: default;
+  }
+  .btn:hover { background: #343442; }
+  .btn.primary { background: #0ea5e9; border-color: #0ea5e9; color: #fff; font-weight: 600; }
+  .btn.primary:hover { background: #38bdf8; }
+  .btn.disabled { opacity: 0.45; pointer-events: none; }
+  /* 提示条 */
+  .notice {
+    display: none;
+    padding: 7px 12px;
+    border-radius: 8px;
+    background: #2a2a36;
+    border: 1px solid #3a3a48;
+    color: #9a9aa8;
+    text-align: center;
+  }
+  .notice.show { display: block; }
+  .notice.ok { color: #4ade80; border-color: #22543a; }
+  .notice.err { color: #f87171; border-color: #5c2a2a; }
+</style>
+</head>
+<body>
+  <div id="panel">
+    <div class="titlebar">
+      <span class="title">设置</span>
+      <span class="grow"></span>
+      <span class="close" id="closeBtn">✕</span>
+    </div>
+    <div class="body">
+      <div class="card">
+        <span class="label">本次启动时长</span>
+        <span class="value idle" id="uptime">—</span>
+      </div>
+
+      <div class="row">
+        <span class="label">开机自启</span>
+        <span class="switch" id="autostartSwitch"></span>
+      </div>
+
+      <div class="portrow">
+        <span class="label">管理端口</span>
+        <input type="text" inputmode="numeric" id="mgmtInput" />
+      </div>
+      <div class="portrow">
+        <span class="label">服务端口</span>
+        <input type="text" inputmode="numeric" id="gatewayInput" />
+      </div>
+      <div class="testrow" id="testRow">
+        <span id="testMgmt"></span>
+        <span id="testGateway"></span>
+      </div>
+
+      <div class="actions">
+        <span class="btn" id="testBtn">测 试</span>
+        <span class="btn primary" id="saveBtn">保 存</span>
+      </div>
+
+      <div class="notice" id="notice"></div>
+    </div>
+  </div>
+<script>
+  let current = null;
+  // 输入框被用户改过之后不再被推送值覆盖
+  let mgmtTouched = false;
+  let gwTouched = false;
+
+  const $ = (id) => document.getElementById(id);
+
+  function fmtUptime(ms) {
+    const s = Math.floor(ms / 1000);
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (d > 0) return d + "天" + h + "小时";
+    if (h > 0) return h + "小时" + m + "分";
+    return m + "分" + (s % 60) + "秒";
+  }
+
+  function testLabel(r) {
+    return r === "free" ? ["✓ 可用", "ok"] : r === "in-use" ? ["✗ 被占用", "bad"] : ["✗ 非法", "bad"];
+  }
+
+  function render(s) {
+    current = s;
+    // 运行时长
+    const up = $("uptime");
+    if (s.uptimeMs === null) {
+      up.textContent = "—";
+      up.className = "value idle";
+    } else {
+      up.textContent = fmtUptime(s.uptimeMs);
+      up.className = "value";
+    }
+    // 自启开关
+    $("autostartSwitch").className = "switch" + (s.autostartEnabled ? " on" : "");
+    // 端口（用户没动过才同步）
+    if (!mgmtTouched) $("mgmtInput").value = s.managementPort;
+    if (!gwTouched) $("gatewayInput").value = s.gatewayPort;
+    // 测试结果
+    if (s.portTest) {
+      $("testRow").className = "testrow show";
+      const [mt, mc] = testLabel(s.portTest.management);
+      const [gt, gc] = testLabel(s.portTest.gateway);
+      $("testMgmt").textContent = "管理端口 " + mt;
+      $("testMgmt").className = mc;
+      $("testGateway").textContent = "服务端口 " + gt;
+      $("testGateway").className = gc;
+    } else {
+      $("testRow").className = "testrow";
+    }
+    // 提示条
+    if (s.notice) {
+      const n = $("notice");
+      n.textContent = s.notice;
+      n.className = "notice show" + (/失败|非法|不能/.test(s.notice) ? " err" : " ok");
+    } else {
+      $("notice").className = "notice";
+    }
+    // busy 时禁用按钮
+    $("saveBtn").className = "btn primary" + (s.busy ? " disabled" : "");
+    $("testBtn").className = "btn" + (s.busy ? " disabled" : "");
+  }
+
+  window.ccrSettings.onState(render);
+
+  $("mgmtInput").addEventListener("input", () => { mgmtTouched = true; });
+  $("gatewayInput").addEventListener("input", () => { gwTouched = true; });
+
+  $("autostartSwitch").addEventListener("click", () => {
+    window.ccrSettings.send({ kind: "toggle-autostart", enabled: !current.autostartEnabled });
+  });
+
+  $("testBtn").addEventListener("click", () => {
+    window.ccrSettings.send({
+      kind: "test-ports",
+      managementPort: Number($("mgmtInput").value),
+      gatewayPort: Number($("gatewayInput").value),
+    });
+  });
+
+  $("saveBtn").addEventListener("click", () => {
+    window.ccrSettings.send({
+      kind: "save-ports",
+      managementPort: Number($("mgmtInput").value),
+      gatewayPort: Number($("gatewayInput").value),
+    });
+  });
+
+  $("closeBtn").addEventListener("click", () => window.ccrSettings.send({ kind: "dismiss" }));
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") window.ccrSettings.send({ kind: "dismiss" });
+  });
+
+  // 运行中每秒要一次状态（运行时长走动）
+  setInterval(() => {
+    if (current && current.serviceState === "running") {
+      window.ccrSettings.send({ kind: "settings-tick" });
+    }
+  }, 1000);
+</script>
+</body>
+</html>

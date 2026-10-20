@@ -70,7 +70,7 @@
     <div class="header"><span class="dot stopped" id="dot"></span><span id="statusText">检测中…</span></div>
     <div class="item" data-kind="open-management">打开管理界面</div>
     <div class="item" id="serviceItem">启动服务</div>
-    <div class="item" id="autostartItem"><span class="check" id="autostartCheck"></span>开机自启</div>
+    <div class="item" data-kind="open-settings">⚙ 设置</div>
     <div class="item" data-kind="quit">退出</div>
   </div>
 <script>
@@ -86,8 +86,6 @@
     svc.textContent = start ? "启动服务" : "停止服务";
     svc.className = "item" + (s.busy ? " disabled" : "");
     svc.dataset.kind = start ? "start-service" : "stop-service";
-    const chk = document.getElementById("autostartCheck");
-    chk.className = "check" + (s.autostartEnabled ? " on" : "");
   }
 
   window.ccrMenu.onState(render);
@@ -95,12 +93,7 @@
   document.getElementById("menu").addEventListener("click", (e) => {
     const item = e.target.closest(".item");
     if (!item || item.classList.contains("disabled")) return;
-    const kind = item.dataset.kind;
-    if (kind === "toggle-autostart") {
-      window.ccrMenu.send({ kind, enabled: !current.autostartEnabled });
-    } else {
-      window.ccrMenu.send({ kind });
-    }
+    window.ccrMenu.send({ kind: item.dataset.kind });
   });
 
   window.addEventListener("keydown", (e) => {
