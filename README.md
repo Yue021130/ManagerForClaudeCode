@@ -11,7 +11,7 @@
 | 目录 | 子项目 | 说明 |
 |------|--------|------|
 | `src/`（本目录各文件） | **ManagerForClaudeCode 本体** | 就是下面文档描述的这个 React + Ink 终端 CLI |
-| `claude-code-router/` | **CCR 魔改 fork**（git submodule） | [musistudio/claude-code-router](https://github.com/musistudio/claude-code-router) 的 fork，带 5 处本地补丁（隐藏启动窗口、禁用桌面应用探测、子进程超时等）。`main` 分支跟踪上游，`custom` 分支维护补丁，清单与更新流程见 [docs/PATCHES.md](./docs/PATCHES.md) |
+| `claude-code-router/` | **CCR 魔改 fork**（git submodule） | [musistudio/claude-code-router](https://github.com/musistudio/claude-code-router) 的 fork，带 6 处本地补丁（隐藏启动窗口、禁用桌面应用探测、子进程超时、`CCR_GATEWAY_PORT` 端口覆盖等）。`main` 分支跟踪上游，`custom` 分支维护补丁，清单与更新流程见 [docs/PATCHES.md](./docs/PATCHES.md) |
 | `ccr-tray/` | **CCRTray 托盘（C# 版）** | Windows 任务栏托盘程序（C# 单文件），显示 ccr 服务运行状态，双击打开管理界面。改完用 `build.bat` 重新编译 |
 | `ccr-tray-ts/` | **CCRTray 托盘（TS 重写，进行中）** | 跨平台（Windows + Linux）托盘重写：TypeScript 纯逻辑核心（状态轮询 / 启停 / 自启）+ 平台无关托盘壳接口，第一阶段用 Electron 壳实现。C# 版保留为行为基准 |
 
@@ -122,7 +122,7 @@ cd ccr-tray
 .\build.bat        # 需要 .NET Framework 的 csc 编译器，产出 CCRTray.exe
 ```
 
-托盘图标颜色指示 ccr 服务状态（绿=运行 / 红=停止 / 黄=启动中），右键菜单可启动、停止、打开管理界面（自动探测 3458 端口）。
+托盘图标颜色指示 ccr 服务状态（绿=运行 / 红=停止 / 黄=启动中），右键自绘菜单可启动、停止、打开管理界面（自动探测端口）、打开设置窗口。设置窗口提供：本次启动时长、开机自启开关、管理/服务双端口（支持占用测试，保存后自动重启服务生效）。端口等配置存 `%APPDATA%/ccr-tray/settings.json`，改动即时生效、托盘无需重启。
 
 跨平台重写版在 `ccr-tray-ts/`（TypeScript，Electron 壳第一阶段），开发体验证：
 

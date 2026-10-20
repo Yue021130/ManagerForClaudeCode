@@ -5,7 +5,7 @@
 必须按本清单在源码里重新确认/重打，再重新构建或同步 dist。**
 
 当前基准版本：上游 v3.1.3（commit `057abaa1`）。
-补丁共 5 个文件，大部分以 `// CCR patch:` 注释标记，可用
+补丁共 6 个文件，大部分以 `// CCR patch:` 注释标记，可用
 `git diff` 或搜索该注释快速定位。
 
 > **已放弃的补丁**：Electron 运行时重定向（原 cli.ts 补丁，2026-10-18 撤销，
@@ -47,6 +47,13 @@
 - 内容：`findWindowsExecutablePid` 的 `spawnSync` 加 `timeout: 3_000`。
 - 原因：同补丁 3。
 
+## 补丁 6：`CCR_GATEWAY_PORT` 环境变量覆盖服务端口
+
+- 文件：`packages/core/src/config/config.ts`
+- 内容：`gateway.port` 解析改为 `readPort(process.env.CCR_GATEWAY_PORT) ?? readPort(gateway.port)`。
+- 原因：托盘设置窗口允许用户改服务端口，但 CCR 配置在 sqlite 里、外部进程不好写；
+  管理端口本就有 `CCR_WEB_PORT` 环境变量覆盖（上游支持），网关口没有，补一个同款的。
+
 ## 上游更新流程（fork 分支模型）
 
 `claude-code-router/` 是 git submodule（remote：`git@github.com:Yue021130/claude-code-router.git`，
@@ -77,7 +84,7 @@ git push
 ```
 
 核对补丁：在 `claude-code-router/` 里 `git diff main...custom --stat`
-应始终等于本清单的 5 个文件；`git log --oneline main..custom` 是补丁提交列表。
+应始终等于本清单的 6 个文件；`git log --oneline main..custom` 是补丁提交列表。
 
 > 历史教训：曾用 subtree + squash 管理补丁，上游无新提交时 pull 会算出反向合并、
 > 把补丁精准回滚（2026-10-18 踩过）。fork 分支模型下 `git merge` 是真三方合并，
