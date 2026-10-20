@@ -93,8 +93,9 @@ export class ElectronTrayShell implements TrayShell {
     this.pushState();
     // 先量内容尺寸，再按实际尺寸定位，宽度正好包住内容
     const size = await this.measurePopup();
-    const w = Math.max(size?.width ?? POPUP_WIDTH, 100);
-    const h = size?.height ?? POPUP_HEIGHT;
+    // +2px 余量：防止实测值取整后内容被裁
+    const w = Math.max((size?.width ?? POPUP_WIDTH) + 2, 100);
+    const h = (size?.height ?? POPUP_HEIGHT) + 2;
 
     const tb = this.tray.getBounds();
     const area = tb.width > 0
