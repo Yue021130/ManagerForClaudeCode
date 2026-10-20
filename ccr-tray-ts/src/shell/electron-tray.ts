@@ -30,7 +30,7 @@ export class ElectronTrayShell implements TrayShell {
     // 用最大的图标模板，Windows 下 Electron 自动缩放；留空兜底防崩溃
     const base = nativeImage.createFromPath(`${ASSETS}/icon.png`);
     this.tray = new Tray(base.isEmpty() ? iconFor("stopped") : base);
-    this.tray.setToolTip("CCR 服务");
+    this.tray.setToolTip("Yue");
     this.tray.on("click", () => this.emit({ kind: "open-management" }));
     this.tray.on("right-click", () => void this.openPopup());
     this.createPopup();
@@ -132,7 +132,7 @@ export class ElectronTrayShell implements TrayShell {
   setStatus(info: StatusInfo): void {
     if (!this.tray) return;
     this.tray.setImage(iconFor(info.state));
-    this.tray.setToolTip(`CCR 服务 — ${stateLabel[info.state]}`);
+    this.tray.setToolTip(`Yue — ${stateLabel[info.state]}`);
   }
 
   refreshMenu(options: MenuOptions): void {
