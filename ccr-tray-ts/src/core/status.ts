@@ -1,7 +1,5 @@
+import { readSettings } from "./settings";
 import type { StatusInfo } from "./types";
-
-export const GATEWAY_PORT = 40229;
-export const MANAGEMENT_PORT = 3458;
 
 const probeTimeoutMs = 1200;
 
@@ -16,13 +14,14 @@ async function probe(port: number): Promise<boolean> {
   }
 }
 
-/** 轮询一次服务状态。先探测网关口，再探测管理口。 */
+/** 轮询一次服务状态。先探测网关口，再探测管理口。端口每次从托盘配置读。 */
 export async function checkStatus(): Promise<StatusInfo> {
-  const gatewayOk = await probe(GATEWAY_PORT);
-  const mgmtOk = gatewayOk ? true : await probe(MANAGEMENT_PORT);
+  const { managementPort, gatewayPort } = readSettings();
+  const gatewayOk = await probe(gatewayPort);
+  const mgmtOk = gatewayOk ? true : await probe(managementPort);
   return {
     state: gatewayOk ? "running" : mgmtOk ? "partial" : "stopped",
-    managementUrl: `http://127.0.0.1:${MANAGEMENT_PORT}/`,
+    managementUrl: `http://127.0.0.1:${managementPort}/`,
     gatewayOk,
     checkedAt: Date.now(),
   };
