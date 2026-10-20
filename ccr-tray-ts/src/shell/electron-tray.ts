@@ -146,6 +146,11 @@ export class ElectronTrayShell implements TrayShell {
   }
 
   quit(): void {
-    app.quit();
+    // 弹窗 closable: false 会让 app.quit() 卡在售窗阶段退不掉；
+;
+    // 托盘应用直接销毁资源 + 强制退出
+    this.popup?.destroy();
+    this.tray?.destroy();
+    app.exit(0);
   }
 }
