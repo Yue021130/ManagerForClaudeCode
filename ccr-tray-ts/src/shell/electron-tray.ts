@@ -129,16 +129,15 @@ export class ElectronTrayShell implements TrayShell {
     }
   }
 
-  /** 量内容实际宽高（#menu 是 max-content 布局），故意等 20ms 让弹出节奏柔和一点。
-   *  也不能用 rAF——隐藏窗口不产帧。 */
+  /** 量内容实际宽高（#menu 是 max-content 布局）。
+   *  不需要等待：send(推状态) 与 executeJavaScript(测量) 走同一 IPC 通道按序到达，
+   *  render() 先跑完再测量。不能用 rAF——隐藏窗口不产帧。 */
   private async measurePopup(): Promise<{ width: number; height: number } | null> {
     if (!this.popup || this.popup.webContents.isDestroyed()) return null;
     try {
       return await this.popup.webContents.executeJavaScript(
-        `new Promise(res => setTimeout(() => {
-           const el = document.getElementById("menu");
-           res({ width: el.scrollWidth, height: el.scrollHeight });
-         }, 10))`
+        `(() => { const el = document.getElementById("menu");
+           return { width: el.scrollWidth, height: el.scrollHeight }; })()`
       );
     } catch {
       return null;
