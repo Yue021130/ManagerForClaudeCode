@@ -181,9 +181,10 @@
     const d = Math.floor(s / 86400);
     const h = Math.floor((s % 86400) / 3600);
     const m = Math.floor((s % 3600) / 60);
-    if (d > 0) return d + "天" + h + "小时";
-    if (h > 0) return h + "小时" + m + "分";
-    return m + "分" + (s % 60) + "秒";
+    let out = "";
+    if (d > 0) out += d + "天";
+    if (h > 0) out += h + "小时";
+    return out + m + "分" + (s % 60) + "秒";
   }
 
   function testLabel(r) {
