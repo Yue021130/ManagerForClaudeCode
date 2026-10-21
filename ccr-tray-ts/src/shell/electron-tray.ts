@@ -129,16 +129,15 @@ export class ElectronTrayShell implements TrayShell {
     }
   }
 
-  /** 等渲染进程应用状态后量内容实际宽高。
-   *  注意不能用 requestAnimationFrame——隐藏窗口不产帧，rAF 不会触发。 */
+  /** 量内容实际宽高（#menu 是 max-content 布局）。
+   *  不需要任何等待：send(推状态) 与 executeJavaScript(测量) 走同一 IPC 通道按序到达，
+   *  执行测量时 render() 必然已跑完。也不能用 rAF——隐藏窗口不产帧。 */
   private async measurePopup(): Promise<{ width: number; height: number } | null> {
     if (!this.popup || this.popup.webContents.isDestroyed()) return null;
     try {
       return await this.popup.webContents.executeJavaScript(
-        `new Promise(res => setTimeout(() => {
-           const el = document.getElementById("menu");
-           res({ width: el.scrollWidth, height: el.scrollHeight });
-         }, 60))`
+        `(() => { const el = document.getElementById("menu");
+           return { width: el.scrollWidth, height: el.scrollHeight }; })()`
       );
     } catch {
       return null;
