@@ -158,13 +158,13 @@ export class ElectronTrayShell implements TrayShell {
     const area = tb.width > 0
       ? screen.getDisplayNearestPoint({ x: tb.x, y: tb.y }).workArea
       : screen.getPrimaryDisplay().workArea;
-    const cx = tb.width > 0 ? tb.x + tb.width / 2 : area.x + area.width / 2;
-    const cy = tb.height > 0 ? tb.y + tb.height / 2 : area.y + area.height / 2;
 
-    let x = Math.round(cx - w / 2);
-    // 图标在屏幕上半 → 往下弹；在下半 → 往上弹（任务栏在底部时菜单不遮图标）
-    const below = cy < area.y + area.height / 2;
-    let y = below ? Math.round(cy + tb.height / 2 + 4) : Math.round(cy - tb.height / 2 - h - 4);
+    // 以鼠标点击位置锚定：弹窗出现在点击点右上角（getBounds 在托盘溢出面板里坐标不准）
+    const point = screen.getCursorScreenPoint();
+    let x = Math.round(point.x + 2);
+    // 点击点在屏幕上半 → 往下弹；在下半 → 往上弹（任务栏在底部时菜单不遮图标）
+    const below = point.y < area.y + area.height / 2;
+    let y = below ? Math.round(point.y + 3) : Math.round(point.y - h - 3);
 
     x = Math.max(area.x + 4, Math.min(x, area.x + area.width - w - 4));
     y = Math.max(area.y + 4, Math.min(y, area.y + area.height - h - 4));
