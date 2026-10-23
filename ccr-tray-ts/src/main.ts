@@ -12,6 +12,8 @@ import { ElectronTrayShell } from "./shell/electron-tray";
 const pollIntervalMs = 3000;
 /** 黄灯（半启动）持续超过该时长视为卡住，弹一次通知 */
 const yellowStuckMs = 10_000;
+/** 点启动后等待网关起来的窗口：超过仍未 running 则放弃黄灯展示，回落真实状态 */
+const startWindowMs = 15_000;
 
 // Windows toast 通知依赖 AppUserModelID，不设的话开发态下系统会静默吞掉通知
 const appUserModelId = "com.yue.ccrtray.261022";
@@ -67,7 +69,8 @@ if (!gotLock) {
     /* 已存在实例：聚焦/刷新菜单即可，托盘应用无窗口 */
   });
 
-  let status: StatusInfo = { state: "stopped", managementUrl: "http://127.0.0.1:3458/", gatewayOk: false, checkedAt: 0 };
+  // 初始按黄灯（半启动）算：托盘刚起时状态未知，第一次轮询后覆盖为真实状态
+  let status: StatusInfo = { state: "partial", managementUrl: "http://127.0.0.1:3458/", gatewayOk: false, checkedAt: 0 };
   let busy = false;
   /** 本次启动时长：服务进入 running 的时刻，停止归零 */
   let runningSince: number | null = null;
@@ -84,6 +87,8 @@ if (!gotLock) {
   let expectStart = false;
   let partialSince: number | null = null;
   let partialNotified = false;
+  /** 点启动后等待网关起来的起始时刻；超过 startWindowMs 仍未 running 则放弃黄灯展示 */
+  let startPendingAt: number | null = null;
 
   const shell = new ElectronTrayShell();
 
@@ -141,6 +146,19 @@ if (!gotLock) {
     if (status.state === "running" && !prevRunning) runningSince = Date.now();
     if (status.state === "stopped") runningSince = null;
     prevRunning = status.state === "running";
+
+    // 启动窗口：点了启动/重启后、网关还没起来的这段时间按黄灯展示，避免启动过程闪红
+    if (status.state !== "running") {
+      if (startPendingAt !== null && Date.now() - startPendingAt > startWindowMs) {
+        expectStart = false;
+        startPendingAt = null; // 启动超时，放弃黄灯，回落真实状态
+      } else if (expectStart) {
+        status = { ...status, state: "partial" };
+      }
+    } else {
+      startPendingAt = null;
+    }
+
     trackStatusChange();
 
     shell.setStatus(status);
@@ -169,6 +187,7 @@ if (!gotLock) {
         try {
           if (event.kind === "start-service") {
             expectStart = true;
+            startPendingAt = Date.now();
             await startService();
           } else {
             expectStop = true;
@@ -220,6 +239,7 @@ if (!gotLock) {
           pushSettings();
           try {
             expectStart = true;
+            startPendingAt = Date.now();
             await restartService();
             lastNotice = "已保存，服务已用新端口重启";
           } catch (err) {

@@ -29,9 +29,10 @@ export class ElectronTrayShell implements TrayShell {
   private lastSettings: SettingsState | null = null;
 
   async init(): Promise<void> {
-    // 用最大的图标模板，Windows 下 Electron 自动缩放；留空兜底防崩溃
+    // 初始图标用黄灯：托盘刚启动时服务状态未知（多半正在启动），
+    // 第一次轮询（≤2.4s）后会覆盖为真实状态
     const base = nativeImage.createFromPath(`${ASSETS}/icon.png`);
-    this.tray = new Tray(base.isEmpty() ? iconFor("stopped") : base);
+    this.tray = new Tray(base.isEmpty() ? iconFor("partial") : base);
     this.tray.setToolTip("Yue");
     this.tray.on("click", () => this.emit({ kind: "open-management" }));
     this.tray.on("right-click", () => void this.openPopup());
