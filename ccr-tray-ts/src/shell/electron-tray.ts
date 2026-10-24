@@ -194,13 +194,13 @@ export class ElectronTrayShell implements TrayShell {
       return;
     }
     this.settingsWindow = new BrowserWindow({
-      width: 340,
+      width: 368,
       height: 408,
       show: false,
       frame: false,
       title: "设置",
       icon: `${ASSETS}/tray-green-48.png`,
-      backgroundColor: "#22222c",
+      backgroundColor: "#15171C",
       resizable: false,
       minimizable: false,
       maximizable: false,

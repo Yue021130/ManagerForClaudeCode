@@ -4,20 +4,30 @@
 <meta charset="utf-8" />
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+  :root {
+    --bg: #15171C;            /* 窗口背景 */
+    --card: #1C1F26;          /* 卡片背景 */
+    --input: #14161B;         /* 输入框/按钮背景 */
+    --text: #E5E7EB;          /* 主要文字 */
+    --text-dim: #929AAA;      /* 次要文字 */
+    --accent: #67B7E8;        /* 强调色 */
+    --border: rgba(255, 255, 255, 0.06);
+    --border-strong: rgba(255, 255, 255, 0.12);
+  }
   html, body { height: 100%; overflow: hidden; background: transparent; }
   body {
     font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
     font-size: 12px;
-    color: #d5d6e0;
+    color: var(--text);
     display: flex;
     /* 与 #panel 同色：窗口高度逐帧跟随内容时的取整余量看不出来 */
-    background: #1e1e28;
+    background: var(--bg);
   }
   #panel {
     width: 100%;
     /* 内容自然高度：ResizeObserver 量它上报主进程，窗口高度逐帧跟随 */
     height: max-content;
-    background: #1e1e28;
+    background: var(--bg);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -28,72 +38,68 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 0 4px 0 14px;
-    height: 38px;
+    padding: 0 8px 0 20px;
+    height: 42px;
     flex: none;
     -webkit-app-region: drag;
-    border-bottom: 1px solid #2e2e3c;
+    border-bottom: 1px solid var(--border);
   }
-  .titlebar .tico { color: #7dd3fc; display: flex; align-items: center; }
-  .titlebar .tico svg { width: 14px; height: 14px; display: block; }
-  .titlebar .title { font-size: 12px; font-weight: 600; color: #eceef4; }
+  .titlebar .tico { color: var(--accent); display: flex; align-items: center; }
+  .titlebar .tico svg { width: 16px; height: 16px; display: block; }
+  .titlebar .title { font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: 0.5px; }
   .titlebar .grow { flex: 1; }
   .close {
     width: 40px; height: 28px;
     border-radius: 6px;
     display: flex; align-items: center; justify-content: center;
-    color: #9a9aa8; font-size: 12px;
+    color: var(--text-dim); font-size: 12px;
     -webkit-app-region: no-drag;
     transition: background 120ms, color 120ms;
   }
   .close:hover { background: #e81123; color: #fff; }
-  /* 内容 */
-  .body { padding: 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
-  /* 运行时长总览卡片 */
-  .card.hero {
-    background: linear-gradient(135deg, #253243 0%, #22222e 100%);
-    border: 1px solid #35435c;
-    border-radius: 12px;
-    padding: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex: none;
-  }
-  .hero .label { color: #8fa3c0; display: flex; align-items: center; gap: 7px; font-size: 11.5px; }
-  .hero .label svg { width: 14px; height: 14px; display: block; color: #7dd3fc; }
-  .hero .value { font-size: 20px; font-weight: 700; color: #7dd3fc; font-variant-numeric: tabular-nums; letter-spacing: 0.3px; }
-  /* 空闲只改颜色不改字号：卡片高度恒定，服务重启/停止过程窗口不抖动 */
-  .hero .value.idle { color: #6b6b78; }
-  /* 分组卡片 */
+  /* 内容：左右边距 20，卡片间距 12 */
+  .body { padding: 20px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+  /* 分组卡片：统一 12 圆角 / 同边框 / 16 内边距，底部收尾留白一致 */
   .card {
-    background: #262632;
-    border: 1px solid #33333f;
+    background: var(--card);
+    border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 4px 14px;
+    padding: 16px;
     flex: none;
   }
   .card .cap {
-    font-size: 10.5px;
-    color: #7a7a8c;
+    font-size: 11px;
+    color: var(--text-dim);
     letter-spacing: 1px;
-    padding: 9px 0 2px;
+    margin-bottom: 12px;
   }
-  /* 行 */
-  .row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
-  .row + .row, .cap + .row { border-top: 1px solid #2e2e3a; }
-  .row .label { color: #c9cad6; display: flex; align-items: center; gap: 7px; }
-  .row .label svg { width: 13px; height: 13px; display: block; color: #8a8a9c; }
-  /* 开关 */
+  /* 运行时长总览卡片：与分组卡片同规格，仅内容排布不同 */
+  .card.hero {
+    height: 66px;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .hero .label { color: var(--text-dim); display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .hero .label svg { width: 16px; height: 16px; display: block; color: var(--text-dim); }
+  /* 降低抢眼程度：小号半粗、低饱和蓝、不发光；空闲只变色不变字号，重启过程窗口不抖动 */
+  .hero .value { font-size: 18px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; letter-spacing: 0.3px; }
+  .hero .value.idle { color: var(--text-dim); }
+  /* 行：高 44，操作控件统一靠右 */
+  .row { height: 44px; display: flex; align-items: center; justify-content: space-between; }
+  .row .label { color: var(--text); display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .row .label svg { width: 16px; height: 16px; display: block; color: var(--text-dim); }
+  /* 开关：36×20，关闭不刺眼，开启复用强调蓝 */
   .switch {
     width: 36px; height: 20px;
     border-radius: 10px;
-    background: #46465a;
+    background: #3A3E47;
     position: relative;
     transition: background 0.18s;
     cursor: default;
   }
-  .switch.on { background: #0ea5e9; }
+  .switch.on { background: var(--accent); }
   .switch::after {
     content: "";
     position: absolute;
@@ -105,57 +111,60 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.4);
   }
   .switch.on::after { left: 18px; }
-  /* 端口行：标签 + 输入框 + 行内按钮 + 结果 */
-  .portrow { display: flex; align-items: center; gap: 6px; padding: 8px 0; }
-  .portrow + .portrow { border-top: 1px solid #2e2e3a; }
+  /* 端口行：标签左对齐；右侧控件组（重置/测试/结果/输入框）整体右对齐，
+     输入框右缘与开关右缘对齐；auto 边距挂在永远在场的重置按钮上，位置稳定 */
+  .portrow { height: 44px; display: flex; align-items: center; gap: 4px; }
+  .portrow + .portrow { margin-top: 6px; }
   .portrow .label {
-    color: #c9cad6; display: flex; align-items: center; gap: 6px;
-    flex: none; width: 66px; font-size: 11.5px;
+    color: var(--text); display: flex; align-items: center; gap: 8px;
+    flex: none; font-size: 12px;
   }
-  .portrow .label svg { width: 13px; height: 13px; display: block; color: #8a8a9c; }
+  .portrow .label svg { width: 16px; height: 16px; display: block; color: var(--text-dim); }
+  .portrow .label + .mini-btn { margin-left: auto; }
+  /* 输入框：88×36，比卡片略深的底、略明显的边框，聚焦才用蓝 */
   .portrow input {
-    flex: 1;
-    min-width: 0;
-    background: #1e1e28;
-    border: 1px solid #3a3a48;
+    flex: none;
+    width: 88px;
+    height: 36px;
+    background: var(--input);
+    border: 1px solid var(--border-strong);
     border-radius: 8px;
-    color: #eceef4;
+    color: var(--text);
     font-size: 12.5px;
-    padding: 6px 10px;
-    text-align: left;
+    text-align: center;
     font-variant-numeric: tabular-nums;
     outline: none;
     font-family: inherit;
     transition: border-color 120ms, box-shadow 120ms;
   }
-  .portrow input:focus { border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18); }
+  .portrow input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(103, 183, 232, 0.25); }
   /* 行内小按钮：有修改才淡入 */
   .mini-btn {
     flex: none;
-    font-size: 11px;
-    color: #9a9aa8;
-    border: 1px solid #3a3a48;
-    background: #1e1e28;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    border: 1px solid var(--border-strong);
+    background: var(--input);
     border-radius: 7px;
-    padding: 5px 9px;
+    padding: 5px 7px;
     opacity: 0;
     pointer-events: none;
     transition: opacity 180ms ease, color 120ms, border-color 120ms;
   }
   .mini-btn.on { opacity: 1; pointer-events: auto; }
-  .mini-btn:hover { color: #d5d6e0; border-color: #4c4c62; }
+  .mini-btn:hover { color: var(--text); border-color: rgba(255, 255, 255, 0.22); }
   .mini-btn.disabled { opacity: 0.45; pointer-events: none; }
   /* 测试中转圈：保持可见（转圈要看得清）但不可点 */
   .mini-btn.testing { pointer-events: none; }
-  /* 行内测试结果：淡入淡出 */
+  /* 行内测试结果：淡入淡出（占位固定，输入框不位移） */
   .ptest {
-    flex: none; width: 50px; font-size: 11px; text-align: right;
+    flex: none; width: 40px; font-size: 10.5px; text-align: right;
     opacity: 0;
     transition: opacity 180ms ease;
   }
   .ptest.has { opacity: 1; }
-  .ptest.ok { color: #4ade80; }
-  .ptest.bad { color: #f87171; }
+  .ptest.ok { color: #4ADE80; }
+  .ptest.bad { color: #F87171; }
   /* 保存按钮（测试通过后才出现，通栏） */
   .saverow {
     max-height: 0;
@@ -164,27 +173,26 @@
     transition: max-height 220ms ease, opacity 220ms ease;
   }
   .saverow.show { max-height: 70px; opacity: 1; }
-  .saverow .btn { margin: 10px 0 8px; }
+  .saverow .btn { margin: 12px 0 0; }
   .btn {
     display: block;
     text-align: center;
     padding: 9px 0;
     border-radius: 9px;
-    border: 1px solid #3a3a48;
-    background: #2a2a36;
-    color: #c9cad6;
+    border: 1px solid var(--border-strong);
+    background: var(--input);
+    color: var(--text);
     cursor: default;
     font-size: 12px;
     transition: background 200ms ease, color 200ms ease, border-color 200ms ease, filter 120ms;
   }
-  .btn:hover { background: #343442; }
-  .btn.primary { background: #0ea5e9; border-color: #0ea5e9; color: #fff; font-weight: 600; box-shadow: 0 2px 10px rgba(14, 165, 233, 0.3); }
-  .btn.primary:hover { background: #38bdf8; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #10161F; font-weight: 600; box-shadow: 0 2px 10px rgba(103, 183, 232, 0.25); }
+  .btn.primary:hover { filter: brightness(1.1); }
   .btn.disabled { opacity: 0.45; pointer-events: none; }
   /* 全窗口蒙版：保存重启期间盖在整个窗口上，转圈/阶段/结果居中，不再挤压下方布局 */
   .overlay {
     position: absolute; inset: 0; z-index: 20;
-    background: rgba(17, 17, 25, 0.78);
+    background: rgba(13, 14, 18, 0.8);
     backdrop-filter: blur(4px);
     display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 12px;
@@ -194,26 +202,26 @@
   .overlay.show { opacity: 1; pointer-events: auto; }
   .overlay .spin {
     width: 22px; height: 22px;
-    border: 2.5px solid #46465a; border-top-color: #7dd3fc;
+    border: 2.5px solid #3A3E47; border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
-  .overlay-text { font-size: 12.5px; color: #eceef4; letter-spacing: 0.3px; }
-  .overlay-text.ok { color: #4ade80; }
-  .overlay-text.fail { color: #f87171; }
+  .overlay-text { font-size: 12.5px; color: var(--text); letter-spacing: 0.3px; }
+  .overlay-text.ok { color: #4ADE80; }
+  .overlay-text.fail { color: #F87171; }
   /* 端口校验错误：就地红字 + 输入框红框抖动（高度/透明度过渡进出） */
   .porterror {
     max-height: 0;
     opacity: 0;
     overflow: hidden;
     font-size: 11px;
-    color: #f87171;
+    color: #F87171;
     padding: 0 2px;
     transition: max-height 200ms ease, opacity 200ms ease, padding-bottom 200ms ease;
   }
   .porterror.show { max-height: 34px; opacity: 1; padding-bottom: 8px; }
   .portrow input.invalid {
-    border-color: #ef4444;
+    border-color: #EF4444;
     box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
     animation: shake 300ms ease;
   }
@@ -222,11 +230,11 @@
     25% { transform: translateX(-3px); }
     75% { transform: translateX(3px); }
   }
-  /* 转圈：测试中的行内小按钮 / 重启中的保存按钮 */
+  /* 转圈：测试中的行内小按钮 */
   @keyframes spin { to { transform: rotate(360deg); } }
   .mini-spin {
     display: inline-block; width: 9px; height: 9px;
-    border: 1.5px solid #565668; border-top-color: #b9b9c8;
+    border: 1.5px solid #3A3E47; border-top-color: var(--text-dim);
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
     vertical-align: -1px;
@@ -259,17 +267,17 @@
         <div class="cap">网络端口</div>
         <div class="portrow">
           <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>管理端口</span>
-          <input type="text" inputmode="numeric" id="mgmtInput" />
           <span class="mini-btn" id="mgmtReset">重置</span>
           <span class="mini-btn" id="mgmtTestBtn">测试</span>
           <span class="ptest" id="mgmtResult"></span>
+          <input type="text" inputmode="numeric" id="mgmtInput" />
         </div>
         <div class="portrow">
           <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/><rect x="3" y="3" width="18" height="18" rx="3"/></svg>服务端口</span>
-          <input type="text" inputmode="numeric" id="gatewayInput" />
           <span class="mini-btn" id="gwReset">重置</span>
           <span class="mini-btn" id="gwTestBtn">测试</span>
           <span class="ptest" id="gwResult"></span>
+          <input type="text" inputmode="numeric" id="gatewayInput" />
         </div>
         <div class="porterror" id="portError"></div>
         <div class="saverow" id="saveRow">
@@ -313,7 +321,7 @@
   }
 
   function testLabel(r) {
-    return r === "free" ? ["✓ 可用", "ok"] : r === "in-use" ? ["✗ 被占用", "bad"] : ["✗ 非法", "bad"];
+    return r === "free" ? ["✓ 可用", "ok"] : r === "in-use" ? ["✗ 占用", "bad"] : ["✗ 非法", "bad"];
   }
 
   const curMgmt = () => $("mgmtInput").value.trim();
