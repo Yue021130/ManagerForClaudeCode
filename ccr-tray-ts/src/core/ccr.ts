@@ -32,12 +32,6 @@ export async function stopService(): Promise<void> {
   await runCcr(["stop"]);
 }
 
-/** 保存端口后自动重启生效 */
-export async function restartService(): Promise<void> {
-  await stopService();
-  await startService();
-}
-
 /** 试绑一个端口：成功=可用，EADDRINUSE=被占用，其余按不可用算 */
 export function testPort(port: number): Promise<"free" | "in-use" | "invalid"> {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {

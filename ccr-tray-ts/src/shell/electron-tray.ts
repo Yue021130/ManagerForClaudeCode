@@ -84,11 +84,16 @@ export class ElectronTrayShell implements TrayShell {
       this.popup?.hide();
       if (event.kind !== "dismiss") this.emit(event as MenuEvent);
     });
-    // 设置窗口事件：dismiss 只隐藏（保留缓存下次快开），其余透传业务层
+    // 设置窗口事件：dismiss 只隐藏（保留缓存下次快开）；content-height 由渲染层
+    // ResizeObserver 逐帧上报，直接调窗口高度不透传；其余透传业务层
     ipcMain.on("settings:event", (_e, event) => {
       if (!event || typeof event.kind !== "string") return;
       if (event.kind === "dismiss") {
         this.settingsWindow?.hide();
+        return;
+      }
+      if (event.kind === "content-height" && typeof event.height === "number") {
+        this.applySettingsHeight(event.height);
         return;
       }
       this.emit(event as MenuEvent);
@@ -179,8 +184,13 @@ export class ElectronTrayShell implements TrayShell {
   openSettings(): void {
     if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
       this.pushSettingsState();
-      this.settingsWindow.show();
-      this.settingsWindow.focus();
+      // 隐藏期间内容可能变过（反馈条自动清除等）：show 前量一次高度，避免闪现旧高度
+      void this.measureSettingsHeight().then((h) => {
+        if (!this.settingsWindow || this.settingsWindow.isDestroyed()) return;
+        if (h) this.applySettingsHeight(h);
+        this.settingsWindow.show();
+        this.settingsWindow.focus();
+      });
       return;
     }
     this.settingsWindow = new BrowserWindow({
@@ -204,48 +214,58 @@ export class ElectronTrayShell implements TrayShell {
     this.settingsWindow.once("ready-to-show", () => {
       if (!this.settingsWindow) return;
       // 先按内容实测高度，再居中于托盘图标所在显示器（窗口贴着内容走，无死区）
-      void this.fitSettingsWindow().then(() => {
+      void this.measureSettingsHeight().then((h) => {
         if (!this.settingsWindow) return;
+        const height = Math.max(300, h ?? 408);
         const b = this.settingsWindow.getBounds();
         const tb = this.tray?.getBounds();
         const area = tb && tb.width > 0
           ? screen.getDisplayNearestPoint({ x: tb.x, y: tb.y }).workArea
           : screen.getPrimaryDisplay().workArea;
         const x = Math.round(area.x + (area.width - b.width) / 2);
-        const y = Math.round(area.y + (area.height - b.height) / 2);
-        this.settingsWindow?.setBounds({ x, y, width: b.width, height: b.height });
+        const y = Math.round(area.y + (area.height - height) / 2);
+        this.settingsWindow.setBounds({ x, y, width: b.width, height });
         this.pushSettingsState();
-        this.settingsWindow?.show();
+        this.settingsWindow.show();
       });
     });
   }
 
-  /** 设置窗口高度跟随内容：子元素实测高度 + 间距 + 内边距 + 标题栏。
-   *  flex 容器 scrollHeight 在窗口偏高时等于拉伸高度，不能用来收缩，所以逐个子元素量。 */
-  private async fitSettingsWindow(): Promise<void> {
+  /** 一次性量设置窗口内容高度。#panel 是 max-content 高度，量它即可；
+   *  隐藏窗口 JS 布局仍可用（可见期间的连续变化由渲染层 ResizeObserver 逐帧上报）。 */
+  private async measureSettingsHeight(): Promise<number | null> {
     const win = this.settingsWindow;
-    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return null;
     try {
-      const bodyH = await win.webContents.executeJavaScript(`(() => {
-        const body = document.querySelector('.body');
-        if (!body) return 0;
-        const kids = Array.from(body.children).filter((el) => el.offsetHeight > 0);
-        if (kids.length === 0) return 0;
-        return kids.reduce((a, el) => a + el.offsetHeight, 0) + (kids.length - 1) * 10 + 28;
-      })()`);
-      if (!bodyH) return;
-      const height = Math.max(300, bodyH + 38); // 38 = 标题栏
-      const b = win.getBounds();
-      win.setBounds({ x: b.x, y: b.y + b.height - height, width: b.width, height });
+      const h = await win.webContents.executeJavaScript(
+        `(() => { const el = document.getElementById("panel"); return el ? el.offsetHeight : 0; })()`
+      );
+      return typeof h === "number" && h > 0 ? h : null;
     } catch {
-      /* 测量失败保持原样 */
+      return null;
     }
+  }
+
+  /** 渲染层上报的内容高度：顶边固定向下长（标题栏不动），底边夹在工作区内。
+   *  不起自己的定时器动画——CSS 过渡是唯一动画时钟，窗口逐帧跟随内容。 */
+  private applySettingsHeight(height: number): void {
+    const win = this.settingsWindow;
+    if (!win || win.isDestroyed()) return;
+    const target = Math.max(300, Math.round(height));
+    const b = win.getBounds();
+    if (Math.abs(target - b.height) < 2) return;
+    const area = screen.getDisplayMatching(b).workArea;
+    let y = b.y;
+    if (y + target > area.y + area.height - 8) {
+      y = Math.max(area.y + 8, area.y + area.height - 8 - target);
+    }
+    win.setBounds({ x: b.x, y, width: b.width, height: target });
   }
 
   private pushSettingsState(): void {
     if (this.settingsWindow && this.lastSettings && !this.settingsWindow.webContents.isDestroyed()) {
       this.settingsWindow.webContents.send("settings:state", this.lastSettings);
-      void this.fitSettingsWindow(); // 内容增减（保存按钮/错误行出现消失）时高度跟着走
+      // 高度跟随由渲染层 ResizeObserver 逐帧上报（content-height），这里不用管
     }
   }
 

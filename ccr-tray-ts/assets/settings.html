@@ -10,10 +10,13 @@
     font-size: 12px;
     color: #d5d6e0;
     display: flex;
+    /* 与 #panel 同色：窗口高度逐帧跟随内容时的取整余量看不出来 */
+    background: #1e1e28;
   }
   #panel {
     width: 100%;
-    height: 100%;
+    /* 内容自然高度：ResizeObserver 量它上报主进程，窗口高度逐帧跟随 */
+    height: max-content;
     background: #1e1e28;
     display: flex;
     flex-direction: column;
@@ -124,7 +127,7 @@
     transition: border-color 120ms, box-shadow 120ms;
   }
   .portrow input:focus { border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18); }
-  /* 行内小按钮：有修改才显示 */
+  /* 行内小按钮：有修改才淡入 */
   .mini-btn {
     flex: none;
     font-size: 11px;
@@ -133,18 +136,33 @@
     background: #1e1e28;
     border-radius: 7px;
     padding: 5px 9px;
-    visibility: hidden;
-    transition: color 120ms, border-color 120ms;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease, color 120ms, border-color 120ms;
   }
+  .mini-btn.on { opacity: 1; pointer-events: auto; }
   .mini-btn:hover { color: #d5d6e0; border-color: #4c4c62; }
   .mini-btn.disabled { opacity: 0.45; pointer-events: none; }
-  /* 行内测试结果 */
-  .ptest { flex: none; width: 50px; font-size: 11px; text-align: right; }
+  /* 测试中转圈：保持可见（转圈要看得清）但不可点 */
+  .mini-btn.testing { pointer-events: none; }
+  /* 行内测试结果：淡入淡出 */
+  .ptest {
+    flex: none; width: 50px; font-size: 11px; text-align: right;
+    opacity: 0;
+    transition: opacity 180ms ease;
+  }
+  .ptest.has { opacity: 1; }
   .ptest.ok { color: #4ade80; }
   .ptest.bad { color: #f87171; }
   /* 保存按钮（测试通过后才出现，通栏） */
-  .saverow { display: none; padding: 10px 0 8px; }
-  .saverow.show { display: block; }
+  .saverow {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height 220ms ease, opacity 220ms ease;
+  }
+  .saverow.show { max-height: 70px; opacity: 1; }
+  .saverow .btn { margin: 10px 0 8px; }
   .btn {
     display: block;
     text-align: center;
@@ -155,7 +173,7 @@
     color: #c9cad6;
     cursor: default;
     font-size: 12px;
-    transition: background 120ms, filter 120ms;
+    transition: background 200ms ease, color 200ms ease, border-color 200ms ease, filter 120ms;
   }
   .btn:hover { background: #343442; }
   .btn.primary { background: #0ea5e9; border-color: #0ea5e9; color: #fff; font-weight: 600; box-shadow: 0 2px 10px rgba(14, 165, 233, 0.3); }
@@ -165,15 +183,17 @@
   .btn.busy { background: #2a2a36; border-color: #3a3a48; color: #9a9aa8; box-shadow: none; pointer-events: none; }
   .btn.ok { background: #14532d; border-color: #166534; color: #86efac; box-shadow: none; pointer-events: none; }
   .btn.fail { background: #450a0a; border-color: #7f1d1d; color: #fca5a5; box-shadow: none; }
-  /* 端口校验错误：就地红字 + 输入框红框抖动 */
+  /* 端口校验错误：就地红字 + 输入框红框抖动（高度/透明度过渡进出） */
   .porterror {
-    display: none;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
     font-size: 11px;
     color: #f87171;
-    padding: 2px 2px 8px;
+    padding: 0 2px;
+    transition: max-height 200ms ease, opacity 200ms ease, padding-bottom 200ms ease;
   }
-  .porterror.show { display: block; opacity: 1; transition: opacity 400ms ease; }
-  .porterror.show.fade { opacity: 0; }
+  .porterror.show { max-height: 34px; opacity: 1; padding-bottom: 8px; }
   .portrow input.invalid {
     border-color: #ef4444;
     box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
@@ -183,6 +203,22 @@
     0%, 100% { transform: translateX(0); }
     25% { transform: translateX(-3px); }
     75% { transform: translateX(3px); }
+  }
+  /* 转圈：测试中的行内小按钮 / 重启中的保存按钮 */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .mini-spin {
+    display: inline-block; width: 9px; height: 9px;
+    border: 1.5px solid #565668; border-top-color: #b9b9c8;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: -1px;
+  }
+  .btn .spin {
+    display: inline-block; width: 12px; height: 12px;
+    border: 2px solid #565668; border-top-color: #d5d6e0;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 7px; vertical-align: -2px;
   }
 </style>
 </head>
@@ -234,7 +270,6 @@
   </div>
 <script>
   let current = null;
-  let errHideTimer = null;
   let savePending = false;
   // 输入框被用户改过之后不再被推送值覆盖
   let mgmtTouched = false;
@@ -242,6 +277,8 @@
   // 每行各自的测试快照/结果：只测被修改的那一行，互不干扰
   let testedMgmt = null, testedGw = null;
   let resMgmt = null, resGw = null;
+  // 测试进行中（本地即时反馈：点了就转圈，不等 IPC 往返）
+  let testingMgmt = false, testingGw = false;
   // 最近一次推送的已保存端口
   let saved = null;
 
@@ -268,22 +305,30 @@
   const gwChanged = () => saved !== null && curGw() !== String(saved.gatewayPort);
 
   function updateEditUI() {
-    const busy = current && current.busy;
-    // 行内按钮：该行有修改才显示
-    $("mgmtReset").style.visibility = mgmtChanged() ? "visible" : "hidden";
-    $("mgmtTestBtn").style.visibility = mgmtChanged() ? "visible" : "hidden";
-    $("gwReset").style.visibility = gwChanged() ? "visible" : "hidden";
-    $("gwTestBtn").style.visibility = gwChanged() ? "visible" : "hidden";
-    for (const id of ["mgmtReset", "mgmtTestBtn", "gwReset", "gwTestBtn"]) {
-      $(id).classList.toggle("disabled", !!busy);
-    }
+    const busy = !!(current && current.busy);
+    // 行内按钮：该行有修改才淡入；重启中禁用，测试中的行转圈（保持可见但不可点）
+    $("mgmtReset").className = "mini-btn" + (mgmtChanged() ? " on" : "");
+    $("mgmtTestBtn").className = "mini-btn" + (mgmtChanged() ? " on" : "");
+    $("gwReset").className = "mini-btn" + (gwChanged() ? " on" : "");
+    $("gwTestBtn").className = "mini-btn" + (gwChanged() ? " on" : "");
+    // 内容没变就不重写 DOM：否则每次状态推送（每秒）都会重启转圈动画，看起来一顿一顿
+    const mHtml = testingMgmt ? '<span class="mini-spin"></span>' : "测试";
+    const gHtml = testingGw ? '<span class="mini-spin"></span>' : "测试";
+    if ($("mgmtTestBtn").innerHTML !== mHtml) $("mgmtTestBtn").innerHTML = mHtml;
+    if ($("gwTestBtn").innerHTML !== gHtml) $("gwTestBtn").innerHTML = gHtml;
+    $("mgmtTestBtn").classList.toggle("testing", testingMgmt);
+    $("gwTestBtn").classList.toggle("testing", testingGw);
+    $("mgmtReset").classList.toggle("disabled", busy || testingMgmt);
+    $("mgmtTestBtn").classList.toggle("disabled", busy);
+    $("gwReset").classList.toggle("disabled", busy || testingGw);
+    $("gwTestBtn").classList.toggle("disabled", busy);
     // 行内结果：仅当测试快照与当前输入一致时才显示
     const mOk = testedMgmt !== null && testedMgmt === curMgmt() && resMgmt !== null;
     const gOk = testedGw !== null && testedGw === curGw() && resGw !== null;
     if (mOk) {
       const [t, c] = testLabel(resMgmt);
       $("mgmtResult").textContent = t;
-      $("mgmtResult").className = "ptest " + c;
+      $("mgmtResult").className = "ptest has " + c;
     } else {
       $("mgmtResult").textContent = "";
       $("mgmtResult").className = "ptest";
@@ -291,7 +336,7 @@
     if (gOk) {
       const [t, c] = testLabel(resGw);
       $("gwResult").textContent = t;
-      $("gwResult").className = "ptest " + c;
+      $("gwResult").className = "ptest has " + c;
     } else {
       $("gwResult").textContent = "";
       $("gwResult").className = "ptest";
@@ -305,12 +350,21 @@
     $("saveRow").className = "saverow" + (visible ? " show" : "");
     const btn = $("saveBtn");
     if (busy && savePending) {
+      // 重启进行：转圈 + 主进程推送的阶段文字（停止旧进程→启动服务），不再是死文字。
+      // dataset.stage 做守卫：阶段没变不重建 DOM，转圈动画不被每秒的推送打断
       btn.className = "btn busy";
-      btn.textContent = "⟳ 正在重启…";
+      const stage = (current && current.saveStage) || "正在重启…";
+      if (btn.dataset.stage !== stage) {
+        btn.dataset.stage = stage;
+        btn.innerHTML = '<span class="spin"></span><span></span>';
+        btn.lastChild.textContent = stage;
+      }
     } else if (current && current.lastSave) {
+      delete btn.dataset.stage;
       btn.className = "btn " + current.lastSave.result;
       btn.textContent = current.lastSave.label;
     } else {
+      delete btn.dataset.stage;
       btn.className = "btn primary";
       btn.textContent = "保存修改并重启";
     }
@@ -333,34 +387,35 @@
     // 端口（用户没动过才同步）
     if (!mgmtTouched) $("mgmtInput").value = s.managementPort;
     if (!gwTouched) $("gatewayInput").value = s.gatewayPort;
-    // 单行测试结果归到对应行
+    // 单行测试结果归到对应行，并停掉该行的"测试中"转圈
     if (s.portTest) {
-      if (s.portTest.which === "management") resMgmt = s.portTest.result;
-      else resGw = s.portTest.result;
+      if (s.portTest.which === "management") {
+        resMgmt = s.portTest.result;
+        testingMgmt = false;
+      } else {
+        resGw = s.portTest.result;
+        testingGw = false;
+      }
     }
-    // 端口校验错误：就地红字 + 输入框红框，消失走 400ms 淡出
+    // 端口校验错误：就地红字 + 输入框红框（高度/透明度过渡）
     const pe = $("portError");
-    clearTimeout(errHideTimer);
     if (s.portError) {
       pe.textContent = s.portError;
       pe.className = "porterror show";
       $("mgmtInput").classList.add("invalid");
       $("gatewayInput").classList.add("invalid");
-    } else if (pe.classList.contains("show")) {
-      pe.classList.add("fade");
-      errHideTimer = setTimeout(() => {
-        pe.className = "porterror";
-        $("mgmtInput").classList.remove("invalid");
-        $("gatewayInput").classList.remove("invalid");
-      }, 400);
+    } else {
+      pe.className = "porterror";
+      $("mgmtInput").classList.remove("invalid");
+      $("gatewayInput").classList.remove("invalid");
     }
     updateEditUI();
   }
 
   window.ccrSettings.onState(render);
 
-  $("mgmtInput").addEventListener("input", () => { mgmtTouched = true; testedMgmt = null; resMgmt = null; updateEditUI(); });
-  $("gatewayInput").addEventListener("input", () => { gwTouched = true; testedGw = null; resGw = null; updateEditUI(); });
+  $("mgmtInput").addEventListener("input", () => { mgmtTouched = true; testedMgmt = null; resMgmt = null; testingMgmt = false; updateEditUI(); });
+  $("gatewayInput").addEventListener("input", () => { gwTouched = true; testedGw = null; resGw = null; testingGw = false; updateEditUI(); });
 
   $("mgmtReset").addEventListener("click", () => {
     if (!saved) return;
@@ -376,11 +431,17 @@
   });
 
   $("mgmtTestBtn").addEventListener("click", () => {
+    if (testingMgmt) return;
+    testingMgmt = true;
     testedMgmt = curMgmt();
+    updateEditUI();
     window.ccrSettings.send({ kind: "test-port", which: "management", port: Number(curMgmt()) });
   });
   $("gwTestBtn").addEventListener("click", () => {
+    if (testingGw) return;
+    testingGw = true;
     testedGw = curGw();
+    updateEditUI();
     window.ccrSettings.send({ kind: "test-port", which: "gateway", port: Number(curGw()) });
   });
 
@@ -405,12 +466,24 @@
     if (e.key === "Escape") window.ccrSettings.send({ kind: "dismiss" });
   });
 
-  // 运行中每秒要一次状态（运行时长走动）
+  // 运行中/重启中每秒要一次状态（运行时长走动、重启阶段推进）
   setInterval(() => {
-    if (current && current.serviceState === "running") {
+    if (current && (current.busy || current.serviceState === "running")) {
       window.ccrSettings.send({ kind: "settings-tick" });
     }
   }, 1000);
+
+  // 内容高度逐帧上报主进程：CSS 过渡是窗口高度的唯一动画时钟，
+  // 窗口不再自己起定时器动画，消除两套时钟不同步的跳变
+  const panel = document.getElementById("panel");
+  let lastReportedH = 0;
+  new ResizeObserver(() => {
+    const h = panel.offsetHeight;
+    if (h > 0 && h !== lastReportedH) {
+      lastReportedH = h;
+      window.ccrSettings.send({ kind: "content-height", height: h });
+    }
+  }).observe(panel);
 </script>
 </body>
 </html>

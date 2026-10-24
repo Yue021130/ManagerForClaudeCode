@@ -1,5 +1,5 @@
 import { app } from "electron";
-import { restartService, startService, stopService, testPort } from "./core/ccr";
+import { startService, stopService, testPort } from "./core/ccr";
 import { checkStatus } from "./core/status";
 import { readManagementUrl } from "./core/service-state";
 import { readSettings, writeSettings } from "./core/settings";
@@ -29,10 +29,11 @@ if (!gotLock) {
   let runningSince: number | null = null;
   let prevRunning = false;
   let autostartEnabled = false;
-  /** 最近一次端口测试结果 / 保存反馈 / 校验错误（推给设置窗口） */
+  /** 最近一次端口测试结果 / 保存反馈 / 校验错误 / 保存重启阶段（推给设置窗口） */
   let lastPortTest: { which: "management" | "gateway"; result: PortTestResult } | undefined;
   let lastSave: { result: "ok" | "fail"; label: string } | undefined;
   let portError: string | undefined;
+  let saveStage: string | undefined;
 
   // ── 状态变更通知 ──
   let prevState: "running" | "partial" | "stopped" | null = null;
@@ -57,6 +58,7 @@ if (!gotLock) {
       portTest: lastPortTest,
       lastSave,
       portError,
+      saveStage,
     };
   }
 
@@ -209,23 +211,31 @@ if (!gotLock) {
           flashFeedback();
           break;
         }
+        saveStage = "正在保存配置…";
+        pushSettings();
         writeSettings({ managementPort, gatewayPort });
         lastPortTest = undefined;
         // 服务在跑 → 自动重启用新端口生效；没在跑 → 下次启动生效
         if (status.state !== "stopped") {
           busy = true;
-          pushSettings();
           try {
             expectStart = true;
             startPendingAt = Date.now();
-            await restartService();
+            saveStage = "正在停止旧进程…";
+            pushSettings();
+            await stopService();
+            saveStage = "正在启动服务…";
+            pushSettings();
+            await startService();
             lastSave = { result: "ok", label: "✓ 已保存并重启" };
           } catch (err) {
             lastSave = { result: "fail", label: "✗ 重启失败，端口已保存" };
             console.error(err);
           }
+          saveStage = undefined;
           busy = false;
         } else {
+          saveStage = undefined;
           lastSave = { result: "ok", label: "✓ 已保存，下次启动生效" };
         }
         pushSettings();
