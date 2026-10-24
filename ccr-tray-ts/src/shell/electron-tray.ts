@@ -185,7 +185,7 @@ export class ElectronTrayShell implements TrayShell {
     }
     this.settingsWindow = new BrowserWindow({
       width: 340,
-      height: 424,
+      height: 408,
       show: false,
       frame: false,
       title: "设置",
@@ -209,8 +209,8 @@ export class ElectronTrayShell implements TrayShell {
         ? screen.getDisplayNearestPoint({ x: tb.x, y: tb.y }).workArea
         : screen.getPrimaryDisplay().workArea;
       const x = Math.round(area.x + (area.width - 340) / 2);
-      const y = Math.round(area.y + (area.height - 424) / 2);
-      this.settingsWindow.setBounds({ x, y, width: 340, height: 424 });
+      const y = Math.round(area.y + (area.height - 408) / 2);
+      this.settingsWindow.setBounds({ x, y, width: 340, height: 408 });
       this.pushSettingsState();
       this.settingsWindow.show();
     });
