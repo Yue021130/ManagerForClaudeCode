@@ -244,9 +244,10 @@ export class ElectronTrayShell implements TrayShell {
       height: 408,
       show: false,
       frame: false,
+      // 透明底 + CSS 圆角：无边框窗口的直角由 body 背景画出，要圆角必须透明
+      transparent: true,
       title: "设置",
       icon: `${ASSETS}/tray-green-48.png`,
-      backgroundColor: "#15171C",
       resizable: false,
       minimizable: false,
       maximizable: false,
