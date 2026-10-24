@@ -178,7 +178,7 @@ quit(): void {
 |---|---|---|---|
 | `menu:state` | main → 菜单渲染器 | `MenuOptions { status, autostartEnabled, busy }` | `ElectronTrayShell.pushState` → `menu-preload.onState` |
 | `menu:event` | 菜单渲染器 → main | `MenuEvent` 或 `{kind:"dismiss"}` | `menu-preload.send` → `ipcMain.on("menu:event")` |
-| `settings:state` | main → 设置渲染器 | `SettingsState { uptimeMs, autostartEnabled, managementPort, gatewayPort, serviceState, busy, portTest?, notice? }` | `ElectronTrayShell.pushSettingsState` → `settings-preload.onState` |
+| `settings:state` | main → 设置渲染器 | `SettingsState { uptimeMs, avgCpuPercent, memRssMb, autostartEnabled, managementPort, gatewayPort, serviceState, busy, portTest?, notice? }` | `ElectronTrayShell.pushSettingsState` → `settings-preload.onState` |
 | `settings:event` | 设置渲染器 → main | `MenuEvent` 或 `{kind:"dismiss"}`(含 `settings-tick`) | `settings-preload.send` → `ipcMain.on("settings:event")` |
 
 - `dismiss` **只在 shell 层消化**(隐藏弹窗/设置窗),不进 `main.ts`;其余事件透传给 `main.handleEvent`。
@@ -255,6 +255,6 @@ renderer 点击/按键
 | `StatusInfo.managementUrl` 不带 token | 真正带 token 的 URL 只在 `readManagementUrl` | 要么去掉这个字段,要么统一走 service-state |
 | `uptimeMs` 是托盘观测口径 | 托盘或 CCR 重启就归零,不是真实进程时长 | 如需真实时长,改从 CCR 侧读 |
 | 3s 轮询无界面也在跑 | 每轮最多两次本地 HTTP | 可在无任何 UI 打开时降频/暂停 |
-| 设置窗隐藏后 1s interval 仍在 | `settings.html` 里 `serviceState==="running"` 才发 tick,但 interval 本身一直在 | 可在隐藏时清 interval |
+| 设置窗隐藏后 1s interval 仍在 | tick 只要设置窗存在就发(运行时长 + 托盘资源实时刷新) | 可在隐藏时清 interval |
 | `MenuOptions.autostartEnabled` 菜单端没用 | 菜单 HTML 没渲染它(自启开关在设置窗) | 精简载荷或在菜单里也展示 |
 | `--dev` 参数没人读 | `npm run dev` 传了但源码不消费 | 接上(如开 DevTools)或从脚本里去掉 |
