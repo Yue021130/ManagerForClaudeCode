@@ -79,7 +79,7 @@ if (!gotLock) {
   let prevRunning = false;
   let autostartEnabled = false;
   /** 最近一次端口测试结果 / 提示条（推给设置窗口） */
-  let lastPortTest: { management: PortTestResult; gateway: PortTestResult } | undefined;
+  let lastPortTest: { which: "management" | "gateway"; result: PortTestResult } | undefined;
   let lastNotice: string | undefined;
 
   // ── 状态变更通知 ──
@@ -208,13 +208,9 @@ if (!gotLock) {
         shell.refreshMenu({ status, autostartEnabled, busy });
         pushSettings();
         break;
-      case "test-ports": {
+      case "test-port": {
         lastNotice = undefined;
-        const [management, gateway] = await Promise.all([
-          testPort(event.managementPort),
-          testPort(event.gatewayPort),
-        ]);
-        lastPortTest = { management, gateway };
+        lastPortTest = { which: event.which, result: await testPort(event.port) };
         pushSettings();
         break;
       }

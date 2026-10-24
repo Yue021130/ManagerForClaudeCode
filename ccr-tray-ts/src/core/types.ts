@@ -15,7 +15,7 @@ export type MenuEvent =
   | { kind: "start-service" }
   | { kind: "stop-service" }
   | { kind: "toggle-autostart"; enabled: boolean }
-  | { kind: "test-ports"; managementPort: number; gatewayPort: number }
+  | { kind: "test-port"; which: "management" | "gateway"; port: number }
   | { kind: "save-ports"; managementPort: number; gatewayPort: number }
   | { kind: "settings-tick" }
   | { kind: "quit" };
@@ -31,8 +31,8 @@ export interface SettingsState {
   gatewayPort: number;
   serviceState: ServiceState;
   busy: boolean;
-  /** 端口测试结果（点「测试」后出现，保存后清空） */
-  portTest?: { management: PortTestResult; gateway: PortTestResult };
+  /** 端口测试结果（只测被修改的那一行，保存后清空） */
+  portTest?: { which: "management" | "gateway"; result: PortTestResult };
   /** 保存/错误提示条 */
   notice?: string;
 }

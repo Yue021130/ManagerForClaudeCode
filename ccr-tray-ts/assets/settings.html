@@ -228,8 +228,9 @@
   // 输入框被用户改过之后不再被推送值覆盖
   let mgmtTouched = false;
   let gwTouched = false;
-  // 最近一次测试时快照的输入值；输入一变就作废（防止拿旧结果点保存）
-  let tested = null;
+  // 每行各自的测试快照/结果：只测被修改的那一行，互不干扰
+  let testedMgmt = null, testedGw = null;
+  let resMgmt = null, resGw = null;
   // 最近一次推送的已保存端口
   let saved = null;
 
@@ -254,9 +255,6 @@
   const curGw = () => $("gatewayInput").value.trim();
   const mgmtChanged = () => saved !== null && curMgmt() !== String(saved.managementPort);
   const gwChanged = () => saved !== null && curGw() !== String(saved.gatewayPort);
-  // 测试结果仅当与当前输入一致时才有效
-  const resultsValid = () =>
-    tested !== null && tested.mgmt === curMgmt() && tested.gw === curGw();
 
   function updateEditUI() {
     const busy = current && current.busy;
@@ -268,27 +266,29 @@
     for (const id of ["mgmtReset", "mgmtTestBtn", "gwReset", "gwTestBtn"]) {
       $(id).classList.toggle("disabled", !!busy);
     }
-    // 行内结果
-    const showRes = resultsValid() && current && current.portTest;
-    if (showRes) {
-      const [mt, mc] = testLabel(current.portTest.management);
-      const [gt, gc] = testLabel(current.portTest.gateway);
-      $("mgmtResult").textContent = mt;
-      $("mgmtResult").className = "ptest " + mc;
-      $("gwResult").textContent = gt;
-      $("gwResult").className = "ptest " + gc;
+    // 行内结果：仅当测试快照与当前输入一致时才显示
+    const mOk = testedMgmt !== null && testedMgmt === curMgmt() && resMgmt !== null;
+    const gOk = testedGw !== null && testedGw === curGw() && resGw !== null;
+    if (mOk) {
+      const [t, c] = testLabel(resMgmt);
+      $("mgmtResult").textContent = t;
+      $("mgmtResult").className = "ptest " + c;
     } else {
       $("mgmtResult").textContent = "";
       $("mgmtResult").className = "ptest";
+    }
+    if (gOk) {
+      const [t, c] = testLabel(resGw);
+      $("gwResult").textContent = t;
+      $("gwResult").className = "ptest " + c;
+    } else {
       $("gwResult").textContent = "";
       $("gwResult").className = "ptest";
     }
-    // 保存按钮：有修改 + 被修改的行都测过且可用
-    let canSave = !busy && resultsValid() && (mgmtChanged() || gwChanged());
-    if (canSave && current && current.portTest) {
-      if (mgmtChanged() && current.portTest.management !== "free") canSave = false;
-      if (gwChanged() && current.portTest.gateway !== "free") canSave = false;
-    }
+    // 保存按钮：有修改 + 每个被修改的行都测过且可用
+    const mgmtPass = mgmtChanged() ? mOk && resMgmt === "free" : true;
+    const gwPass = gwChanged() ? gOk && resGw === "free" : true;
+    const canSave = !busy && (mgmtChanged() || gwChanged()) && mgmtPass && gwPass;
     $("saveRow").className = "saverow" + (canSave ? " show" : "");
     $("saveBtn").className = "btn primary" + (busy ? " disabled" : "");
   }
@@ -310,6 +310,11 @@
     // 端口（用户没动过才同步）
     if (!mgmtTouched) $("mgmtInput").value = s.managementPort;
     if (!gwTouched) $("gatewayInput").value = s.gatewayPort;
+    // 单行测试结果归到对应行
+    if (s.portTest) {
+      if (s.portTest.which === "management") resMgmt = s.portTest.result;
+      else resGw = s.portTest.result;
+    }
     // 提示条
     if (s.notice) {
       const n = $("notice");
@@ -323,35 +328,33 @@
 
   window.ccrSettings.onState(render);
 
-  $("mgmtInput").addEventListener("input", () => { mgmtTouched = true; tested = null; updateEditUI(); });
-  $("gatewayInput").addEventListener("input", () => { gwTouched = true; tested = null; updateEditUI(); });
+  $("mgmtInput").addEventListener("input", () => { mgmtTouched = true; testedMgmt = null; resMgmt = null; updateEditUI(); });
+  $("gatewayInput").addEventListener("input", () => { gwTouched = true; testedGw = null; resGw = null; updateEditUI(); });
 
   $("mgmtReset").addEventListener("click", () => {
     if (!saved) return;
     $("mgmtInput").value = saved.managementPort;
-    mgmtTouched = false; tested = null;
+    mgmtTouched = false; testedMgmt = null; resMgmt = null;
     updateEditUI();
   });
   $("gwReset").addEventListener("click", () => {
     if (!saved) return;
     $("gatewayInput").value = saved.gatewayPort;
-    gwTouched = false; tested = null;
+    gwTouched = false; testedGw = null; resGw = null;
     updateEditUI();
   });
 
-  function sendTest() {
-    tested = { mgmt: curMgmt(), gw: curGw() };
-    window.ccrSettings.send({
-      kind: "test-ports",
-      managementPort: Number(curMgmt()),
-      gatewayPort: Number(curGw()),
-    });
-  }
-  $("mgmtTestBtn").addEventListener("click", sendTest);
-  $("gwTestBtn").addEventListener("click", sendTest);
+  $("mgmtTestBtn").addEventListener("click", () => {
+    testedMgmt = curMgmt();
+    window.ccrSettings.send({ kind: "test-port", which: "management", port: Number(curMgmt()) });
+  });
+  $("gwTestBtn").addEventListener("click", () => {
+    testedGw = curGw();
+    window.ccrSettings.send({ kind: "test-port", which: "gateway", port: Number(curGw()) });
+  });
 
   $("saveBtn").addEventListener("click", () => {
-    tested = null;
+    testedMgmt = null; testedGw = null;
     window.ccrSettings.send({
       kind: "save-ports",
       managementPort: Number(curMgmt()),
