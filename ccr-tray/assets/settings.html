@@ -92,6 +92,9 @@
   .row .label svg { width: 16px; height: 16px; display: block; color: var(--text-dim); }
   /* 资源行右侧数值：等宽数字，内容没变不重写 DOM */
   .row .val { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: 0.3px; }
+  /* 行内文字段：定宽 4.2em(略宽于 4 个全宽汉字，避免贴边换行)，末行两端对齐(text-align-last)，
+     让"CPU占用"与"内存占用"首尾都对齐；CPU 行只分摊约 0.7em，字缝几乎不可见 */
+  .row .label .txt { display: inline-block; width: 4.2em; text-align: justify; text-align-last: justify; }
   /* 开关：36×20，关闭不刺眼，开启复用强调蓝 */
   .switch {
     width: 36px; height: 20px;
@@ -260,11 +263,11 @@
       <div class="card">
         <div class="cap">资源占用</div>
         <div class="row">
-          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/><path d="M1 9h3"/><path d="M1 15h3"/><path d="M20 9h3"/><path d="M20 15h3"/></svg>CPU占用 </span>
+          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/><path d="M1 9h3"/><path d="M1 15h3"/><path d="M20 9h3"/><path d="M20 15h3"/></svg><span class="txt">CPU占用</span></span>
           <span class="val" id="avgCpu">—</span>
         </div>
         <div class="row">
-          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 19v-8a6 6 0 0 1 12 0v8"/><path d="M4 19h16"/><path d="M9 22h6"/></svg>内存占用 </span>
+          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 19v-8a6 6 0 0 1 12 0v8"/><path d="M4 19h16"/><path d="M9 22h6"/></svg><span class="txt">内存占用</span></span>
           <span class="val" id="memRss">—</span>
         </div>
       </div>
