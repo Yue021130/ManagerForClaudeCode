@@ -7,7 +7,7 @@
   html, body { height: 100%; overflow: hidden; background: transparent; }
   body {
     font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-    font-size: 12px;
+    font-size: 10.5px;
     color: #d5d6e0;
     display: flex;
   }
@@ -22,37 +22,65 @@
     padding: 6px;
     display: flex;
     flex-direction: column;
+    gap: 2px;
   }
   /* 状态头 */
   .header {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    padding: 5px 10px 7px;
+    padding: 6px 10px 7px;
     margin-bottom: 4px;
     border-bottom: 1px solid #35353f;
-    color: #9a9aa8;
-    font-size: 11px;
+    color: #c4c5d2;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
     white-space: nowrap;
     flex: none;
   }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-  .dot.running { background: #22c55e; }
-  .dot.partial { background: #eab308; }
-  .dot.stopped { background: #ef4444; }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%; flex: none;
+    animation: dotBreathe 1.6s ease-in-out infinite;
+  }
+  @keyframes dotBreathe {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  .dot.running { background: #22c55e; box-shadow: 0 0 6px 1px rgba(34, 197, 94, 0.55); }
+  .dot.partial { background: #eab308; box-shadow: 0 0 6px 1px rgba(234, 179, 8, 0.55); }
+  .dot.stopped { background: #ef4444; box-shadow: 0 0 6px 1px rgba(239, 68, 68, 0.55); }
   /* 菜单项 */
   .item {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 7px 10px;
-    border-radius: 6px;
+    padding: 6px 10px;
+    border-radius: 8px;
     cursor: default;
     white-space: nowrap;
+    transition: background 120ms ease, color 120ms ease;
   }
-  .item:hover:not(.disabled) { background: #3b3b4d; }
+  .item:hover:not(.disabled) { background: #3d3d52; }
   .item.disabled { color: #6b6b78; }
+  .item.danger:hover:not(.disabled) { background: #4a2b33; color: #f0a8b3; }
   .item .grow { flex: 1; }
+  /* 图标容器 */
+  .ico {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #9a9aa8;
+  }
+  .item:hover:not(.disabled) .ico { color: #d5d6e0; }
+  .item.danger:hover:not(.disabled) .ico { color: #f0a8b3; }
+  .ico svg { width: 12px; height: 12px; display: block; }
+  /* 分隔线 */
+  .sep { height: 1px; background: #35353f; margin: 3px 8px; flex: none; }
   /* 勾选框（开机自启） */
   .check {
     width: 14px; height: 14px; flex: none;
@@ -68,10 +96,26 @@
 <body>
   <div id="menu">
     <div class="header"><span class="dot stopped" id="dot"></span><span id="statusText">检测中…</span></div>
-    <div class="item" data-kind="open-management">打开管理界面</div>
-    <div class="item" id="serviceItem">启动服务</div>
-    <div class="item" data-kind="open-settings">⚙ 设置</div>
-    <div class="item" data-kind="quit">退出</div>
+    <div class="item" data-kind="open-management">
+      <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg></span>
+      <span class="txt">打开管理界面</span>
+    </div>
+    <div class="item" id="serviceItem">
+      <span class="ico">
+        <svg id="icoStart" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72c0 .8.87 1.3 1.56.88l10.5-6.86a1.05 1.05 0 0 0 0-1.76L9.56 4.26A1.03 1.03 0 0 0 8 5.14z"/></svg>
+        <svg id="icoStop" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      </span>
+      <span class="txt">启动服务</span>
+    </div>
+    <div class="item" data-kind="open-settings">
+      <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+      <span class="txt">设置</span>
+    </div>
+    <div class="sep"></div>
+    <div class="item danger" data-kind="quit">
+      <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg></span>
+      <span class="txt">退出</span>
+    </div>
   </div>
 <script>
   const stateLabel = { running: "运行中", partial: "启动中…", stopped: "已停止" };
@@ -83,9 +127,11 @@
     document.getElementById("statusText").textContent = "服务 — " + stateLabel[s.status.state];
     const svc = document.getElementById("serviceItem");
     const start = s.status.state === "stopped";
-    svc.textContent = start ? "启动服务" : "停止服务";
+    svc.querySelector(".txt").textContent = start ? "启动服务" : "停止服务";
     svc.className = "item" + (s.busy ? " disabled" : "");
     svc.dataset.kind = start ? "start-service" : "stop-service";
+    document.getElementById("icoStart").style.display = start ? "" : "none";
+    document.getElementById("icoStop").style.display = start ? "none" : "";
     // 启动中（黄灯）管理界面还没就绪，隐藏入口
     document.querySelector('[data-kind="open-management"]').style.display =
       s.status.state === "partial" ? "none" : "";
