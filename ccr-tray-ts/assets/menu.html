@@ -86,6 +86,9 @@
     svc.textContent = start ? "启动服务" : "停止服务";
     svc.className = "item" + (s.busy ? " disabled" : "");
     svc.dataset.kind = start ? "start-service" : "stop-service";
+    // 启动中（黄灯）管理界面还没就绪，隐藏入口
+    document.querySelector('[data-kind="open-management"]').style.display =
+      s.status.state === "partial" ? "none" : "";
   }
 
   window.ccrMenu.onState(render);
