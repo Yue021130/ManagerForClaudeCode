@@ -1,5 +1,5 @@
 import { BrowserWindow, Tray, app, ipcMain, nativeImage, screen } from "electron";
-import type { MenuEvent, SettingsState, StatusInfo } from "../core/types";
+import type { MenuEvent, NotifyInfo, SettingsState, StatusInfo } from "../core/types";
 import type { MenuOptions, TrayShell } from "./tray-shell";
 import { stateLabel } from "./tray-shell";
 
@@ -8,6 +8,12 @@ const ASSETS = `${__dirname}/../assets`;
 // 自绘弹窗初始尺寸（CSS 像素）；显示前会按内容实测收缩，这只是兜底值
 const POPUP_WIDTH = 210;
 const POPUP_HEIGHT = 162;
+
+// 通知弹窗尺寸：带动作按钮 / 纯展示
+const NOTIFY_WIDTH = 340;
+const NOTIFY_HEIGHT_WITH_ACTION = 118;
+const NOTIFY_HEIGHT_PLAIN = 86;
+const NOTIFY_DURATION_MS = 6000;
 
 function iconFor(state: StatusInfo["state"]): Electron.NativeImage {
   const file =
@@ -24,6 +30,11 @@ export class ElectronTrayShell implements TrayShell {
   private tray: Tray | null = null;
   private popup: BrowserWindow | null = null;
   private settingsWindow: BrowserWindow | null = null;
+  private notifyWindow: BrowserWindow | null = null;
+  private notifyQueue: NotifyInfo[] = [];
+  private notifyShowing = false;
+  private lastNotify: NotifyInfo | null = null;
+  private notifyTimer: NodeJS.Timeout | null = null;
   private listener: (event: MenuEvent) => void = () => undefined;
   private lastOptions: MenuOptions | null = null;
   private lastSettings: SettingsState | null = null;
@@ -37,6 +48,7 @@ export class ElectronTrayShell implements TrayShell {
     this.tray.on("click", () => this.emit({ kind: "open-management" }));
     this.tray.on("right-click", () => void this.openPopup());
     this.createPopup();
+    this.createNotifyWindow();
   }
 
   /** 无边框自绘菜单窗口：尺寸自己控制，绕开系统缩放对原生菜单的放大 */
@@ -81,6 +93,86 @@ export class ElectronTrayShell implements TrayShell {
       }
       this.emit(event as MenuEvent);
     });
+  }
+
+  /** 应用内通知弹窗：右下角滑入，不抢焦点，自动消失。
+   *  不走 Windows toast——专注助手会压系统通知，自绘弹窗绕不开的问题不存在 */
+  private createNotifyWindow(): void {
+    this.notifyWindow = new BrowserWindow({
+      width: NOTIFY_WIDTH,
+      height: NOTIFY_HEIGHT_WITH_ACTION,
+      show: false,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      focusable: false,
+      hasShadow: false,
+      webPreferences: {
+        preload: `${__dirname}/shell/notify-preload.cjs`,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    this.notifyWindow.setAlwaysOnTop(true, "screen-saver");
+    void this.notifyWindow.loadFile(`${ASSETS}/notify.html`);
+    // 渲染进程加载完成补推一次（排队期间来的通知不至于丢）
+    this.notifyWindow.webContents.on("did-finish-load", () => {
+      if (this.lastNotify && this.notifyWindow && !this.notifyWindow.webContents.isDestroyed()) {
+        this.notifyWindow.webContents.send("notify:state", this.lastNotify);
+      }
+    });
+    ipcMain.on("notify:event", (_e, event) => {
+      if (!event || typeof event.kind !== "string") return;
+      const action = event.kind === "notify-action" ? event.action : undefined;
+      this.hideNotify();
+      if (action) this.emit({ kind: "notify-action", action } as MenuEvent);
+    });
+  }
+
+  notify(info: NotifyInfo): void {
+    this.notifyQueue.push(info);
+    if (this.notifyQueue.length > 3) this.notifyQueue.shift(); // 溢出丢最旧
+    if (!this.notifyShowing) void this.showNextNotify();
+  }
+
+  private async showNextNotify(): Promise<void> {
+    const info = this.notifyQueue.shift();
+    const win = this.notifyWindow;
+    if (!info || !win || win.isDestroyed()) {
+      this.notifyShowing = false;
+      return;
+    }
+    this.notifyShowing = true;
+    this.lastNotify = info;
+    const height = info.action ? NOTIFY_HEIGHT_WITH_ACTION : NOTIFY_HEIGHT_PLAIN;
+    const area = screen.getPrimaryDisplay().workArea;
+    win.setBounds({
+      x: area.x + area.width - NOTIFY_WIDTH - 12,
+      y: area.y + area.height - height - 12,
+      width: NOTIFY_WIDTH,
+      height,
+    });
+    if (!win.webContents.isDestroyed()) {
+      win.webContents.send("notify:state", info);
+    }
+    win.showInactive(); // 显示但不夺焦点
+    this.notifyTimer = setTimeout(() => this.hideNotify(), NOTIFY_DURATION_MS);
+  }
+
+  private hideNotify(): void {
+    if (this.notifyTimer) {
+      clearTimeout(this.notifyTimer);
+      this.notifyTimer = null;
+    }
+    this.lastNotify = null;
+    this.notifyWindow?.hide();
+    this.notifyShowing = false;
+    if (this.notifyQueue.length > 0) void this.showNextNotify();
   }
 
   /** 设置窗口：无边框 + 自绘标题栏（可拖拽、手绘✕），保留任务栏图标；dismiss 隐藏不销毁 */
@@ -237,8 +329,10 @@ export class ElectronTrayShell implements TrayShell {
     // 弹窗 closable: false 会让 app.quit() 卡在售窗阶段退不掉；
     // 托盘应用直接销毁资源 + 强制退出
     this.stopBreathing();
+    if (this.notifyTimer) clearTimeout(this.notifyTimer);
     this.popup?.destroy();
     this.settingsWindow?.destroy();
+    this.notifyWindow?.destroy();
     this.tray?.destroy();
     app.exit(0);
   }

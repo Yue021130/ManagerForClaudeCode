@@ -1,11 +1,11 @@
-import { app, Notification, shell } from "electron";
+import { app } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import { restartService, startService, stopService, testPort } from "./core/ccr";
 import { checkStatus } from "./core/status";
 import { readManagementUrl } from "./core/service-state";
 import { readSettings, writeSettings } from "./core/settings";
-import type { MenuEvent, PortTestResult, SettingsState, StatusInfo } from "./core/types";
+import type { MenuEvent, NotifyKind, PortTestResult, SettingsState, StatusInfo } from "./core/types";
 import { currentExePath, isAutostartEnabled, setAutostartEnabled } from "./core/autostart";
 import { ElectronTrayShell } from "./shell/electron-tray";
 
@@ -15,50 +15,18 @@ const yellowStuckMs = 10_000;
 /** 点启动后等待网关起来的窗口：超过仍未 running 则放弃黄灯展示，回落真实状态 */
 const startWindowMs = 15_000;
 
-// Windows toast 通知依赖 AppUserModelID，不设的话开发态下系统会静默吞掉通知
-const appUserModelId = "com.yue.ccrtray.261022";
-app.setAppUserModelId(appUserModelId);
-
-/**
- * toast 要求该 AUMID 在开始菜单有对应快捷方式，否则通知被系统静默丢弃。
- * 启动时确保快捷方式存在（指向当前可执行文件）。
- * 目录/文件名是 Windows 规则决定的安装期常量
- * 若将来由安装器（如 electron-builder NSIS）创建快捷方式，此逻辑仅作兜底。
- // todo 安装器 2026年10月22日21点52分
- */
-const toastShortcutDir = path.join(
+// 历史版本曾为系统 toast 在开始菜单注册过快捷方式；通知已改应用内自绘，
+// 那个快捷方式没用了，启动时顺手清掉（不存在则什么都不做）
+const legacyToastShortcut = path.join(
   process.env.APPDATA ?? path.join(app.getPath("home"), "AppData", "Roaming"),
-  "Microsoft", "Windows", "Start Menu", "Programs",
+  "Microsoft", "Windows", "Start Menu", "Programs", "CCR-YUE Tray.lnk",
 );
-const toastShortcutName = "CCR-YUE Tray.lnk";
 
-function ensureToastShortcut(): void {
+function removeLegacyToastShortcut(): void {
   try {
-    fs.mkdirSync(toastShortcutDir, { recursive: true });
-    const shortcut = path.join(toastShortcutDir, toastShortcutName);
-    // 始终覆盖写：图标/AUMID/目标路径有更新时旧快捷方式也要刷新；
-    // 任务栏按钮图标优先取这个快捷方式的图标，不写的话会显示成 electron 默认图标
-    shell.writeShortcutLink(shortcut, fs.existsSync(shortcut) ? "update" : "create", {
-      target: process.execPath,
-      appUserModelId,
-      description: "CCR-YUE Tray",
-      icon: path.join(__dirname, "..", "assets", "app.ico"),
-      iconIndex: 0,
-    });
-    console.log("[notify] 已更新开始菜单快捷方式（toast 通知 / 任务栏图标需要）");
-  } catch (err) {
-    console.error("[notify] 创建快捷方式失败:", err);
-  }
-}
-
-function notify(title: string, body: string): void {
-  console.log(`[notify] ${title} - ${body}`);
-  try {
-    const n = new Notification({ title, body });
-    n.on("failed", (_e, error) => console.error("[notify] 发送失败:", error));
-    n.show();
-  } catch (err) {
-    console.error("通知发送失败:", err);
+    fs.rmSync(legacyToastShortcut, { force: true });
+  } catch {
+    /* 清理失败无所谓 */
   }
 }
 
@@ -111,6 +79,12 @@ if (!gotLock) {
     shell.updateSettings(buildSettingsState());
   }
 
+  /** 应用内自绘通知弹窗（右下角滑入，绕开专注助手对系统通知的拦截） */
+  function notify(kind: NotifyKind, title: string, body: string, action?: { label: string; event: "restart-service" | "open-management" }): void {
+    console.log(`[notify] ${title} - ${body}`);
+    shell.notify({ kind, title, body, action });
+  }
+
   function trackStatusChange(): void {
     const st = status.state;
     if (prevState === null) {
@@ -119,9 +93,9 @@ if (!gotLock) {
     } else if (st !== prevState) {
       console.log(`[status] ${prevState} -> ${st} (expectStop=${expectStop}, expectStart=${expectStart})`);
       if (st === "stopped" && !expectStop) {
-        notify("CCR-YUE 服务已停止", "路由服务意外停止！ 😣");
+        notify("crash", "CCR-YUE 服务已停止", "路由服务意外停止！ 😣", { label: "重启服务", event: "restart-service" });
       } else if (st === "running" && !expectStart) {
-        notify("CCR-YUE 服务已恢复运行", "路由服务已恢复！ 🥰");
+        notify("recover", "CCR-YUE 服务已恢复运行", "路由服务已恢复！ 🥰");
       }
       prevState = st;
     }
@@ -134,7 +108,7 @@ if (!gotLock) {
         partialSince = Date.now();
       } else if (!partialNotified && Date.now() - partialSince >= yellowStuckMs) {
         partialNotified = true;
-        notify("CCR-YUE 启动缓慢", "服务处于半启动状态已超过 10 秒，可尝试重启服务");
+        notify("stuck", "CCR-YUE 启动缓慢", "服务处于半启动状态已超过 10 秒，可尝试重启服务", { label: "重启服务", event: "restart-service" });
       }
     } else {
       partialSince = null;
@@ -202,6 +176,15 @@ if (!gotLock) {
         await refresh();
         break;
       }
+      case "notify-action": {
+        // 通知弹窗的动作按钮：等价于对应菜单操作
+        if (event.action === "restart-service") {
+          await handleEvent({ kind: "start-service" });
+        } else if (event.action === "open-management") {
+          await handleEvent({ kind: "open-management" });
+        }
+        break;
+      }
       case "toggle-autostart":
         setAutostartEnabled(currentExePath(), event.enabled);
         autostartEnabled = event.enabled;
@@ -257,7 +240,7 @@ if (!gotLock) {
   }
 
   void app.whenReady().then(async () => {
-    ensureToastShortcut();
+    removeLegacyToastShortcut();
     autostartEnabled = isAutostartEnabled(currentExePath());
     shell.onEvent((event) => void handleEvent(event));
     await shell.init();

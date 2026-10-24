@@ -18,9 +18,22 @@ export type MenuEvent =
   | { kind: "test-port"; which: "management" | "gateway"; port: number }
   | { kind: "save-ports"; managementPort: number; gatewayPort: number }
   | { kind: "settings-tick" }
+  | { kind: "notify-action"; action: "restart-service" | "open-management" }
   | { kind: "quit" };
 
 export type PortTestResult = "free" | "in-use" | "invalid";
+
+/** 通知类型：决定左侧色条颜色 */
+export type NotifyKind = "crash" | "recover" | "stuck" | "info";
+
+/** 推给自绘通知弹窗的内容 */
+export interface NotifyInfo {
+  kind: NotifyKind;
+  title: string;
+  body: string;
+  /** 可选动作按钮（如崩溃类给「重启服务」） */
+  action?: { label: string; event: "restart-service" | "open-management" };
+}
 
 /** 推给设置窗口的状态（menu:state 之外的第二个频道） */
 export interface SettingsState {

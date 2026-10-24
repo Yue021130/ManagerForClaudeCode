@@ -1,4 +1,4 @@
-import type { MenuEvent, SettingsState, StatusInfo } from "../core/types";
+import type { MenuEvent, NotifyInfo, SettingsState, StatusInfo } from "../core/types";
 
 /**
  * 平台无关的托盘壳接口。 Electron 只是第一个实现——
@@ -15,6 +15,8 @@ export interface TrayShell {
   openSettings(): void;
   /** 推送设置窗口状态（运行时长/自启/端口/测试结果/提示） */
   updateSettings(state: SettingsState): void;
+  /** 弹出应用内通知（右下角滑入，自动消失，可带动作按钮） */
+  notify(info: NotifyInfo): void;
   /** 打开系统浏览器 */
   openExternal(url: string): void;
   /** 应用退出 */

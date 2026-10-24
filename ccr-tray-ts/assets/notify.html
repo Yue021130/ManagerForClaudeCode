@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+  html, body { height: 100%; overflow: hidden; background: transparent; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 12px;
+    color: #d5d6e0;
+    display: flex;
+  }
+  #toast {
+    margin: auto;
+    width: 100%;
+    height: 100%;
+    background: #22222c;
+    border: 1px solid #3a3a48;
+    border-radius: 12px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+    display: flex;
+    overflow: hidden;
+    animation: slideIn 250ms ease-out;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  /* 左侧色条 */
+  .bar { width: 3px; flex: none; }
+  #toast.crash .bar { background: #ef4444; }
+  #toast.recover .bar { background: #22c55e; }
+  #toast.stuck .bar { background: #eab308; }
+  #toast.info .bar { background: #0ea5e9; }
+  .main { flex: 1; padding: 12px 12px 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .head { display: flex; align-items: center; gap: 8px; }
+  .title { font-size: 12.5px; font-weight: 600; color: #eceef4; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #toast.crash .title { color: #fca5a5; }
+  #toast.recover .title { color: #86efac; }
+  .close {
+    flex: none;
+    width: 20px; height: 20px;
+    border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    color: #6b6b78; font-size: 11px;
+  }
+  .close:hover { background: #3b3b4d; color: #d5d6e0; }
+  .body-text { font-size: 11.5px; color: #9a9aa8; line-height: 1.5; }
+  /* 动作按钮 */
+  .actions { display: none; margin-top: 8px; }
+  .actions.show { display: block; }
+  .act-btn {
+    display: inline-block;
+    padding: 5px 14px;
+    border-radius: 7px;
+    background: #0ea5e9;
+    color: #fff;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .act-btn:hover { background: #38bdf8; }
+</style>
+</head>
+<body>
+  <div id="toast" class="info" onclick="window.ccrNotify.send({ kind: 'dismiss' })">
+    <div class="bar"></div>
+    <div class="main">
+      <div class="head">
+        <span class="title" id="title"></span>
+        <span class="close" onclick="event.stopPropagation(); window.ccrNotify.send({ kind: 'dismiss' })">✕</span>
+      </div>
+      <div class="body-text" id="bodyText"></div>
+      <div class="actions" id="actions">
+        <span class="act-btn" id="actionBtn"></span>
+      </div>
+    </div>
+  </div>
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  window.ccrNotify.onState((info) => {
+    document.title = info.title; // 调试时方便看
+    $("toast").className = info.kind;
+    $("title").textContent = info.title;
+    $("bodyText").textContent = info.body;
+    if (info.action) {
+      $("actions").className = "actions show";
+      $("actionBtn").textContent = info.action.label;
+      $("actionBtn").onclick = (e) => {
+        e.stopPropagation();
+        window.ccrNotify.send({ kind: "notify-action", action: info.action.event });
+      };
+    } else {
+      $("actions").className = "actions";
+      $("actionBtn").onclick = null;
+    }
+  });
+</script>
+</body>
+</html>
