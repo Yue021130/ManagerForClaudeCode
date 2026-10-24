@@ -47,37 +47,13 @@ export class ElectronTrayShell implements TrayShell {
     this.tray.setToolTip("Yue");
     this.tray.on("click", () => this.emit({ kind: "open-management" }));
     this.tray.on("right-click", () => void this.openPopup());
-    this.createPopup();
-    this.createNotifyWindow();
+    // 菜单/通知窗口用时才建、用完即毁（少两个常驻渲染进程）；
+    // 这里只注册一次 IPC 入口，窗口本体在 ensure* 里反复重建
+    this.registerIpcHandlers();
   }
 
-  /** 无边框自绘菜单窗口：尺寸自己控制，绕开系统缩放对原生菜单的放大 */
-  private createPopup(): void {
-    this.popup = new BrowserWindow({
-      width: POPUP_WIDTH,
-      height: POPUP_HEIGHT,
-      show: false,
-      frame: false,
-      transparent: true,
-      resizable: false,
-      movable: false,
-      minimizable: false,
-      maximizable: false,
-      closable: false,
-      skipTaskbar: true,
-      alwaysOnTop: true,
-      hasShadow: false,
-      focusable: true,
-      webPreferences: {
-        preload: `${__dirname}/shell/menu-preload.cjs`,
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
-    this.popup.setAlwaysOnTop(true, "pop-up-menu");
-    void this.popup.loadFile(`${ASSETS}/menu.html`);
-    // 失焦即关（点到菜单外面等价于原生菜单的点击外部关闭）
-    this.popup.on("blur", () => this.popup?.hide());
+  /** 菜单/设置/通知三个渲染进程的 IPC 入口，随托盘生命周期只注册一次（窗口可反复重建） */
+  private registerIpcHandlers(): void {
     // 菜单事件：dismiss 只关窗，其余透传业务层后关窗
     ipcMain.on("menu:event", (_e, event) => {
       if (!event || typeof event.kind !== "string") return;
@@ -98,12 +74,79 @@ export class ElectronTrayShell implements TrayShell {
       }
       this.emit(event as MenuEvent);
     });
+    // 通知弹窗事件：动作按钮等价于对应菜单操作
+    ipcMain.on("notify:event", (_e, event) => {
+      if (!event || typeof event.kind !== "string") return;
+      const action = event.kind === "notify-action" ? event.action : undefined;
+      this.hideNotify();
+      if (action) this.emit({ kind: "notify-action", action } as MenuEvent);
+    });
   }
 
+  private popupLoading: Promise<BrowserWindow | null> | null = null;
+
+  /** 无边框自绘菜单窗口：尺寸自己控制，绕开系统缩放对原生菜单的放大。
+   *  用时才建、失焦即毁——隐藏窗口也占一个渲染进程，收起就释放 */
+  private ensurePopup(): Promise<BrowserWindow | null> {
+    if (this.popup && !this.popup.isDestroyed()) return Promise.resolve(this.popup);
+    if (this.popupLoading) return this.popupLoading; // 首建加载中，并发右键等同一个
+    this.popupLoading = this.createPopupWindow();
+    return this.popupLoading;
+  }
+
+  private async createPopupWindow(): Promise<BrowserWindow | null> {
+    const win = new BrowserWindow({
+      width: POPUP_WIDTH,
+      height: POPUP_HEIGHT,
+      show: false,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      closable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      hasShadow: false,
+      focusable: true,
+      webPreferences: {
+        preload: `${__dirname}/shell/menu-preload.cjs`,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    win.setAlwaysOnTop(true, "pop-up-menu");
+    void win.loadFile(`${ASSETS}/menu.html`);
+    // 失焦即关（点到菜单外面等价于原生菜单的点击外部关闭）；收起顺手销毁
+    win.on("blur", () => {
+      win.destroy();
+      if (this.popup === win) this.popup = null;
+    });
+    this.popup = win;
+    // 等页面加载完再测量定位，避免拿到空白页尺寸；中途被销毁也要能解开
+    await new Promise<void>((resolve) => {
+      win.webContents.once("did-finish-load", () => resolve());
+      win.once("closed", () => resolve());
+    });
+    this.popupLoading = null;
+    return win.isDestroyed() ? null : win;
+  }
+
+  private notifyLoading: Promise<BrowserWindow | null> | null = null;
+
   /** 应用内通知弹窗：右下角滑入，不抢焦点，自动消失。
-   *  不走 Windows toast——专注助手会压系统通知，自绘弹窗绕不开的问题不存在 */
-  private createNotifyWindow(): void {
-    this.notifyWindow = new BrowserWindow({
+   *  不走 Windows toast——专注助手会压系统通知，自绘弹窗绕不开的问题不存在。
+   *  窗口用时才建、队列清空即毁（隐藏窗口也占渲染进程） */
+  private ensureNotifyWindow(): Promise<BrowserWindow | null> {
+    if (this.notifyWindow && !this.notifyWindow.isDestroyed()) return Promise.resolve(this.notifyWindow);
+    if (this.notifyLoading) return this.notifyLoading;
+    this.notifyLoading = this.createNotifyWindow();
+    return this.notifyLoading;
+  }
+
+  private async createNotifyWindow(): Promise<BrowserWindow | null> {
+    const win = new BrowserWindow({
       width: NOTIFY_WIDTH,
       height: NOTIFY_HEIGHT_WITH_ACTION,
       show: false,
@@ -123,20 +166,16 @@ export class ElectronTrayShell implements TrayShell {
         nodeIntegration: false,
       },
     });
-    this.notifyWindow.setAlwaysOnTop(true, "screen-saver");
-    void this.notifyWindow.loadFile(`${ASSETS}/notify.html`);
-    // 渲染进程加载完成补推一次（排队期间来的通知不至于丢）
-    this.notifyWindow.webContents.on("did-finish-load", () => {
-      if (this.lastNotify && this.notifyWindow && !this.notifyWindow.webContents.isDestroyed()) {
-        this.notifyWindow.webContents.send("notify:state", this.lastNotify);
-      }
+    win.setAlwaysOnTop(true, "screen-saver");
+    void win.loadFile(`${ASSETS}/notify.html`);
+    this.notifyWindow = win;
+    // 等页面加载完（showNextNotify 在 ensure 之后才发送内容）；中途被销毁也要能解开
+    await new Promise<void>((resolve) => {
+      win.webContents.once("did-finish-load", () => resolve());
+      win.once("closed", () => resolve());
     });
-    ipcMain.on("notify:event", (_e, event) => {
-      if (!event || typeof event.kind !== "string") return;
-      const action = event.kind === "notify-action" ? event.action : undefined;
-      this.hideNotify();
-      if (action) this.emit({ kind: "notify-action", action } as MenuEvent);
-    });
+    this.notifyLoading = null;
+    return win.isDestroyed() ? null : win;
   }
 
   notify(info: NotifyInfo): void {
@@ -147,12 +186,16 @@ export class ElectronTrayShell implements TrayShell {
 
   private async showNextNotify(): Promise<void> {
     const info = this.notifyQueue.shift();
-    const win = this.notifyWindow;
-    if (!info || !win || win.isDestroyed()) {
+    if (!info) {
       this.notifyShowing = false;
       return;
     }
     this.notifyShowing = true;
+    const win = await this.ensureNotifyWindow();
+    if (!win || win.isDestroyed()) {
+      this.notifyShowing = false;
+      return;
+    }
     this.lastNotify = info;
     const height = info.action ? NOTIFY_HEIGHT_WITH_ACTION : NOTIFY_HEIGHT_PLAIN;
     const area = screen.getPrimaryDisplay().workArea;
@@ -162,9 +205,7 @@ export class ElectronTrayShell implements TrayShell {
       width: NOTIFY_WIDTH,
       height,
     });
-    if (!win.webContents.isDestroyed()) {
-      win.webContents.send("notify:state", info);
-    }
+    win.webContents.send("notify:state", info);
     win.showInactive(); // 显示但不夺焦点
     this.notifyTimer = setTimeout(() => this.hideNotify(), NOTIFY_DURATION_MS);
   }
@@ -175,9 +216,14 @@ export class ElectronTrayShell implements TrayShell {
       this.notifyTimer = null;
     }
     this.lastNotify = null;
-    this.notifyWindow?.hide();
     this.notifyShowing = false;
-    if (this.notifyQueue.length > 0) void this.showNextNotify();
+    if (this.notifyQueue.length > 0) {
+      void this.showNextNotify();
+      return;
+    }
+    // 队列清空：窗口用完即毁，释放渲染进程
+    this.notifyWindow?.destroy();
+    this.notifyWindow = null;
   }
 
   /** 设置窗口：无边框 + 自绘标题栏（可拖拽、手绘✕），保留任务栏图标；dismiss 隐藏不销毁 */
@@ -286,7 +332,10 @@ export class ElectronTrayShell implements TrayShell {
 
   /** 按托盘图标位置摆放弹窗，并夹取到所在显示器工作区内 */
   private async openPopup(): Promise<void> {
-    if (!this.popup || !this.tray || !this.lastOptions) return;
+    if (!this.tray || !this.lastOptions) return;
+    // 窗口用时才建：等加载完再测量定位（首建多几十毫秒，HTML 很小）
+    await this.ensurePopup();
+    if (!this.popup || this.popup.isDestroyed()) return;
     this.pushState();
     // 先量内容尺寸，再按实际尺寸定位，宽度正好包住内容
     const size = await this.measurePopup();
