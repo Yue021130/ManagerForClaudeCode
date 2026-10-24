@@ -21,6 +21,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    position: relative; /* 全窗口蒙版的定位基准 */
   }
   /* 自绘标题栏（整栏可拖拽移动窗口，按钮区域除外） */
   .titlebar {
@@ -179,10 +180,26 @@
   .btn.primary { background: #0ea5e9; border-color: #0ea5e9; color: #fff; font-weight: 600; box-shadow: 0 2px 10px rgba(14, 165, 233, 0.3); }
   .btn.primary:hover { background: #38bdf8; }
   .btn.disabled { opacity: 0.45; pointer-events: none; }
-  /* 保存按钮内联状态：进行中 / 成功 / 失败 */
-  .btn.busy { background: #2a2a36; border-color: #3a3a48; color: #9a9aa8; box-shadow: none; pointer-events: none; }
-  .btn.ok { background: #14532d; border-color: #166534; color: #86efac; box-shadow: none; pointer-events: none; }
-  .btn.fail { background: #450a0a; border-color: #7f1d1d; color: #fca5a5; box-shadow: none; }
+  /* 全窗口蒙版：保存重启期间盖在整个窗口上，转圈/阶段/结果居中，不再挤压下方布局 */
+  .overlay {
+    position: absolute; inset: 0; z-index: 20;
+    background: rgba(17, 17, 25, 0.78);
+    backdrop-filter: blur(4px);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 240ms ease;
+  }
+  .overlay.show { opacity: 1; pointer-events: auto; }
+  .overlay .spin {
+    width: 22px; height: 22px;
+    border: 2.5px solid #46465a; border-top-color: #7dd3fc;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .overlay-text { font-size: 12.5px; color: #eceef4; letter-spacing: 0.3px; }
+  .overlay-text.ok { color: #4ade80; }
+  .overlay-text.fail { color: #f87171; }
   /* 端口校验错误：就地红字 + 输入框红框抖动（高度/透明度过渡进出） */
   .porterror {
     max-height: 0;
@@ -212,13 +229,6 @@
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
     vertical-align: -1px;
-  }
-  .btn .spin {
-    display: inline-block; width: 12px; height: 12px;
-    border: 2px solid #565668; border-top-color: #d5d6e0;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    margin-right: 7px; vertical-align: -2px;
   }
 </style>
 </head>
@@ -267,10 +277,16 @@
       </div>
 
     </div>
+    <!-- 全窗口蒙版：保存重启的转圈/阶段/结果都在这里居中展示，下方布局不再弹出弹回 -->
+    <div class="overlay" id="overlay">
+      <span class="spin" id="overlaySpin"></span>
+      <span class="overlay-text" id="overlayText"></span>
+    </div>
   </div>
 <script>
   let current = null;
-  let savePending = false;
+  // 保存重启的全窗口蒙版相位：idle（编辑态）| busy（转圈+阶段）| result（展示结果，定时淡出）
+  let overlayPhase = "idle";
   // 输入框被用户改过之后不再被推送值覆盖
   let mgmtTouched = false;
   let gwTouched = false;
@@ -341,33 +357,46 @@
       $("gwResult").textContent = "";
       $("gwResult").className = "ptest";
     }
-    // 保存按钮：有修改 + 每个被修改的行都测过且可用；保存进行中/刚出结果时保持显示
+    // 保存按钮：有修改 + 每个被修改的行都测过且可用；点了保存蒙版一出现，下方就收起
     const mgmtPass = mgmtChanged() ? mOk && resMgmt === "free" : true;
     const gwPass = gwChanged() ? gOk && resGw === "free" : true;
-    if (current && current.lastSave) savePending = false;
     const changedOk = (mgmtChanged() || gwChanged()) && mgmtPass && gwPass;
-    const visible = savePending || !!(current && current.lastSave) || (changedOk && !busy);
+    const visible = changedOk && !busy && overlayPhase === "idle";
     $("saveRow").className = "saverow" + (visible ? " show" : "");
-    const btn = $("saveBtn");
-    if (busy && savePending) {
-      // 重启进行：转圈 + 主进程推送的阶段文字（停止旧进程→启动服务），不再是死文字。
-      // dataset.stage 做守卫：阶段没变不重建 DOM，转圈动画不被每秒的推送打断
-      btn.className = "btn busy";
-      const stage = (current && current.saveStage) || "正在重启…";
-      if (btn.dataset.stage !== stage) {
-        btn.dataset.stage = stage;
-        btn.innerHTML = '<span class="spin"></span><span></span>';
-        btn.lastChild.textContent = stage;
-      }
-    } else if (current && current.lastSave) {
-      delete btn.dataset.stage;
-      btn.className = "btn " + current.lastSave.result;
-      btn.textContent = current.lastSave.label;
-    } else {
-      delete btn.dataset.stage;
-      btn.className = "btn primary";
-      btn.textContent = "保存修改并重启";
+    updateOverlay();
+  }
+
+  // 全窗口蒙版状态机：点了保存就上蒙版（转圈 + 阶段文字），结果到达原地展示，停留后淡出
+  function updateOverlay() {
+    const ov = $("overlay"), spin = $("overlaySpin"), txt = $("overlayText");
+    if (overlayPhase !== "busy") return;
+    // 端口校验没通过：不进重启流程，收蒙版回编辑态（红字错误就地显示）
+    if (current && current.portError) {
+      overlayPhase = "idle";
+      ov.classList.remove("show");
+      updateEditUI();
+      return;
     }
+    // 结果到达：停转圈，原地展示 ✓/✗，停留片刻后淡出
+    if (current && current.lastSave) {
+      overlayPhase = "result";
+      const r = current.lastSave;
+      spin.style.display = "none";
+      txt.className = "overlay-text " + r.result;
+      txt.textContent = r.label;
+      setTimeout(() => {
+        overlayPhase = "idle";
+        ov.classList.remove("show");
+        updateEditUI();
+      }, r.result === "ok" ? 1400 : 2200);
+      return;
+    }
+    // 进行中：转圈 + 主进程推送的阶段文字
+    spin.style.display = "";
+    txt.className = "overlay-text";
+    const stage = (current && current.saveStage) || "正在保存…";
+    if (txt.textContent !== stage) txt.textContent = stage;
+    ov.classList.add("show");
   }
 
   function render(s) {
@@ -447,7 +476,7 @@
 
   $("saveBtn").addEventListener("click", () => {
     testedMgmt = null; testedGw = null;
-    savePending = true;
+    overlayPhase = "busy";
     updateEditUI();
     window.ccrSettings.send({
       kind: "save-ports",

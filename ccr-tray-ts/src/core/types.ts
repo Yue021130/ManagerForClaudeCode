@@ -47,10 +47,10 @@ export interface SettingsState {
   busy: boolean;
   /** 端口测试结果（只测被修改的那一行，保存后清空） */
   portTest?: { which: "management" | "gateway"; result: PortTestResult };
-  /** 保存结果反馈（3 秒后自动清除，保存按钮内联显示） */
+  /** 保存结果反馈（3 秒后自动清除，全窗口蒙版居中显示） */
   lastSave?: { result: "ok" | "fail"; label: string };
-  /** 保存重启的进行阶段（busy 期间按钮内联显示，转圈 + 阶段文字） */
+  /** 保存重启的进行阶段（busy 期间蒙版显示，转圈 + 阶段文字） */
   saveStage?: string;
-  /** 端口校验错误（就地红字提示，5 秒后自动清除） */
+  /** 端口校验错误（就地红字提示，3 秒后自动清除） */
   portError?: string;
 }
