@@ -17,7 +17,7 @@ export function setAutostartEnabled(exePath: string, enabled: boolean): void {
 }
 
 const RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-const RUN_NAME = "CCRTrayTS";
+const RUN_NAME = "CCRTray";
 
 // 注意：reg.exe 的报错/成功提示按系统 OEM 代码页（中文系统是 GBK）输出，
 // 继承的 stderr 接到 UTF-8 终端就是乱码，所以这里全部吞掉输出、只看退出码。
@@ -39,7 +39,7 @@ function win32Set(exePath: string, enabled: boolean): void {
 }
 
 function desktopFilePath(): string {
-  return join(homedir(), ".config", "autostart", "ccr-tray-ts.desktop");
+  return join(homedir(), ".config", "autostart", "ccr-tray.desktop");
 }
 
 function linuxIsEnabled(_exePath: string): boolean {

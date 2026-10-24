@@ -1,10 +1,10 @@
-# ccr-tray-ts 架构文档
+# ccr-tray 架构文档
 
-> 适用范围：本目录(`ccr-tray-ts/`)。仓库根的 `docs/ARCHITECTURE.md` 讲的是根 CLI(React + Ink),本文档专讲 **Electron 托盘**。
+> 适用范围：本目录(`ccr-tray/`)。仓库根的 `docs/ARCHITECTURE.md` 讲的是根 CLI(React + Ink),本文档专讲 **Electron 托盘**。
 
 ## 1. 定位与目标
 
-`ccr-tray-ts` 是 **Claude Code Router (CCR) 的桌面托盘程序**,用 Electron + TypeScript 重写,替代旧的 C# 单文件托盘(`../ccr-tray/CCRTray.cs`)。
+`ccr-tray` 是 **Claude Code Router (CCR) 的桌面托盘程序**,用 Electron + TypeScript 重写。
 
 - **跨平台**:Windows 优先,同时支持 Linux(XDG 约定)。
 - **职责**:常驻系统托盘,监控 CCR 服务状态、提供启停/打开管理界面/设置端口/开机自启。
@@ -123,8 +123,8 @@ export function readManagementUrl(fallbackPort: number): string
 
 ### 3.6 `src/core/autostart.ts` —— 开机自启
 
-- **Windows**:注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,值名 `CCRTrayTS`,用 `reg.exe` + `spawnSync`。**所有 stdio 都吞掉** —— 注释说明:中文 Windows 上 `reg.exe` 的输出是 GBK,接到 UTF-8 终端会乱码,所以只看退出码、不读输出。
-- **Linux**:写/删 `~/.config/autostart/ccr-tray-ts.desktop`。
+- **Windows**:注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,值名 `CCRTray`,用 `reg.exe` + `spawnSync`。**所有 stdio 都吞掉** —— 注释说明:中文 Windows 上 `reg.exe` 的输出是 GBK,接到 UTF-8 终端会乱码,所以只看退出码、不读输出。
+- **Linux**:写/删 `~/.config/autostart/ccr-tray.desktop`。
 - `currentExePath()`:Windows 用 `process.execPath`,Linux 优先 `$APPIMAGE`。
 - `desktopFileRaw()` 目前是**死代码**。
 
@@ -213,7 +213,7 @@ renderer 点击/按键
 
 ## 7. 构建与运行
 
-`ccr-tray-ts/package.json`:
+`ccr-tray/package.json`:
 
 - `main: dist/main.cjs`
 - `build`:`esbuild src/main.ts src/shell/menu-preload.ts src/shell/settings-preload.ts --bundle --platform=node --format=cjs --external:electron --outdir=dist --out-extension:.js=.cjs`
@@ -239,9 +239,8 @@ renderer 点击/按键
 | 弹窗尺寸实测而非写死 | 绕开系统缩放对原生菜单的放大,宽度正好包住内容 |
 | 自绘菜单而非原生 `Menu` | 原生菜单在 Windows 缩放下样式不可控 |
 
-## 9. 与 C# 基线及 CCR fork 补丁的关系
+## 9. 与 CCR fork 补丁的关系
 
-- **行为基线**:`../ccr-tray/CCRTray.cs`(旧 C# 托盘)。功能对齐它:左击开管理页、右击菜单、启停、自启。
 - **依赖 fork 补丁**:`startService()` 注入的 `CCR_GATEWAY_PORT` 环境变量是**本地 fork 的补丁**,上游没有。详见仓库根 `docs/PATCHES.md`(那里把它列为 patch 6;`core/ccr.ts` 的注释写"补丁 7",两处口径不一致)。
 - 管理页 URL 带每次启动都变的 token,所以 `open-management` 必须走 `service.json`,不能只拼端口。
 
