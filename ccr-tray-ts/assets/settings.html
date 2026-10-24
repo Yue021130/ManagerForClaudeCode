@@ -173,7 +173,8 @@
     text-align: center;
     font-size: 11.5px;
   }
-  .notice.show { display: block; }
+  .notice.show { display: block; opacity: 1; transition: opacity 400ms ease; }
+  .notice.show.fade { opacity: 0; }
   .notice.ok { color: #4ade80; border-color: #2c4a38; background: #232b28; }
   .notice.err { color: #f87171; border-color: #54303a; background: #2d2226; }
 </style>
@@ -226,6 +227,7 @@
   </div>
 <script>
   let current = null;
+  let noticeHideTimer = null;
   // 输入框被用户改过之后不再被推送值覆盖
   let mgmtTouched = false;
   let gwTouched = false;
@@ -316,13 +318,15 @@
       if (s.portTest.which === "management") resMgmt = s.portTest.result;
       else resGw = s.portTest.result;
     }
-    // 提示条
+    // 提示条（消失走 400ms 淡出，见 .notice.show.fade）
+    const n = $("notice");
+    clearTimeout(noticeHideTimer);
     if (s.notice) {
-      const n = $("notice");
       n.textContent = s.notice;
       n.className = "notice show" + (/失败|非法|不能/.test(s.notice) ? " err" : " ok");
-    } else {
-      $("notice").className = "notice";
+    } else if (n.classList.contains("show")) {
+      n.classList.add("fade");
+      noticeHideTimer = setTimeout(() => { n.className = "notice"; }, 400);
     }
     updateEditUI();
   }
