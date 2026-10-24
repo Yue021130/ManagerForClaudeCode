@@ -48,8 +48,13 @@ if (!gotLock) {
   const shell = new ElectronTrayShell();
 
   function buildSettingsState(): SettingsState {
+    const cpu = process.cpuUsage();
+    const avgCpuPercent = ((cpu.user + cpu.system) / 1e6 / process.uptime()) * 100;
+    const memRssMb = process.memoryUsage().rss / 1024 / 1024;
     return {
       uptimeMs: status.state === "running" && runningSince !== null ? Date.now() - runningSince : null,
+      avgCpuPercent,
+      memRssMb,
       autostartEnabled,
       managementPort: readSettings().managementPort,
       gatewayPort: readSettings().gatewayPort,

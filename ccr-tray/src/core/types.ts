@@ -40,6 +40,10 @@ export interface NotifyInfo {
 export interface SettingsState {
   /** 本次启动时长（毫秒）；服务未运行为 null */
   uptimeMs: number | null;
+  /** 托盘进程平均 CPU 占用（%，自进程启动以来的累计平均） */
+  avgCpuPercent: number;
+  /** 托盘进程常驻内存 RSS（MB） */
+  memRssMb: number;
   autostartEnabled: boolean;
   managementPort: number;
   gatewayPort: number;

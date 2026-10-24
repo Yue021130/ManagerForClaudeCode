@@ -90,6 +90,8 @@
   .row { height: 44px; display: flex; align-items: center; justify-content: space-between; }
   .row .label { color: var(--text); display: flex; align-items: center; gap: 8px; font-size: 12px; }
   .row .label svg { width: 16px; height: 16px; display: block; color: var(--text-dim); }
+  /* 资源行右侧数值：等宽数字，内容没变不重写 DOM */
+  .row .val { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: 0.3px; }
   /* 开关：36×20，关闭不刺眼，开启复用强调蓝 */
   .switch {
     width: 36px; height: 20px;
@@ -253,6 +255,18 @@
       <div class="card hero">
         <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>本次启动时长</span>
         <span class="value idle" id="uptime">—</span>
+      </div>
+
+      <div class="card">
+        <div class="cap">资源占用</div>
+        <div class="row">
+          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/><path d="M1 9h3"/><path d="M1 15h3"/><path d="M20 9h3"/><path d="M20 15h3"/></svg>CPU占用 </span>
+          <span class="val" id="avgCpu">—</span>
+        </div>
+        <div class="row">
+          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 19v-8a6 6 0 0 1 12 0v8"/><path d="M4 19h16"/><path d="M9 22h6"/></svg>内存占用 </span>
+          <span class="val" id="memRss">—</span>
+        </div>
       </div>
 
       <div class="card">
@@ -420,6 +434,11 @@
       up.textContent = fmtUptime(s.uptimeMs);
       up.className = "value";
     }
+    // 托盘资源：等宽数字，内容没变不重写 DOM（避免闪烁）
+    const cpuText = s.avgCpuPercent.toFixed(1) + "%";
+    if ($("avgCpu").textContent !== cpuText) $("avgCpu").textContent = cpuText;
+    const memText = Math.round(s.memRssMb) + " MB";
+    if ($("memRss").textContent !== memText) $("memRss").textContent = memText;
     // 自启开关
     $("autostartSwitch").className = "switch" + (s.autostartEnabled ? " on" : "");
     // 端口（用户没动过才同步）
@@ -504,9 +523,9 @@
     if (e.key === "Escape") window.ccrSettings.send({ kind: "dismiss" });
   });
 
-  // 运行中/重启中每秒要一次状态（运行时长走动、重启阶段推进）
+  // 设置窗口开着就每秒要一次状态：运行时长/重启阶段走动，托盘资源数值也实时刷新
   setInterval(() => {
-    if (current && (current.busy || current.serviceState === "running")) {
+    if (current) {
       window.ccrSettings.send({ kind: "settings-tick" });
     }
   }, 1000);
