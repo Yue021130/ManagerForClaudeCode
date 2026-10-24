@@ -14,7 +14,7 @@
   #panel {
     width: 100%;
     height: 100%;
-    background: #22222c;
+    background: #1e1e28;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -23,12 +23,15 @@
   .titlebar {
     display: flex;
     align-items: center;
+    gap: 8px;
     padding: 0 4px 0 14px;
-    height: 36px;
+    height: 38px;
     flex: none;
     -webkit-app-region: drag;
-    border-bottom: 1px solid #35353f;
+    border-bottom: 1px solid #2e2e3c;
   }
+  .titlebar .tico { color: #7dd3fc; display: flex; align-items: center; }
+  .titlebar .tico svg { width: 14px; height: 14px; display: block; }
   .titlebar .title { font-size: 12px; font-weight: 600; color: #eceef4; }
   .titlebar .grow { flex: 1; }
   .close {
@@ -37,132 +40,184 @@
     display: flex; align-items: center; justify-content: center;
     color: #9a9aa8; font-size: 12px;
     -webkit-app-region: no-drag;
+    transition: background 120ms, color 120ms;
   }
   .close:hover { background: #e81123; color: #fff; }
   /* 内容 */
-  .body { padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
-  /* 运行时长卡片 */
-  .card {
-    background: #2a2a36;
-    border: 1px solid #3a3a48;
-    border-radius: 10px;
-    padding: 12px 14px;
+  .body { padding: 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+  /* 运行时长总览卡片 */
+  .card.hero {
+    background: linear-gradient(135deg, #253243 0%, #22222e 100%);
+    border: 1px solid #35435c;
+    border-radius: 12px;
+    padding: 14px;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex: none;
   }
-  .card .label { color: #9a9aa8; }
-  .card .value { font-size: 18px; font-weight: 600; color: #7dd3fc; font-variant-numeric: tabular-nums; }
-  .card .value.idle { color: #6b6b78; font-size: 14px; font-weight: 400; }
+  .hero .label { color: #8fa3c0; display: flex; align-items: center; gap: 7px; font-size: 11.5px; }
+  .hero .label svg { width: 14px; height: 14px; display: block; color: #7dd3fc; }
+  .hero .value { font-size: 20px; font-weight: 700; color: #7dd3fc; font-variant-numeric: tabular-nums; letter-spacing: 0.3px; }
+  .hero .value.idle { color: #6b6b78; font-size: 15px; font-weight: 400; }
+  /* 分组卡片 */
+  .card {
+    background: #262632;
+    border: 1px solid #33333f;
+    border-radius: 12px;
+    padding: 4px 14px;
+    flex: none;
+  }
+  .card .cap {
+    font-size: 10.5px;
+    color: #7a7a8c;
+    letter-spacing: 1px;
+    padding: 9px 0 2px;
+  }
   /* 行 */
-  .row { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px; }
-  .row .label { color: #c9cad6; }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
+  .row + .row, .cap + .row { border-top: 1px solid #2e2e3a; }
+  .row .label { color: #c9cad6; display: flex; align-items: center; gap: 7px; }
+  .row .label svg { width: 13px; height: 13px; display: block; color: #8a8a9c; }
   /* 开关 */
   .switch {
-    width: 34px; height: 18px;
-    border-radius: 9px;
-    background: #4a4a5a;
+    width: 36px; height: 20px;
+    border-radius: 10px;
+    background: #46465a;
     position: relative;
-    transition: background 0.15s;
+    transition: background 0.18s;
+    cursor: default;
   }
   .switch.on { background: #0ea5e9; }
   .switch::after {
     content: "";
     position: absolute;
     top: 2px; left: 2px;
-    width: 14px; height: 14px;
+    width: 16px; height: 16px;
     border-radius: 50%;
     background: #fff;
-    transition: left 0.15s;
+    transition: left 0.18s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
   }
   .switch.on::after { left: 18px; }
-  /* 端口输入 */
-  .portrow { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px; gap: 10px; }
-  .portrow .label { color: #c9cad6; flex: none; }
+  /* 端口行：标签 + 输入框 + 行内按钮 + 结果 */
+  .portrow { display: flex; align-items: center; gap: 6px; padding: 8px 0; }
+  .portrow + .portrow { border-top: 1px solid #2e2e3a; }
+  .portrow .label {
+    color: #c9cad6; display: flex; align-items: center; gap: 6px;
+    flex: none; width: 66px; font-size: 11.5px;
+  }
+  .portrow .label svg { width: 13px; height: 13px; display: block; color: #8a8a9c; }
   .portrow input {
-    width: 110px;
-    background: #2a2a36;
+    flex: 1;
+    min-width: 0;
+    background: #1e1e28;
     border: 1px solid #3a3a48;
-    border-radius: 7px;
+    border-radius: 8px;
     color: #eceef4;
-    font-size: 12px;
+    font-size: 12.5px;
     padding: 6px 10px;
-    text-align: right;
+    text-align: left;
     font-variant-numeric: tabular-nums;
     outline: none;
     font-family: inherit;
+    transition: border-color 120ms, box-shadow 120ms;
   }
-  .portrow input:focus { border-color: #0ea5e9; }
-  /* 测试结果 */
-  .testrow { display: none; padding: 0 2px; gap: 14px; color: #9a9aa8; }
-  .testrow.show { display: flex; }
-  .testrow .ok { color: #4ade80; }
-  .testrow .bad { color: #f87171; }
-  /* 按钮 */
-  .actions { display: flex; gap: 10px; margin-top: auto; }
+  .portrow input:focus { border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18); }
+  /* 行内小按钮：有修改才显示 */
+  .mini-btn {
+    flex: none;
+    font-size: 11px;
+    color: #9a9aa8;
+    border: 1px solid #3a3a48;
+    background: #1e1e28;
+    border-radius: 7px;
+    padding: 5px 9px;
+    visibility: hidden;
+    transition: color 120ms, border-color 120ms;
+  }
+  .mini-btn:hover { color: #d5d6e0; border-color: #4c4c62; }
+  .mini-btn.disabled { opacity: 0.45; pointer-events: none; }
+  /* 行内测试结果 */
+  .ptest { flex: none; width: 50px; font-size: 11px; text-align: right; }
+  .ptest.ok { color: #4ade80; }
+  .ptest.bad { color: #f87171; }
+  /* 保存按钮（测试通过后才出现，通栏） */
+  .saverow { display: none; padding: 10px 0 8px; }
+  .saverow.show { display: block; }
   .btn {
-    flex: 1;
+    display: block;
     text-align: center;
-    padding: 8px 0;
-    border-radius: 8px;
+    padding: 9px 0;
+    border-radius: 9px;
     border: 1px solid #3a3a48;
     background: #2a2a36;
     color: #c9cad6;
     cursor: default;
+    font-size: 12px;
+    transition: background 120ms, filter 120ms;
   }
   .btn:hover { background: #343442; }
-  .btn.primary { background: #0ea5e9; border-color: #0ea5e9; color: #fff; font-weight: 600; }
+  .btn.primary { background: #0ea5e9; border-color: #0ea5e9; color: #fff; font-weight: 600; box-shadow: 0 2px 10px rgba(14, 165, 233, 0.3); }
   .btn.primary:hover { background: #38bdf8; }
   .btn.disabled { opacity: 0.45; pointer-events: none; }
   /* 提示条 */
   .notice {
     display: none;
-    padding: 7px 12px;
-    border-radius: 8px;
-    background: #2a2a36;
-    border: 1px solid #3a3a48;
+    padding: 8px 12px;
+    border-radius: 9px;
+    background: #262632;
+    border: 1px solid #33333f;
     color: #9a9aa8;
     text-align: center;
+    font-size: 11.5px;
   }
   .notice.show { display: block; }
-  .notice.ok { color: #4ade80; border-color: #22543a; }
-  .notice.err { color: #f87171; border-color: #5c2a2a; }
+  .notice.ok { color: #4ade80; border-color: #2c4a38; background: #232b28; }
+  .notice.err { color: #f87171; border-color: #54303a; background: #2d2226; }
 </style>
 </head>
 <body>
   <div id="panel">
     <div class="titlebar">
+      <span class="tico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
       <span class="title">设置</span>
       <span class="grow"></span>
       <span class="close" id="closeBtn">✕</span>
     </div>
     <div class="body">
-      <div class="card">
-        <span class="label">本次启动时长</span>
+      <div class="card hero">
+        <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>本次启动时长</span>
         <span class="value idle" id="uptime">—</span>
       </div>
 
-      <div class="row">
-        <span class="label">开机自启</span>
-        <span class="switch" id="autostartSwitch"></span>
+      <div class="card">
+        <div class="cap">常规</div>
+        <div class="row">
+          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>开机自启</span>
+          <span class="switch" id="autostartSwitch"></span>
+        </div>
       </div>
 
-      <div class="portrow">
-        <span class="label">管理端口</span>
-        <input type="text" inputmode="numeric" id="mgmtInput" />
-      </div>
-      <div class="portrow">
-        <span class="label">服务端口</span>
-        <input type="text" inputmode="numeric" id="gatewayInput" />
-      </div>
-      <div class="testrow" id="testRow">
-        <span id="testMgmt"></span>
-        <span id="testGateway"></span>
-      </div>
-
-      <div class="actions">
-        <span class="btn" id="testBtn">测 试</span>
-        <span class="btn primary" id="saveBtn">保 存</span>
+      <div class="card">
+        <div class="cap">网络端口</div>
+        <div class="portrow">
+          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>管理端口</span>
+          <input type="text" inputmode="numeric" id="mgmtInput" />
+          <span class="mini-btn" id="mgmtReset">重置</span>
+          <span class="mini-btn" id="mgmtTestBtn">测试</span>
+          <span class="ptest" id="mgmtResult"></span>
+        </div>
+        <div class="portrow">
+          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/><rect x="3" y="3" width="18" height="18" rx="3"/></svg>服务端口</span>
+          <input type="text" inputmode="numeric" id="gatewayInput" />
+          <span class="mini-btn" id="gwReset">重置</span>
+          <span class="mini-btn" id="gwTestBtn">测试</span>
+          <span class="ptest" id="gwResult"></span>
+        </div>
+        <div class="saverow" id="saveRow">
+          <span class="btn primary" id="saveBtn">保存修改并重启</span>
+        </div>
       </div>
 
       <div class="notice" id="notice"></div>
@@ -173,6 +228,10 @@
   // 输入框被用户改过之后不再被推送值覆盖
   let mgmtTouched = false;
   let gwTouched = false;
+  // 最近一次测试时快照的输入值；输入一变就作废（防止拿旧结果点保存）
+  let tested = null;
+  // 最近一次推送的已保存端口
+  let saved = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -191,8 +250,52 @@
     return r === "free" ? ["✓ 可用", "ok"] : r === "in-use" ? ["✗ 被占用", "bad"] : ["✗ 非法", "bad"];
   }
 
+  const curMgmt = () => $("mgmtInput").value.trim();
+  const curGw = () => $("gatewayInput").value.trim();
+  const mgmtChanged = () => saved !== null && curMgmt() !== String(saved.managementPort);
+  const gwChanged = () => saved !== null && curGw() !== String(saved.gatewayPort);
+  // 测试结果仅当与当前输入一致时才有效
+  const resultsValid = () =>
+    tested !== null && tested.mgmt === curMgmt() && tested.gw === curGw();
+
+  function updateEditUI() {
+    const busy = current && current.busy;
+    // 行内按钮：该行有修改才显示
+    $("mgmtReset").style.visibility = mgmtChanged() ? "visible" : "hidden";
+    $("mgmtTestBtn").style.visibility = mgmtChanged() ? "visible" : "hidden";
+    $("gwReset").style.visibility = gwChanged() ? "visible" : "hidden";
+    $("gwTestBtn").style.visibility = gwChanged() ? "visible" : "hidden";
+    for (const id of ["mgmtReset", "mgmtTestBtn", "gwReset", "gwTestBtn"]) {
+      $(id).classList.toggle("disabled", !!busy);
+    }
+    // 行内结果
+    const showRes = resultsValid() && current && current.portTest;
+    if (showRes) {
+      const [mt, mc] = testLabel(current.portTest.management);
+      const [gt, gc] = testLabel(current.portTest.gateway);
+      $("mgmtResult").textContent = mt;
+      $("mgmtResult").className = "ptest " + mc;
+      $("gwResult").textContent = gt;
+      $("gwResult").className = "ptest " + gc;
+    } else {
+      $("mgmtResult").textContent = "";
+      $("mgmtResult").className = "ptest";
+      $("gwResult").textContent = "";
+      $("gwResult").className = "ptest";
+    }
+    // 保存按钮：有修改 + 被修改的行都测过且可用
+    let canSave = !busy && resultsValid() && (mgmtChanged() || gwChanged());
+    if (canSave && current && current.portTest) {
+      if (mgmtChanged() && current.portTest.management !== "free") canSave = false;
+      if (gwChanged() && current.portTest.gateway !== "free") canSave = false;
+    }
+    $("saveRow").className = "saverow" + (canSave ? " show" : "");
+    $("saveBtn").className = "btn primary" + (busy ? " disabled" : "");
+  }
+
   function render(s) {
     current = s;
+    saved = { managementPort: s.managementPort, gatewayPort: s.gatewayPort };
     // 运行时长
     const up = $("uptime");
     if (s.uptimeMs === null) {
@@ -207,18 +310,6 @@
     // 端口（用户没动过才同步）
     if (!mgmtTouched) $("mgmtInput").value = s.managementPort;
     if (!gwTouched) $("gatewayInput").value = s.gatewayPort;
-    // 测试结果
-    if (s.portTest) {
-      $("testRow").className = "testrow show";
-      const [mt, mc] = testLabel(s.portTest.management);
-      const [gt, gc] = testLabel(s.portTest.gateway);
-      $("testMgmt").textContent = "管理端口 " + mt;
-      $("testMgmt").className = mc;
-      $("testGateway").textContent = "服务端口 " + gt;
-      $("testGateway").className = gc;
-    } else {
-      $("testRow").className = "testrow";
-    }
     // 提示条
     if (s.notice) {
       const n = $("notice");
@@ -227,34 +318,49 @@
     } else {
       $("notice").className = "notice";
     }
-    // busy 时禁用按钮
-    $("saveBtn").className = "btn primary" + (s.busy ? " disabled" : "");
-    $("testBtn").className = "btn" + (s.busy ? " disabled" : "");
+    updateEditUI();
   }
 
   window.ccrSettings.onState(render);
 
-  $("mgmtInput").addEventListener("input", () => { mgmtTouched = true; });
-  $("gatewayInput").addEventListener("input", () => { gwTouched = true; });
+  $("mgmtInput").addEventListener("input", () => { mgmtTouched = true; tested = null; updateEditUI(); });
+  $("gatewayInput").addEventListener("input", () => { gwTouched = true; tested = null; updateEditUI(); });
+
+  $("mgmtReset").addEventListener("click", () => {
+    if (!saved) return;
+    $("mgmtInput").value = saved.managementPort;
+    mgmtTouched = false; tested = null;
+    updateEditUI();
+  });
+  $("gwReset").addEventListener("click", () => {
+    if (!saved) return;
+    $("gatewayInput").value = saved.gatewayPort;
+    gwTouched = false; tested = null;
+    updateEditUI();
+  });
+
+  function sendTest() {
+    tested = { mgmt: curMgmt(), gw: curGw() };
+    window.ccrSettings.send({
+      kind: "test-ports",
+      managementPort: Number(curMgmt()),
+      gatewayPort: Number(curGw()),
+    });
+  }
+  $("mgmtTestBtn").addEventListener("click", sendTest);
+  $("gwTestBtn").addEventListener("click", sendTest);
+
+  $("saveBtn").addEventListener("click", () => {
+    tested = null;
+    window.ccrSettings.send({
+      kind: "save-ports",
+      managementPort: Number(curMgmt()),
+      gatewayPort: Number(curGw()),
+    });
+  });
 
   $("autostartSwitch").addEventListener("click", () => {
     window.ccrSettings.send({ kind: "toggle-autostart", enabled: !current.autostartEnabled });
-  });
-
-  $("testBtn").addEventListener("click", () => {
-    window.ccrSettings.send({
-      kind: "test-ports",
-      managementPort: Number($("mgmtInput").value),
-      gatewayPort: Number($("gatewayInput").value),
-    });
-  });
-
-  $("saveBtn").addEventListener("click", () => {
-    window.ccrSettings.send({
-      kind: "save-ports",
-      managementPort: Number($("mgmtInput").value),
-      gatewayPort: Number($("gatewayInput").value),
-    });
   });
 
   $("closeBtn").addEventListener("click", () => window.ccrSettings.send({ kind: "dismiss" }));

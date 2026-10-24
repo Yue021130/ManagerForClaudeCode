@@ -36,14 +36,16 @@ function ensureToastShortcut(): void {
   try {
     fs.mkdirSync(toastShortcutDir, { recursive: true });
     const shortcut = path.join(toastShortcutDir, toastShortcutName);
-    if (!fs.existsSync(shortcut)) {
-      shell.writeShortcutLink(shortcut, "create", {
-        target: process.execPath,
-        appUserModelId,
-        description: "CCR Tray",
-      });
-      console.log("[notify] 已创建开始菜单快捷方式（toast 通知需要）");
-    }
+    // 始终覆盖写：图标/AUMID/目标路径有更新时旧快捷方式也要刷新；
+    // 任务栏按钮图标优先取这个快捷方式的图标，不写的话会显示成 electron 默认图标
+    shell.writeShortcutLink(shortcut, fs.existsSync(shortcut) ? "update" : "create", {
+      target: process.execPath,
+      appUserModelId,
+      description: "CCR-YUE Tray",
+      icon: path.join(__dirname, "..", "assets", "app.ico"),
+      iconIndex: 0,
+    });
+    console.log("[notify] 已更新开始菜单快捷方式（toast 通知 / 任务栏图标需要）");
   } catch (err) {
     console.error("[notify] 创建快捷方式失败:", err);
   }
