@@ -63,7 +63,8 @@
   .hero .label { color: #8fa3c0; display: flex; align-items: center; gap: 7px; font-size: 11.5px; }
   .hero .label svg { width: 14px; height: 14px; display: block; color: #7dd3fc; }
   .hero .value { font-size: 20px; font-weight: 700; color: #7dd3fc; font-variant-numeric: tabular-nums; letter-spacing: 0.3px; }
-  .hero .value.idle { color: #6b6b78; font-size: 15px; font-weight: 400; }
+  /* 空闲只改颜色不改字号：卡片高度恒定，服务重启/停止过程窗口不抖动 */
+  .hero .value.idle { color: #6b6b78; }
   /* 分组卡片 */
   .card {
     background: #262632;
