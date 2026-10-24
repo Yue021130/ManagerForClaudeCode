@@ -46,6 +46,8 @@ export interface SettingsState {
   busy: boolean;
   /** 端口测试结果（只测被修改的那一行，保存后清空） */
   portTest?: { which: "management" | "gateway"; result: PortTestResult };
-  /** 保存/错误提示条 */
-  notice?: string;
+  /** 保存结果反馈（5 秒后自动清除，保存按钮内联显示） */
+  lastSave?: { result: "ok" | "fail"; label: string };
+  /** 端口校验错误（就地红字提示，5 秒后自动清除） */
+  portError?: string;
 }

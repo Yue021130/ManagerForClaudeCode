@@ -161,22 +161,29 @@
   .btn.primary { background: #0ea5e9; border-color: #0ea5e9; color: #fff; font-weight: 600; box-shadow: 0 2px 10px rgba(14, 165, 233, 0.3); }
   .btn.primary:hover { background: #38bdf8; }
   .btn.disabled { opacity: 0.45; pointer-events: none; }
-  /* 提示条 */
-  .notice {
+  /* 保存按钮内联状态：进行中 / 成功 / 失败 */
+  .btn.busy { background: #2a2a36; border-color: #3a3a48; color: #9a9aa8; box-shadow: none; pointer-events: none; }
+  .btn.ok { background: #14532d; border-color: #166534; color: #86efac; box-shadow: none; pointer-events: none; }
+  .btn.fail { background: #450a0a; border-color: #7f1d1d; color: #fca5a5; box-shadow: none; }
+  /* 端口校验错误：就地红字 + 输入框红框抖动 */
+  .porterror {
     display: none;
-    margin-top: auto;
-    padding: 8px 12px;
-    border-radius: 9px;
-    background: #262632;
-    border: 1px solid #33333f;
-    color: #9a9aa8;
-    text-align: center;
-    font-size: 11.5px;
+    font-size: 11px;
+    color: #f87171;
+    padding: 2px 2px 8px;
   }
-  .notice.show { display: block; opacity: 1; transition: opacity 400ms ease; }
-  .notice.show.fade { opacity: 0; }
-  .notice.ok { color: #4ade80; border-color: #2c4a38; background: #232b28; }
-  .notice.err { color: #f87171; border-color: #54303a; background: #2d2226; }
+  .porterror.show { display: block; opacity: 1; transition: opacity 400ms ease; }
+  .porterror.show.fade { opacity: 0; }
+  .portrow input.invalid {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+    animation: shake 300ms ease;
+  }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-3px); }
+    75% { transform: translateX(3px); }
+  }
 </style>
 </head>
 <body>
@@ -217,17 +224,18 @@
           <span class="mini-btn" id="gwTestBtn">测试</span>
           <span class="ptest" id="gwResult"></span>
         </div>
+        <div class="porterror" id="portError"></div>
         <div class="saverow" id="saveRow">
           <span class="btn primary" id="saveBtn">保存修改并重启</span>
         </div>
       </div>
 
-      <div class="notice" id="notice"></div>
     </div>
   </div>
 <script>
   let current = null;
-  let noticeHideTimer = null;
+  let errHideTimer = null;
+  let savePending = false;
   // 输入框被用户改过之后不再被推送值覆盖
   let mgmtTouched = false;
   let gwTouched = false;
@@ -288,12 +296,24 @@
       $("gwResult").textContent = "";
       $("gwResult").className = "ptest";
     }
-    // 保存按钮：有修改 + 每个被修改的行都测过且可用
+    // 保存按钮：有修改 + 每个被修改的行都测过且可用；保存进行中/刚出结果时保持显示
     const mgmtPass = mgmtChanged() ? mOk && resMgmt === "free" : true;
     const gwPass = gwChanged() ? gOk && resGw === "free" : true;
-    const canSave = !busy && (mgmtChanged() || gwChanged()) && mgmtPass && gwPass;
-    $("saveRow").className = "saverow" + (canSave ? " show" : "");
-    $("saveBtn").className = "btn primary" + (busy ? " disabled" : "");
+    if (current && current.lastSave) savePending = false;
+    const changedOk = (mgmtChanged() || gwChanged()) && mgmtPass && gwPass;
+    const visible = savePending || !!(current && current.lastSave) || (changedOk && !busy);
+    $("saveRow").className = "saverow" + (visible ? " show" : "");
+    const btn = $("saveBtn");
+    if (busy && savePending) {
+      btn.className = "btn busy";
+      btn.textContent = "⟳ 正在重启…";
+    } else if (current && current.lastSave) {
+      btn.className = "btn " + current.lastSave.result;
+      btn.textContent = current.lastSave.label;
+    } else {
+      btn.className = "btn primary";
+      btn.textContent = "保存修改并重启";
+    }
   }
 
   function render(s) {
@@ -318,15 +338,21 @@
       if (s.portTest.which === "management") resMgmt = s.portTest.result;
       else resGw = s.portTest.result;
     }
-    // 提示条（消失走 400ms 淡出，见 .notice.show.fade）
-    const n = $("notice");
-    clearTimeout(noticeHideTimer);
-    if (s.notice) {
-      n.textContent = s.notice;
-      n.className = "notice show" + (/失败|非法|不能/.test(s.notice) ? " err" : " ok");
-    } else if (n.classList.contains("show")) {
-      n.classList.add("fade");
-      noticeHideTimer = setTimeout(() => { n.className = "notice"; }, 400);
+    // 端口校验错误：就地红字 + 输入框红框，消失走 400ms 淡出
+    const pe = $("portError");
+    clearTimeout(errHideTimer);
+    if (s.portError) {
+      pe.textContent = s.portError;
+      pe.className = "porterror show";
+      $("mgmtInput").classList.add("invalid");
+      $("gatewayInput").classList.add("invalid");
+    } else if (pe.classList.contains("show")) {
+      pe.classList.add("fade");
+      errHideTimer = setTimeout(() => {
+        pe.className = "porterror";
+        $("mgmtInput").classList.remove("invalid");
+        $("gatewayInput").classList.remove("invalid");
+      }, 400);
     }
     updateEditUI();
   }
@@ -360,6 +386,8 @@
 
   $("saveBtn").addEventListener("click", () => {
     testedMgmt = null; testedGw = null;
+    savePending = true;
+    updateEditUI();
     window.ccrSettings.send({
       kind: "save-ports",
       managementPort: Number(curMgmt()),

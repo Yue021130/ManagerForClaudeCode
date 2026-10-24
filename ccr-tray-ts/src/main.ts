@@ -29,9 +29,10 @@ if (!gotLock) {
   let runningSince: number | null = null;
   let prevRunning = false;
   let autostartEnabled = false;
-  /** 最近一次端口测试结果 / 提示条（推给设置窗口） */
+  /** 最近一次端口测试结果 / 保存反馈 / 校验错误（推给设置窗口） */
   let lastPortTest: { which: "management" | "gateway"; result: PortTestResult } | undefined;
-  let lastNotice: string | undefined;
+  let lastSave: { result: "ok" | "fail"; label: string } | undefined;
+  let portError: string | undefined;
 
   // ── 状态变更通知 ──
   let prevState: "running" | "partial" | "stopped" | null = null;
@@ -54,7 +55,8 @@ if (!gotLock) {
       serviceState: status.state,
       busy,
       portTest: lastPortTest,
-      notice: lastNotice,
+      lastSave,
+      portError,
     };
   }
 
@@ -62,18 +64,15 @@ if (!gotLock) {
     shell.updateSettings(buildSettingsState());
   }
 
-  // 提示条 3 秒后自动消失（渲染层每秒重推，清除必须放在主进程做）
-  let noticeTimer: NodeJS.Timeout | null = null;
-  function setNotice(msg: string | undefined): void {
-    lastNotice = msg;
-    if (noticeTimer) clearTimeout(noticeTimer);
-    if (msg) {
-      noticeTimer = setTimeout(() => {
-        lastNotice = undefined;
-        pushSettings();
-      }, 3000);
-    }
-    pushSettings();
+  // 保存反馈 / 校验错误 3 秒后自动清除（渲染层每秒重推，清除必须放在主进程做）
+  let feedbackTimer: NodeJS.Timeout | null = null;
+  function flashFeedback(): void {
+    if (feedbackTimer) clearTimeout(feedbackTimer);
+    feedbackTimer = setTimeout(() => {
+      lastSave = undefined;
+      portError = undefined;
+      pushSettings();
+    }, 3000);
   }
 
   /** 应用内自绘通知弹窗（右下角滑入，绕开专注助手对系统通知的拦截） */
@@ -189,7 +188,7 @@ if (!gotLock) {
         pushSettings();
         break;
       case "test-port": {
-        setNotice(undefined);
+        portError = undefined;
         lastPortTest = { which: event.which, result: await testPort(event.port) };
         pushSettings();
         break;
@@ -204,7 +203,10 @@ if (!gotLock) {
           managementPort !== gatewayPort;
         if (!valid) {
           lastPortTest = undefined;
-          setNotice("端口必须是 1-65535 的整数且不能相同");
+          lastSave = undefined;
+          portError = "端口必须是 1-65535 的整数且不能相同";
+          pushSettings();
+          flashFeedback();
           break;
         }
         writeSettings({ managementPort, gatewayPort });
@@ -212,19 +214,22 @@ if (!gotLock) {
         // 服务在跑 → 自动重启用新端口生效；没在跑 → 下次启动生效
         if (status.state !== "stopped") {
           busy = true;
-          setNotice("正在用新端口重启服务…");
+          pushSettings();
           try {
             expectStart = true;
             startPendingAt = Date.now();
             await restartService();
-            setNotice("已保存，服务已用新端口重启");
+            lastSave = { result: "ok", label: "✓ 已保存并重启" };
           } catch (err) {
-            setNotice(`端口已保存，但服务重启失败：${err instanceof Error ? err.message : String(err)}`);
+            lastSave = { result: "fail", label: "✗ 重启失败，端口已保存" };
+            console.error(err);
           }
           busy = false;
         } else {
-          setNotice("已保存，下次启动服务生效");
+          lastSave = { result: "ok", label: "✓ 已保存，下次启动生效" };
         }
+        pushSettings();
+        flashFeedback();
         await refresh();
         break;
       }

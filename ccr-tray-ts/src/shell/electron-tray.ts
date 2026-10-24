@@ -203,22 +203,49 @@ export class ElectronTrayShell implements TrayShell {
     void this.settingsWindow.loadFile(`${ASSETS}/settings.html`);
     this.settingsWindow.once("ready-to-show", () => {
       if (!this.settingsWindow) return;
-      // 居中于托盘图标所在显示器
-      const tb = this.tray?.getBounds();
-      const area = tb && tb.width > 0
-        ? screen.getDisplayNearestPoint({ x: tb.x, y: tb.y }).workArea
-        : screen.getPrimaryDisplay().workArea;
-      const x = Math.round(area.x + (area.width - 340) / 2);
-      const y = Math.round(area.y + (area.height - 408) / 2);
-      this.settingsWindow.setBounds({ x, y, width: 340, height: 408 });
-      this.pushSettingsState();
-      this.settingsWindow.show();
+      // 先按内容实测高度，再居中于托盘图标所在显示器（窗口贴着内容走，无死区）
+      void this.fitSettingsWindow().then(() => {
+        if (!this.settingsWindow) return;
+        const b = this.settingsWindow.getBounds();
+        const tb = this.tray?.getBounds();
+        const area = tb && tb.width > 0
+          ? screen.getDisplayNearestPoint({ x: tb.x, y: tb.y }).workArea
+          : screen.getPrimaryDisplay().workArea;
+        const x = Math.round(area.x + (area.width - b.width) / 2);
+        const y = Math.round(area.y + (area.height - b.height) / 2);
+        this.settingsWindow?.setBounds({ x, y, width: b.width, height: b.height });
+        this.pushSettingsState();
+        this.settingsWindow?.show();
+      });
     });
+  }
+
+  /** 设置窗口高度跟随内容：子元素实测高度 + 间距 + 内边距 + 标题栏。
+   *  flex 容器 scrollHeight 在窗口偏高时等于拉伸高度，不能用来收缩，所以逐个子元素量。 */
+  private async fitSettingsWindow(): Promise<void> {
+    const win = this.settingsWindow;
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+    try {
+      const bodyH = await win.webContents.executeJavaScript(`(() => {
+        const body = document.querySelector('.body');
+        if (!body) return 0;
+        const kids = Array.from(body.children).filter((el) => el.offsetHeight > 0);
+        if (kids.length === 0) return 0;
+        return kids.reduce((a, el) => a + el.offsetHeight, 0) + (kids.length - 1) * 10 + 28;
+      })()`);
+      if (!bodyH) return;
+      const height = Math.max(300, bodyH + 38); // 38 = 标题栏
+      const b = win.getBounds();
+      win.setBounds({ x: b.x, y: b.y + b.height - height, width: b.width, height });
+    } catch {
+      /* 测量失败保持原样 */
+    }
   }
 
   private pushSettingsState(): void {
     if (this.settingsWindow && this.lastSettings && !this.settingsWindow.webContents.isDestroyed()) {
       this.settingsWindow.webContents.send("settings:state", this.lastSettings);
+      void this.fitSettingsWindow(); // 内容增减（保存按钮/错误行出现消失）时高度跟着走
     }
   }
 
