@@ -12,14 +12,11 @@ import { join } from "node:path";
 export interface TraySettings {
   managementPort: number;
   gatewayPort: number;
-  /** 托盘启动时若服务没在跑，自动拉起（默认开） */
-  autoStartService: boolean;
 }
 
 export const DEFAULT_SETTINGS: TraySettings = {
   managementPort: 3458,
   gatewayPort: 40229, // 与改动前 status.ts 的硬编码值一致
-  autoStartService: true,
 };
 
 function settingsDir(): string {
@@ -40,7 +37,6 @@ function sanitize(raw: unknown): TraySettings {
     const gw = Number(o.gatewayPort);
     if (Number.isInteger(mgmt) && mgmt >= 1 && mgmt <= 65535) result.managementPort = mgmt;
     if (Number.isInteger(gw) && gw >= 1 && gw <= 65535) result.gatewayPort = gw;
-    if (typeof o.autoStartService === "boolean") result.autoStartService = o.autoStartService;
   }
   return result;
 }
@@ -63,7 +59,6 @@ export function writeSettings(update: Partial<TraySettings>): TraySettings {
   const gw = Number(update.gatewayPort);
   if (Number.isInteger(mgmt) && mgmt >= 1 && mgmt <= 65535) next.managementPort = mgmt;
   if (Number.isInteger(gw) && gw >= 1 && gw <= 65535) next.gatewayPort = gw;
-  if (typeof update.autoStartService === "boolean") next.autoStartService = update.autoStartService;
   mkdirSync(settingsDir(), { recursive: true });
   writeFileSync(settingsFile(), JSON.stringify(next, null, 2), "utf8");
   return next;

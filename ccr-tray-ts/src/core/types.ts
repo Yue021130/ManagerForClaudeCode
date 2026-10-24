@@ -15,7 +15,6 @@ export type MenuEvent =
   | { kind: "start-service" }
   | { kind: "stop-service" }
   | { kind: "toggle-autostart"; enabled: boolean }
-  | { kind: "toggle-auto-service"; enabled: boolean }
   | { kind: "test-port"; which: "management" | "gateway"; port: number }
   | { kind: "save-ports"; managementPort: number; gatewayPort: number }
   | { kind: "settings-tick" }
@@ -41,8 +40,6 @@ export interface SettingsState {
   /** 本次启动时长（毫秒）；服务未运行为 null */
   uptimeMs: number | null;
   autostartEnabled: boolean;
-  /** 开机自启 CCR 服务（托盘启动时自动拉起） */
-  autoStartService: boolean;
   managementPort: number;
   gatewayPort: number;
   serviceState: ServiceState;

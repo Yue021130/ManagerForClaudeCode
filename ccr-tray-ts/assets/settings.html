@@ -194,12 +194,8 @@
       <div class="card">
         <div class="cap">常规</div>
         <div class="row">
-          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>开机自启 托盘</span>
+          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>开机自启</span>
           <span class="switch" id="autostartSwitch"></span>
-        </div>
-        <div class="row">
-          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5.14v13.72c0 .8.87 1.3 1.56.88l10.5-6.86a1.05 1.05 0 0 0 0-1.76L9.56 4.26A1.03 1.03 0 0 0 8 5.14z"/></svg>开机自启 CCR</span>
-          <span class="switch" id="autoServiceSwitch"></span>
         </div>
       </div>
 
@@ -311,7 +307,6 @@
     }
     // 自启开关
     $("autostartSwitch").className = "switch" + (s.autostartEnabled ? " on" : "");
-    $("autoServiceSwitch").className = "switch" + (s.autoStartService ? " on" : "");
     // 端口（用户没动过才同步）
     if (!mgmtTouched) $("mgmtInput").value = s.managementPort;
     if (!gwTouched) $("gatewayInput").value = s.gatewayPort;
@@ -369,9 +364,6 @@
 
   $("autostartSwitch").addEventListener("click", () => {
     window.ccrSettings.send({ kind: "toggle-autostart", enabled: !current.autostartEnabled });
-  });
-  $("autoServiceSwitch").addEventListener("click", () => {
-    window.ccrSettings.send({ kind: "toggle-auto-service", enabled: !current.autoStartService });
   });
 
   $("closeBtn").addEventListener("click", () => window.ccrSettings.send({ kind: "dismiss" }));
