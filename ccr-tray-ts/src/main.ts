@@ -62,7 +62,7 @@ if (!gotLock) {
     shell.updateSettings(buildSettingsState());
   }
 
-  // 提示条 5 秒后自动消失（渲染层每秒重推，清除必须放在主进程做）
+  // 提示条 3 秒后自动消失（渲染层每秒重推，清除必须放在主进程做）
   let noticeTimer: NodeJS.Timeout | null = null;
   function setNotice(msg: string | undefined): void {
     lastNotice = msg;
@@ -71,7 +71,7 @@ if (!gotLock) {
       noticeTimer = setTimeout(() => {
         lastNotice = undefined;
         pushSettings();
-      }, 5000);
+      }, 3000);
     }
     pushSettings();
   }
