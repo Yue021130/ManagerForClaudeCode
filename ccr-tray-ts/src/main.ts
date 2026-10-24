@@ -29,6 +29,8 @@ if (!gotLock) {
   let runningSince: number | null = null;
   let prevRunning = false;
   let autostartEnabled = false;
+  /** 开机自启 CCR：托盘启动时若服务没在跑自动拉起 */
+  let autoStartService = true;
   /** 最近一次端口测试结果 / 提示条（推给设置窗口） */
   let lastPortTest: { which: "management" | "gateway"; result: PortTestResult } | undefined;
   let lastNotice: string | undefined;
@@ -49,6 +51,7 @@ if (!gotLock) {
     return {
       uptimeMs: status.state === "running" && runningSince !== null ? Date.now() - runningSince : null,
       autostartEnabled,
+      autoStartService,
       managementPort: readSettings().managementPort,
       gatewayPort: readSettings().gatewayPort,
       serviceState: status.state,
@@ -174,6 +177,11 @@ if (!gotLock) {
         shell.refreshMenu({ status, autostartEnabled, busy });
         pushSettings();
         break;
+      case "toggle-auto-service":
+        writeSettings({ autoStartService: event.enabled });
+        autoStartService = event.enabled;
+        pushSettings();
+        break;
       case "test-port": {
         lastNotice = undefined;
         lastPortTest = { which: event.which, result: await testPort(event.port) };
@@ -224,10 +232,16 @@ if (!gotLock) {
 
   void app.whenReady().then(async () => {
     autostartEnabled = isAutostartEnabled(currentExePath());
+    autoStartService = readSettings().autoStartService;
     shell.onEvent((event) => void handleEvent(event));
     await shell.init();
     await refresh();
     setInterval(() => void refresh(), pollIntervalMs);
+    // 开机自启 CCR：托盘起来后服务没在跑 → 自动拉起（复用手动启动路径，黄灯呼吸一致）
+    if (autoStartService && status.state === "stopped") {
+      console.log("[boot] 服务未运行，自动拉起");
+      await handleEvent({ kind: "start-service" });
+    }
   });
 
   // 托盘应用：关掉所有窗口也不退出；显式"退出"菜单才走
