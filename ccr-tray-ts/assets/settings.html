@@ -306,11 +306,13 @@
 
   function updateEditUI() {
     const busy = !!(current && current.busy);
-    // 行内按钮：该行有修改才淡入；重启中禁用，测试中的行转圈（保持可见但不可点）
-    $("mgmtReset").className = "mini-btn" + (mgmtChanged() ? " on" : "");
-    $("mgmtTestBtn").className = "mini-btn" + (mgmtChanged() ? " on" : "");
-    $("gwReset").className = "mini-btn" + (gwChanged() ? " on" : "");
-    $("gwTestBtn").className = "mini-btn" + (gwChanged() ? " on" : "");
+    // 行内按钮：该行有修改才淡入；重启进行中整体隐藏（不是置灰挂在那里）
+    const showMgmt = mgmtChanged() && !busy;
+    const showGw = gwChanged() && !busy;
+    $("mgmtReset").className = "mini-btn" + (showMgmt ? " on" : "");
+    $("mgmtTestBtn").className = "mini-btn" + (showMgmt ? " on" : "");
+    $("gwReset").className = "mini-btn" + (showGw ? " on" : "");
+    $("gwTestBtn").className = "mini-btn" + (showGw ? " on" : "");
     // 内容没变就不重写 DOM：否则每次状态推送（每秒）都会重启转圈动画，看起来一顿一顿
     const mHtml = testingMgmt ? '<span class="mini-spin"></span>' : "测试";
     const gHtml = testingGw ? '<span class="mini-spin"></span>' : "测试";
@@ -318,10 +320,8 @@
     if ($("gwTestBtn").innerHTML !== gHtml) $("gwTestBtn").innerHTML = gHtml;
     $("mgmtTestBtn").classList.toggle("testing", testingMgmt);
     $("gwTestBtn").classList.toggle("testing", testingGw);
-    $("mgmtReset").classList.toggle("disabled", busy || testingMgmt);
-    $("mgmtTestBtn").classList.toggle("disabled", busy);
-    $("gwReset").classList.toggle("disabled", busy || testingGw);
-    $("gwTestBtn").classList.toggle("disabled", busy);
+    $("mgmtReset").classList.toggle("disabled", testingMgmt);
+    $("gwReset").classList.toggle("disabled", testingGw);
     // 行内结果：仅当测试快照与当前输入一致时才显示
     const mOk = testedMgmt !== null && testedMgmt === curMgmt() && resMgmt !== null;
     const gOk = testedGw !== null && testedGw === curGw() && resGw !== null;
