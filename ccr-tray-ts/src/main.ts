@@ -1,6 +1,4 @@
 import { app } from "electron";
-import * as fs from "fs";
-import * as path from "path";
 import { restartService, startService, stopService, testPort } from "./core/ccr";
 import { checkStatus } from "./core/status";
 import { readManagementUrl } from "./core/service-state";
@@ -14,21 +12,6 @@ const pollIntervalMs = 3000;
 const yellowStuckMs = 10_000;
 /** 点启动后等待网关起来的窗口：超过仍未 running 则放弃黄灯展示，回落真实状态 */
 const startWindowMs = 15_000;
-
-// 历史版本曾为系统 toast 在开始菜单注册过快捷方式；通知已改应用内自绘，
-// 那个快捷方式没用了，启动时顺手清掉（不存在则什么都不做）
-const legacyToastShortcut = path.join(
-  process.env.APPDATA ?? path.join(app.getPath("home"), "AppData", "Roaming"),
-  "Microsoft", "Windows", "Start Menu", "Programs", "CCR-YUE Tray.lnk",
-);
-
-function removeLegacyToastShortcut(): void {
-  try {
-    fs.rmSync(legacyToastShortcut, { force: true });
-  } catch {
-    /* 清理失败无所谓 */
-  }
-}
 
 // 单实例：第二个实例直接退出，并唤起第一个
 const gotLock = app.requestSingleInstanceLock();
@@ -240,7 +223,6 @@ if (!gotLock) {
   }
 
   void app.whenReady().then(async () => {
-    removeLegacyToastShortcut();
     autostartEnabled = isAutostartEnabled(currentExePath());
     shell.onEvent((event) => void handleEvent(event));
     await shell.init();
