@@ -114,7 +114,6 @@ export function testPort(port): Promise<"free"|"in-use"|"invalid">
 - Windows 上命令是 `ccr.cmd`,必须 `shell: true`;`windowsHide: true`、`stdio: "ignore"`;非零退出码 reject。
 - `startService()` 注入两个环境变量:`CCR_WEB_PORT=<管理口>`(上游原生支持)与 `CCR_GATEWAY_PORT=<网关口>`(**本地 fork 补丁**,见根目录 `docs/PATCHES.md`)。**没有单独的 `restartService()`**,保存重启由 `main.ts` 串 `stop + start` 实现,以便在中间推阶段文字。
 - `testPort` 不连服务,而是在本地 `net.createServer()` 试绑 `127.0.0.1:port`:绑得上 → `free`,`EADDRINUSE` → `in-use`,其它错误 → `invalid`,入参非法 → `invalid`。
-- `openManagement()` 目前是**死代码**(空实现,真正打开浏览器在 shell 层做)。
 
 ### 3.4 `src/core/settings.ts` —— 托盘自身配置
 
@@ -142,12 +141,11 @@ export function readManagementUrl(fallbackPort: number): string
 
 - **Windows**:注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,值名 `CCRTray`,用 `reg.exe` + `spawnSync`。**所有 stdio 都吞掉** —— 注释说明:中文 Windows 上 `reg.exe` 的输出是 GBK,接到 UTF-8 终端会乱码,所以只看退出码、不读输出。
 - **Linux**:写/删 `~/.config/autostart/ccr-tray.desktop`。
-- `currentExePath()`:Windows 用 `process.execPath`,Linux 优先 `$APPIMAGE`。
-- `desktopFileRaw()` 目前是**死代码**。
+- 自启目标命令由 `main.ts` 的 `autostartTarget()` 给出:打包后就是 exe 本体;**开发期是裸 electron 二进制,必须把应用目录作为参数一起写进注册表**(`"electron.exe" "项目目录"`),否则开机启动的是 Electron 默认欢迎窗口。Linux 同理(`autostart.ts` 的 `currentExePath()` 优先 `$APPIMAGE`)。
 
 ### 3.7 `src/core/types.ts` —— 类型
 
-纯类型,无运行时代码。关键:`ServiceState = "running"|"partial"|"stopped"`、`StatusInfo`、`MenuEvent`(11 种事件的判别联合)、`PortTestResult`、`NotifyKind/NotifyInfo`、`SettingsState`。
+纯类型,无运行时代码。关键:`ServiceState = "running"|"partial"|"stopped"`、`StatusInfo`(只有 `state` 一个字段,探测细节不进载荷)、`MenuEvent`(11 种事件的判别联合)、`PortTestResult`、`NotifyKind/NotifyInfo`、`SettingsState`。
 
 ## 4. Electron 壳实现细节(`src/shell/electron-tray.ts`)
 
@@ -208,7 +206,7 @@ quit(): void {
 
 | 通道 | 方向 | 载荷 | 生产者 → 消费者 |
 |---|---|---|---|
-| `menu:state` | main → 菜单渲染器 | `MenuOptions { status, autostartEnabled, busy }` | `ElectronTrayShell.pushState` → `menu-preload.onState` |
+| `menu:state` | main → 菜单渲染器 | `MenuOptions { status, busy }` | `ElectronTrayShell.pushState` → `menu-preload.onState` |
 | `menu:event` | 菜单渲染器 → main | `MenuEvent` 或 `{kind:"dismiss"}` | `menu-preload.send` → `ipcMain.on("menu:event")` |
 | `settings:state` | main → 设置渲染器 | `SettingsState { uptimeMs, avgCpuPercent, memRssMb, autostartEnabled, managementPort, gatewayPort, serviceState, busy, portTest?, lastSave?, saveStage?, portError? }` | `ElectronTrayShell.pushSettingsState` → `settings-preload.onState` |
 | `settings:event` | 设置渲染器 → main | `MenuEvent` 或 `{kind:"dismiss"/"content-height"}`(含每秒 `settings-tick`) | `settings-preload.send` → `ipcMain.on("settings:event")` |
@@ -297,14 +295,11 @@ renderer 点击/按键
 | 问题 | 现状 | 建议方向 |
 |---|---|---|
 | `assets/icon.png` 缺失 | 首次点亮总是黄色 partial 图标 | 补一张应用图标 |
-| `openManagement()` / `desktopFileRaw()` 死代码 | 空实现/未被引用 | 删除或接上 |
 | 端口相等校验未下沉 | 只在 `main.ts`,`settings.ts` 不强制 | 把"两端口不能相同"加进 `sanitize/writeSettings` |
 | "补丁 6 / 补丁 7" 口径不一致 | `PATCHES.md` vs `core/ccr.ts` 注释 | 统一 |
-| `StatusInfo.managementUrl` 不带 token | 真正带 token 的 URL 只在 `readManagementUrl` | 要么去掉这个字段,要么统一走 service-state |
 | `uptimeMs` 是托盘观测口径 | 托盘或 CCR 重启就归零,不是真实进程时长 | 如需真实时长,改从 CCR 侧读 |
 | `avgCpuPercent` 是自启动累计平均 | 随运行时间趋于平稳,多线程下可超 100%(单核口径) | 如需瞬时占用,改滑动窗口采样 `app.getAppMetrics()` |
 | 3s 轮询无界面也在跑 | 每轮最多两次本地 HTTP | 可在无任何 UI 打开时降频/暂停 |
 | 设置窗隐藏后 1s interval 仍在 | tick 只要设置窗存在就发(运行时长 + 托盘资源实时刷新) | 可在隐藏时清 interval |
-| `MenuOptions.autostartEnabled` 菜单端没用 | 菜单 HTML 没渲染它(自启开关在设置窗) | 精简载荷或在菜单里也展示 |
 | `--dev` 参数没人读 | `npm run dev` 传了但源码不消费 | 接上(如开 DevTools)或从脚本里去掉 |
 | 透明窗口无系统投影 | 设置/菜单/通知三窗都无 DWM shadow,边缘较"平" | 需要时用 `roundedCorners`(Win11)或自绘阴影 |
