@@ -4,7 +4,7 @@ import { checkStatus } from "./core/status";
 import { readManagementUrl } from "./core/service-state";
 import { readSettings, writeSettings } from "./core/settings";
 import type { MenuEvent, NotifyKind, PortTestResult, SettingsState, StatusInfo } from "./core/types";
-import { currentExePath, isAutostartEnabled, setAutostartEnabled } from "./core/autostart";
+import { isAutostartEnabled, setAutostartEnabled } from "./core/autostart";
 import { ElectronTrayShell } from "./shell/electron-tray";
 
 const pollIntervalMs = 3000;
@@ -46,6 +46,12 @@ if (!gotLock) {
   let startPendingAt: number | null = null;
 
   const shell = new ElectronTrayShell();
+
+  /** 自启注册的目标命令：打包后 exe 即应用本体；开发期是裸 electron 二进制，
+   *  必须把应用目录作为参数带上，否则开机启动的是 Electron 默认欢迎窗口 */
+  function autostartTarget(): string {
+    return app.isPackaged ? process.execPath : `"${process.execPath}" "${app.getAppPath()}"`;
+  }
 
   function buildSettingsState(): SettingsState {
     const cpu = process.cpuUsage();
@@ -189,7 +195,7 @@ if (!gotLock) {
         break;
       }
       case "toggle-autostart":
-        setAutostartEnabled(currentExePath(), event.enabled);
+        setAutostartEnabled(autostartTarget(), event.enabled);
         autostartEnabled = event.enabled;
         shell.refreshMenu({ status, autostartEnabled, busy });
         pushSettings();
@@ -255,7 +261,7 @@ if (!gotLock) {
   }
 
   void app.whenReady().then(async () => {
-    autostartEnabled = isAutostartEnabled(currentExePath());
+    autostartEnabled = isAutostartEnabled(autostartTarget());
     shell.onEvent((event) => void handleEvent(event));
     await shell.init();
     await refresh();
