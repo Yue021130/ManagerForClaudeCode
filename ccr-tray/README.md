@@ -14,14 +14,14 @@ CCR(Claude Code Router)服务的桌面托盘程序,基于 Electron + TypeScript�
 ## 环境要求
 
 - **必须**:目标机器全局安装 [claude-code-router](https://github.com/musistudio/claude-code-router),命令行可执行 `ccr`(托盘通过 `ccr start/stop` 控制服务)
-- Node.js 22+、npm(仅开发/打包需要)
+- Node.js 22+、npm
 
 ## 开发
 
 ```bash
 npm install        # 安装依赖
-npm start          # 构建并启动(electron .)
-npm run dev        # 同上,多传 --dev(预留参数,暂未消费)
+npm start          # 构建并启动
+npm run dev        # 构建并启动
 npm run typecheck  # tsc --noEmit 类型检查
 npm run build      # esbuild 打包到 dist/
 ```
@@ -31,8 +31,8 @@ npm run build      # esbuild 打包到 dist/
 使用 electron-builder,输出 NSIS 向导式安装包:
 
 ```bash
-npm run dist       # 生成 dist/CCR Tray Setup <版本>.exe(约 194MB)
-npm run pack       # 只生成免安装目录 dist/win-unpacked/
+npm run dist       # 生成 release/CCR Tray Setup <版本>.exe
+npm run pack       # 只生成免安装目录 release/win-unpacked/
 npm run icon       # 由 assets/tray-green-48.png 重新生成 build/icon.ico
 ```
 
