@@ -6,8 +6,15 @@
   "build": {
     "appId": "com.ccr.tray",
     "productName": "CCR Tray",
+    "directories": {
+      "output": "release"
+    },
     "files": [
       "dist/**/*",
+      "!dist/win-unpacked/**",
+      "!dist/*.exe",
+      "!dist/*.blockmap",
+      "!dist/builder-debug.yml",
       "assets/**/*",
       "package.json"
     ],
