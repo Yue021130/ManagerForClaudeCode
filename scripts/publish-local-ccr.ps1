@@ -38,6 +38,6 @@ Write-Host "==> ccr start"
 ccr start
 
 Write-Host ""
-Write-Host "发布完成。" -ForegroundColor Green
-Write-Host "  - ccr 服务已重启，补丁版本开始生效"
-Write-Host "  - 浏览器打开 http://127.0.0.1:3458/ ，确认供应商列表正常即可"
+Write-Host "💫 发布完成。" -ForegroundColor Green
+Write-Host "  - ccr 服务已重启，补丁版本开始生效 🚀🚀🚀"
+Write-Host "  -🕸 浏览器打开 http://127.0.0.1:3458/ ，确认信息列表正常即可"
