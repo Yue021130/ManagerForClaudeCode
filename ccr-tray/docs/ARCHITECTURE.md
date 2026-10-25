@@ -260,13 +260,16 @@ renderer 点击/按键
 - `build`:`esbuild src/main.ts src/shell/menu-preload.ts src/shell/settings-preload.ts src/shell/notify-preload.ts --bundle --platform=node --format=cjs --external:electron --outdir=dist --out-extension:.js=.cjs`
 - `start` / `dev`:build 之后 `electron .`(`dev` 多传一个 `--dev`,但**源码里没人读这个参数**)
 - `typecheck`:`tsc --noEmit`
+- `pack`:build 之后 `electron-builder --dir` —— 免安装 unpacked 目录(调试打包问题用)
+- `dist`:build 之后 `electron-builder` —— Windows NSIS 安装包,产物在 `release/`
 
 要点:
 
 - esbuild 四入口 → `dist/main.cjs` + `dist/shell/` 下三个 preload;electron 是 external。
 - `out-extension:.js=.cjs` 必须写,因为项目没有 `"type":"module"`,esbuild 默认会输出 `.js`。
-- **没有 electron-builder / forge**,开发期就是 `electron .` 跑源码。
-- **`assets/` 不拷进 `dist/`**;运行时靠 `__dirname/../assets` 指回项目根。将来若打包,要么保持这个目录结构,要么改 `ASSETS`。
+- **打包用 electron-builder**:`files` 显式包含 `dist/`、`assets/`、`package.json`,打进 `app.asar`;`assets/` 在 asar 内,`__dirname/../assets` 解析到 `app.asar/assets`,Electron 可直接读写,**无需改 `ASSETS` 代码**。应用图标用 `build/icon.ico`(由 `assets/tray-green-48.png` 经 `png-to-ico` 生成)。
+- NSIS 配置:`oneClick: false`(向导式、可选安装目录)、不创建桌面快捷方式(托盘应用);安装后开机自启写注册表,目标 exe 路径来自 `app.isPackaged` 分支,天然正确。
+- **`assets/` 不拷进 `dist/`**;dev 靠 `__dirname/../assets` 指回项目根,打包靠 asar 内的同相对路径,两种模式共用一份代码。
 
 ## 8. 设计决策与权衡
 

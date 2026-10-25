@@ -3,16 +3,41 @@
   "version": "0.1.0",
   "description": "CCR 服务托盘",
   "main": "dist/main.cjs",
+  "build": {
+    "appId": "com.ccr.tray",
+    "productName": "CCR Tray",
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "shortcutName": "CCR Tray"
+    }
+  },
   "scripts": {
     "build": "esbuild src/main.ts src/shell/menu-preload.ts src/shell/settings-preload.ts src/shell/notify-preload.ts --bundle --platform=node --format=cjs --external:electron --outdir=dist --out-extension:.js=.cjs",
     "start": "npm run build && electron .",
     "dev": "npm run build && electron . --dev",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "icon": "node build/make-icon.cjs",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "electron": "^38.8.6",
+    "electron-builder": "^26.18.0",
     "esbuild": "^0.25.0",
+    "jimp": "^1.6.1",
+    "png-to-ico": "^3.0.2",
     "typescript": "^5.7.0"
   }
 }
