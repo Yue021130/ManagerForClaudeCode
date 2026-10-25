@@ -36,7 +36,7 @@ npm run pack       # 只生成免安装目录 release/win-unpacked/
 npm run icon       # 由 assets/tray-green-48.png 重新生成 build/icon.ico
 ```
 
-将 `CCR Tray Setup <版本>.exe` 拷到目标 Windows 机器运行即可。安装后开机自启自动指向安装目录的 exe。目标机器同样需要预装 `ccr` CLI。
+将 `CCR Tray Setup <版本>.exe` 拷到目标 Windows 机器运行即可。安装后开机自启自动指向安装目录的 exe。**注：目标机器同样需要预装 `ccr` CLI。**
 
 ## 配置与数据
 
@@ -52,14 +52,14 @@ npm run icon       # 由 assets/tray-green-48.png 重新生成 build/icon.ico
 
 ```
 src/main.ts        编排器:状态机、事件分发、通知决策
-src/core/          纯 Node 逻辑(零 Electron 依赖,壳可替换)
+src/core/          纯 Node 逻辑
 src/shell/         Electron 壳:托盘、自绘菜单/设置/通知三个弹窗、preload
 assets/            三个弹窗的 HTML/CSS/JS 与托盘图标
 docs/ARCHITECTURE.md  架构文档:分层、IPC 协议、数据流、设计决策
-build/             应用图标(ico)与生成脚本
+build/             应用图标与生成脚本
 ```
 
 ## 说明
 
 - `startService()` 通过 `CCR_GATEWAY_PORT` 环境变量指定网关口,这是**本地 fork 的补丁**,上游 CCR 不具备,详见仓库根 `docs/PATCHES.md`
-- Windows 优先,Linux 按 XDG 约定支持
+
