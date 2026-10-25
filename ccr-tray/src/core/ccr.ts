@@ -48,8 +48,3 @@ export function testPort(port: number): Promise<"free" | "in-use" | "invalid"> {
     });
   });
 }
-
-export function openManagement(url: string): void {
-  // 由 shell 层实现跨平台打开浏览器；core 只负责给出地址
-  void url;
-}

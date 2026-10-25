@@ -4,7 +4,7 @@ import { checkStatus } from "./core/status";
 import { readManagementUrl } from "./core/service-state";
 import { readSettings, writeSettings } from "./core/settings";
 import type { MenuEvent, NotifyKind, PortTestResult, SettingsState, StatusInfo } from "./core/types";
-import { isAutostartEnabled, setAutostartEnabled } from "./core/autostart";
+import { currentExePath, isAutostartEnabled, setAutostartEnabled } from "./core/autostart";
 import { ElectronTrayShell } from "./shell/electron-tray";
 
 const pollIntervalMs = 3000;
@@ -23,7 +23,7 @@ if (!gotLock) {
   });
 
   // 初始按黄灯（半启动）算：托盘刚起时状态未知，第一次轮询后覆盖为真实状态
-  let status: StatusInfo = { state: "partial", managementUrl: "http://127.0.0.1:3458/", gatewayOk: false, checkedAt: 0 };
+  let status: StatusInfo = { state: "partial" };
   let busy = false;
   /** 本次启动时长：服务进入 running 的时刻，停止归零 */
   let runningSince: number | null = null;
@@ -50,6 +50,7 @@ if (!gotLock) {
   /** 自启注册的目标命令：打包后 exe 即应用本体；开发期是裸 electron 二进制，
    *  必须把应用目录作为参数带上，否则开机启动的是 Electron 默认欢迎窗口 */
   function autostartTarget(): string {
+    if (process.platform !== "win32") return currentExePath();
     return app.isPackaged ? process.execPath : `"${process.execPath}" "${app.getAppPath()}"`;
   }
 
@@ -147,7 +148,7 @@ if (!gotLock) {
     trackStatusChange();
 
     shell.setStatus(status);
-    shell.refreshMenu({ status, autostartEnabled, busy });
+    shell.refreshMenu({ status, busy });
     pushSettings();
   }
 
@@ -167,7 +168,7 @@ if (!gotLock) {
       case "start-service":
       case "stop-service": {
         busy = true;
-        shell.refreshMenu({ status, autostartEnabled, busy });
+        shell.refreshMenu({ status, busy });
         pushSettings();
         try {
           if (event.kind === "start-service") {
@@ -197,7 +198,7 @@ if (!gotLock) {
       case "toggle-autostart":
         setAutostartEnabled(autostartTarget(), event.enabled);
         autostartEnabled = event.enabled;
-        shell.refreshMenu({ status, autostartEnabled, busy });
+        shell.refreshMenu({ status, busy });
         pushSettings();
         break;
       case "test-port": {

@@ -19,10 +19,5 @@ export async function checkStatus(): Promise<StatusInfo> {
   const { managementPort, gatewayPort } = readSettings();
   const gatewayOk = await probe(gatewayPort);
   const mgmtOk = gatewayOk ? true : await probe(managementPort);
-  return {
-    state: gatewayOk ? "running" : mgmtOk ? "partial" : "stopped",
-    managementUrl: `http://127.0.0.1:${managementPort}/`,
-    gatewayOk,
-    checkedAt: Date.now(),
-  };
+  return { state: gatewayOk ? "running" : mgmtOk ? "partial" : "stopped" };
 }

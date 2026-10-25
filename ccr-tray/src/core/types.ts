@@ -3,10 +3,6 @@ export type ServiceState = "running" | "partial" | "stopped";
 
 export interface StatusInfo {
   state: ServiceState;
-  /** 探测到的管理口地址（用于"打开管理界面"） */
-  managementUrl: string;
-  gatewayOk: boolean;
-  checkedAt: number;
 }
 
 export type MenuEvent =
@@ -25,7 +21,7 @@ export type MenuEvent =
 export type PortTestResult = "free" | "in-use" | "invalid";
 
 /** 通知类型：决定左侧色条颜色 */
-export type NotifyKind = "crash" | "recover" | "stuck" | "info";
+export type NotifyKind = "crash" | "recover" | "stuck";
 
 /** 推给自绘通知弹窗的内容 */
 export interface NotifyInfo {

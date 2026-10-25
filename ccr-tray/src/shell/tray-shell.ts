@@ -27,7 +27,6 @@ export interface TrayShell {
 
 export interface MenuOptions {
   status: StatusInfo;
-  autostartEnabled: boolean;
   /** 操作进行中（启动/停止点了之后到状态变化前） */
   busy: boolean;
 }

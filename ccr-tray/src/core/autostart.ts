@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -71,12 +71,4 @@ function linuxSet(exePath: string, enabled: boolean): void {
 export function currentExePath(): string {
   if (process.platform === "win32") return process.execPath;
   return process.env.APPIMAGE ?? process.execPath;
-}
-
-export function desktopFileRaw(): string | undefined {
-  try {
-    return readFileSync(desktopFilePath(), "utf8");
-  } catch {
-    return undefined;
-  }
 }
