@@ -164,6 +164,7 @@ export function readManagementUrl(fallbackPort: number): string
 - **`closable: false`** 是关键(见 4.5 退出问题)。
 - **尺寸实测**:等 `did-finish-load` 后(推送与测量走同一 IPC 通道按序到达,先渲染完再量)读 `#menu.scrollWidth/scrollHeight`,再 `+2px` 余量防止取整裁剪。注释明确:**不能用 `requestAnimationFrame`,因为隐藏窗口不产帧,rAF 不会触发**。
 - **定位**:以**鼠标点击位置**锚定(弹窗出现在点击点右上侧);点击点在屏幕上半 → 往下弹,下半 → 往上弹;再夹取到所在显示器的 `workArea` 内(留 4px 边距)。
+- **开着时内容变化要重排**:`partial`(启动中)状态会隐藏"打开管理界面"一项,状态翻成 running 后内容多一行;`refreshMenu()` 推状态时若弹窗可见,`layoutPopup()` 重测内容并调整边界(顶边固定、底边夹工作区内),否则窗口尺寸停留在打开那一刻,末项(退出)被挤出可视区点不到。
 
 ### 4.3 自绘通知弹窗(绕开专注助手)
 
