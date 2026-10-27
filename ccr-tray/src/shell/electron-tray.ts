@@ -363,6 +363,23 @@ export class ElectronTrayShell implements TrayShell {
     this.popup.show();
   }
 
+  /** 状态推送导致内容高度变化时（如"启动中→已启动"多出一行"打开管理界面"），
+   *  重测内容并调整弹窗边界；顶边固定向上收/向下长，底边夹在工作区内，
+   *  否则窗口尺寸停留在打开那一刻，末项会被挤出可视区点不到 */
+  private async layoutPopup(): Promise<void> {
+    if (!this.popup || this.popup.isDestroyed()) return;
+    const size = await this.measurePopup();
+    const w = Math.max((size?.width ?? POPUP_WIDTH) + 2, 100);
+    const h = (size?.height ?? POPUP_HEIGHT) + 2;
+    const b = this.popup.getBounds();
+    const area = screen.getDisplayMatching(b).workArea;
+    let y = b.y;
+    if (y + h > area.y + area.height - 4) {
+      y = Math.max(area.y + 4, area.y + area.height - 4 - h);
+    }
+    this.popup.setBounds({ x: b.x, y, width: w, height: h });
+  }
+
   private pushState(): void {
     if (this.popup && this.lastOptions && !this.popup.webContents.isDestroyed()) {
       this.popup.webContents.send("menu:state", this.lastOptions);
@@ -409,8 +426,12 @@ export class ElectronTrayShell implements TrayShell {
 
   refreshMenu(options: MenuOptions): void {
     this.lastOptions = options;
-    // 弹窗开着时实时刷新内容（busy 置灰、启停切换等）
-    if (this.popup?.isVisible()) this.pushState();
+    // 弹窗开着时实时刷新内容（busy 置灰、启停切换等）；内容高度可能随状态变
+    // （partial 隐藏"打开管理界面"一项），尺寸跟着重排，末项才不会被裁掉
+    if (this.popup?.isVisible()) {
+      this.pushState();
+      void this.layoutPopup();
+    }
   }
 
   updateSettings(state: SettingsState): void {
