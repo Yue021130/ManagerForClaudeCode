@@ -30,12 +30,19 @@ import React from 'react';
 // 这里的 render 来自 ink —— 相当于浏览器的 ReactDOM,只是   渲染器换了后端
 import { render } from 'ink';
 import App from './App.js';
+import { playSplash } from './shell/splash.js';
 import { playGoodbye } from './shell/goodbye.js';
+
+// 生命周期三段式：
+//   启动页（splash）→ App 运行 → 退出画面（goodbye）
+// splash/goodbye 都是纯 ANSI 直写 stdout，不经过 Ink；
+// Ink 挂载前屏幕已清空、光标在左上角，卸载后由 goodbye 接管
+const startTime = Date.now();
+await playSplash();
 
 // render() 挂载 <App/> 到终端,接管 stdout/stdin
 // Ink 自动处理: 只重绘变化行(ANSI 光标控制)、stdin 原始模式捕获按键、
 // 退出时恢复终端状态 —— 对应浏览器里 React/DOM 替你做的事
-const startTime = Date.now();
 const { waitUntilExit } = render(<App />);
 
 // 退出流程：用户在 App 里按 q → Ink 卸载 → waitUntilExit 兑现 →
