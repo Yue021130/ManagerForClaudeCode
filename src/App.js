@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
-import { THEME } from './theme.js';
 import { useTerminalSize } from './hooks/useTerminalSize.js';
 import { ShellProvider } from './shell/context.js';
 import { PAGE_REGISTRY } from './pages/registry.js';
@@ -63,19 +62,19 @@ export default function App() {
               key={p.key}
               bold={active}
               backgroundColor={active ? p.meta.color : undefined}
-              color={active ? THEME.onAccent : THEME.faint}
+              color={active ? '#0D1117' : '#57606A'}
             >
               {` ${p.meta.num} ${p.meta.label} `}
             </Text>
           );
         })}
         <Box flexGrow={1} />
-        {error && <Text bold color={THEME.dangerBright}>✗ {error}</Text>}
-        {!error && message && <Text bold color={THEME.successBright}>✓ {message}</Text>}
+        {error && <Text bold color="#FF7B72">✗ {error}</Text>}
+        {!error && message && <Text bold color="#56D364">✓ {message}</Text>}
       </Box>
 
       <Box height={1} paddingX={1}>
-        <Text color={THEME.border}>{'─'.repeat(terminalWidth - 2)}</Text>
+        <Text color="#30363D">{'─'.repeat(terminalWidth - 2)}</Text>
       </Box>
 
       {/* ── content：渲染当前页（切换即卸载旧页，状态不保留） ── */}
@@ -86,15 +85,15 @@ export default function App() {
       </Box>
 
       <Box height={1} paddingX={1}>
-        <Text color={THEME.border}>{'─'.repeat(terminalWidth - 2)}</Text>
+        <Text color="#30363D">{'─'.repeat(terminalWidth - 2)}</Text>
       </Box>
 
       {/* ── 底栏：页面键帽 + 全局退出 ── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
         {[...current.meta.hints, ['esc', 'quit']].map(([k, label]) => (
           <Box key={k} flexDirection="row" marginRight={2}>
-            <Text bold backgroundColor={THEME.chipBg} color={THEME.infoBright}>{` ${k} `}</Text>
-            <Text color={THEME.faint}>{` ${label}`}</Text>
+            <Text bold backgroundColor="#161B22" color="#79C0FF">{` ${k} `}</Text>
+            <Text color="#57606A">{` ${label}`}</Text>
           </Box>
         ))}
       </Box>

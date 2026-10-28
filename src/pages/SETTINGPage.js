@@ -1,18 +1,21 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { THEME } from '../theme.js';
 
+/**
+ * SETTING 页 — 占位
+ * 规划功能：设置
+ */
 export const meta = {
-  num: 4,
+  num: 3,
   label: 'SETTING',
-  color: THEME.accentBright,
+  color: '#67E8F9',
   hints: []
 };
 
 export default function SETTINGPage() {
   return (
     <Box flexGrow={1} alignItems="center" justifyContent="center">
-      <Text color={THEME.faint}>SETTING · 待填充</Text>
+      <Text color="#57606A">SETTING · 待填充</Text>
     </Box>
   );
 }

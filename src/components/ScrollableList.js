@@ -1,6 +1,5 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { THEME } from '../theme.js';
 import { useScrollableList } from '../hooks/useScrollableList.js';
 
 /**
@@ -10,7 +9,7 @@ import { useScrollableList } from '../hooks/useScrollableList.js';
  * 只渲染屏幕可见范围内的项，上方/下方超出部分用 "↑ N" / "↓ N" 指示。
  *
  * 选中行整行高亮：背景铺满列表宽度，renderItem 内部在 isActive 时
- * 应使用 THEME.onAccent 作为文字色，保证对比度。
+ * 应使用深色文字（'#0D1117'），保证对比度。
  *
  * @param renderItem(item, realIdx, isActive) — 自定义每项的渲染，由父组件注入
  */
@@ -25,7 +24,7 @@ export default function ScrollableList({
   headerOffset = 5,
   minVisible = 5,
   paddingX = 1,
-  activeColor = THEME.infoBright,
+  activeColor = '#79C0FF',
   inactiveColor = 'gray'
 }) {
   const {
@@ -45,14 +44,14 @@ export default function ScrollableList({
       {/* 标题行 + 计数徽章 */}
       {title && (
         <Box marginBottom={1}>
-          <Text bold color={THEME.fg}>{title}</Text>
+          <Text bold color="#E6EDF3">{title}</Text>
           {showCount && (
-            <Text color={THEME.onAccent} backgroundColor={THEME.chipBg}>{` ${items.length} `}</Text>
+            <Text color="#0D1117" backgroundColor="#161B22">{` ${items.length} `}</Text>
           )}
         </Box>
       )}
       {/* 上方溢出指示 */}
-      {hasMoreAbove && <Text color={THEME.faint}>↑ {aboveCount}</Text>}
+      {hasMoreAbove && <Text color="#57606A">↑ {aboveCount}</Text>}
       {/* 可见项渲染 — 选中行整行背景高亮 */}
       {visibleList.map((item, i) => {
         const realIdx = scrollOffset + i;
@@ -64,13 +63,13 @@ export default function ScrollableList({
             width={rowWidth}
             backgroundColor={isActive ? activeColor : undefined}
           >
-            <Text bold color={isActive ? THEME.onAccent : inactiveColor}>{isActive ? '❯ ' : '  '}</Text>
+            <Text bold color={isActive ? '#0D1117' : inactiveColor}>{isActive ? '❯ ' : '  '}</Text>
             {renderItem(item, realIdx, isActive)}
           </Box>
         );
       })}
       {/* 下方溢出指示 */}
-      {hasMoreBelow && <Text color={THEME.faint}>↓ {belowCount}</Text>}
+      {hasMoreBelow && <Text color="#57606A">↓ {belowCount}</Text>}
     </Box>
   );
 }

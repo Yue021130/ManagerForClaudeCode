@@ -1,6 +1,5 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { THEME } from '../theme.js';
 
 /**
  * DetailPanel — 右侧详情面板容器
@@ -20,12 +19,12 @@ export default function DetailPanel({
   return (
     <Box {...boxProps} flexDirection="column" paddingX={paddingX}>
       <Box marginBottom={1}>
-        <Text bold color={isFocused ? THEME.fg : THEME.muted} dimColor={!isFocused}>{title}</Text>
+        <Text bold color={isFocused ? '#E6EDF3' : '#8B949E'} dimColor={!isFocused}>{title}</Text>
         {/* 焦点窗口时显示强调色指示器 */}
-        {isFocused && <Text color={THEME.warnBright}>{'  ◉'}</Text>}
+        {isFocused && <Text color="#E3B341">{'  ◉'}</Text>}
       </Box>
       {children ? children : (
-        <Text color={THEME.faint}>{emptyMessage}</Text>
+        <Text color="#57606A">{emptyMessage}</Text>
       )}
     </Box>
   );
