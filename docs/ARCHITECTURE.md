@@ -28,9 +28,9 @@
 │  ─────────────────────────────────────────   │
 │  content：渲染当前页 Component                 │
 │  ─────────────────────────────────────────   │
-│  底栏：当前页 hints + q quit                  │
+│  底栏：当前页 hints + esc quit                  │
 │                                              │
-│  全局键：q 退出 / 数字键切页                   │
+│  全局键：Esc 退出 / 数字键切页                   │
 │  下发：ShellProvider { width, height,        │
 │         setMessage, setError }               │
 └───────────────────┬──────────────────────────┘
@@ -69,7 +69,7 @@ export const meta = {
   num: 5,                              // 数字键 1-9，全局切页用（不可重复）
   label: 'XXX',                        // 顶栏 Tab 显示名
   color: THEME.magentaBright,          // Tab 胶囊高亮色
-  hints: [['↑↓', 'nav'], ['↵', 'run']], // 底栏键帽；外壳自动追加 q quit
+  hints: [['↑↓', 'nav'], ['↵', 'run']], // 底栏键帽；外壳自动追加 esc quit
 };
 
 export default function XxxPage({ width, height }) {
@@ -77,7 +77,7 @@ export default function XxxPage({ width, height }) {
 
   useInput((input, key) => {
     // 页面自己的按键在这里处理
-    // 注意：q 和已注册的数字键被外壳全局占用，页面收不到
+    // 注意：Esc 和已注册的数字键被外壳全局占用，页面收不到
   });
 
   return (/* content 区域内容，尺寸以 width/height 为准 */);
