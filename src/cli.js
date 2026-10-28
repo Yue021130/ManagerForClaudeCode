@@ -30,8 +30,15 @@ import React from 'react';
 // 这里的 render 来自 ink —— 相当于浏览器的 ReactDOM,只是   渲染器换了后端
 import { render } from 'ink';
 import App from './App.js';
+import { playGoodbye } from './shell/goodbye.js';
 
 // render() 挂载 <App/> 到终端,接管 stdout/stdin
 // Ink 自动处理: 只重绘变化行(ANSI 光标控制)、stdin 原始模式捕获按键、
 // 退出时恢复终端状态 —— 对应浏览器里 React/DOM 替你做的事
-render(<App />);
+const startTime = Date.now();
+const { waitUntilExit } = render(<App />);
+
+// 退出流程：用户在 App 里按 q → Ink 卸载 → waitUntilExit 兑现 →
+// goodbye 接管 stdout：完全清屏 → 字符画渐显 → 定格（shell 提示符接在画面下）
+await waitUntilExit();
+await playGoodbye({ durationMs: Date.now() - startTime });
