@@ -66,7 +66,7 @@ import { THEME } from '../theme.js';
 import { useShell } from '../shell/context.js';
 
 export const meta = {
-  num: 4,                              // 数字键 0-9，全局切页用（不可重复）
+  num: 5,                              // 数字键 1-9，全局切页用（不可重复）
   label: 'XXX',                        // 顶栏 Tab 显示名
   color: THEME.magentaBright,          // Tab 胶囊高亮色
   hints: [['↑↓', 'nav'], ['↵', 'run']], // 底栏键帽；外壳自动追加 q quit
