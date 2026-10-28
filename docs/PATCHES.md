@@ -1,4 +1,4 @@
-# CCR 魔改补丁清单（PATCHES.md）
+# CCR 魔改补丁清单
 
 本文件记录 ManagerForClaudeCode 对 claude-code-router（ccr）源码的全部本地补丁。
 **每次 `npm update -g @musistudio/claude-code-router` 之后，dist 里的补丁会被冲掉，
@@ -7,11 +7,6 @@
 当前基准版本：上游 v3.1.3（commit `057abaa1`）。
 补丁共 6 个文件，大部分以 `// CCR patch:` 注释标记，可用
 `git diff` 或搜索该注释快速定位。
-
-> **已放弃的补丁**：Electron 运行时重定向（原 cli.ts 补丁，2026-10-18 撤销，
-> 于 2026-10-18 撤销，不再维护）。本机 `node` 被 Kimi Electron 假扮导致的 better-sqlite3 ABI
-> 问题，改从启动方式上规避：**始终用真 node（`Z:\Nvm_Nodejs\nodejs\node.exe`）
-> 启动 ccr**，不在代码里硬编码路径。
 
 ## 补丁 1：网关子进程隐藏窗口
 
