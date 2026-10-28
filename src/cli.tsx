@@ -1,9 +1,8 @@
 // 核心：“内核”和“渲染器”分开。计算逻辑和diff生成虚拟树是内核，画到哪里是渲染器。
 // Yue021130：内核->后端 |  渲染器->前端
 
-
 /**
- * CLI 入口 — 唯一职责是用 Ink 渲染 React 应用到终端
+ * CLI 入口 — 唯一职责：串联 启动页 → Ink 应用 → 退出画面
  * Ink 是 "React for terminals"，把 JSX 转成 ANSI 终端输出
  *
  * ── 和浏览器渲染的本质对比 ──────────────────────────────
@@ -13,7 +12,7 @@
  *   浏览器:  ReactDOM.createRoot(node).render(<App/>)
  *            虚拟 DOM → 真实 DOM 节点(div/span) → CSS 布局 → 像素
  *
- *   终端:    render(<App/>)  ← 本文件,来自 ink 而不是 react-dom
+ *   终端:    render(<App/>)  ← 来自 ink 而不是 react-dom
  *            虚拟 DOM → 文本节点树 → yoga flexbox 布局 → ANSI 转义序列
  *
  * 相同点:
@@ -26,7 +25,6 @@
  *   - 事件来源: DOM 事件(onClick/onChange) vs stdin 按键(本项目用 useInput)
  *   - 无持久实体: DOM 节点常驻可查询,终端只是被反复覆写的字符流
  */
-import React from 'react';
 // 这里的 render 来自 ink —— 相当于浏览器的 ReactDOM,只是   渲染器换了后端
 import { render } from 'ink';
 import App from './App.js';
@@ -45,7 +43,7 @@ await playSplash();
 // 退出时恢复终端状态 —— 对应浏览器里 React/DOM 替你做的事
 const { waitUntilExit } = render(<App />);
 
-// 退出流程：用户在 App 里按 q → Ink 卸载 → waitUntilExit 兑现 →
+// 退出流程：用户在 App 里按 Esc → Ink 卸载 → waitUntilExit 兑现 →
 // goodbye 接管 stdout：完全清屏 → 字符画渐显 → 定格（shell 提示符接在画面下）
 await waitUntilExit();
 await playGoodbye({ durationMs: Date.now() - startTime });

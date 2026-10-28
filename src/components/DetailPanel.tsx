@@ -1,19 +1,29 @@
-import React from 'react';
+import type { ReactNode } from 'react';
 import { Box, Text } from 'ink';
 
 /**
  * DetailPanel — 右侧详情面板容器
  * 带标题、焦点指示、空态提示
  */
+export interface DetailPanelProps {
+  title?: string;
+  isFocused?: boolean;
+  children?: ReactNode;
+  width?: number;
+  emptyMessage?: string;
+  flexGrow?: boolean;
+  paddingX?: number;
+}
+
 export default function DetailPanel({
   title = 'Details',
-  isFocused,
+  isFocused = false,
   children,
   width,
   emptyMessage = 'Select an item',
   flexGrow = false,
   paddingX = 1
-}) {
+}: DetailPanelProps) {
   const boxProps = flexGrow ? { flexGrow: 1 } : { width };
 
   return (

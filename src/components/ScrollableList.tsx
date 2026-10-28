@@ -1,4 +1,4 @@
-import React from 'react';
+import type { ReactNode } from 'react';
 import { Box, Text } from 'ink';
 import { useScrollableList } from '../hooks/useScrollableList.js';
 
@@ -10,10 +10,24 @@ import { useScrollableList } from '../hooks/useScrollableList.js';
  *
  * 选中行整行高亮：背景铺满列表宽度，renderItem 内部在 isActive 时
  * 应使用深色文字（'#0D1117'），保证对比度。
- *
- * @param renderItem(item, realIdx, isActive) — 自定义每项的渲染，由父组件注入
  */
-export default function ScrollableList({
+export interface ScrollableListProps<T> {
+  title?: string;
+  items: T[];
+  selectedIndex: number;
+  terminalHeight: number;
+  /** 自定义每项的渲染，由父组件注入 */
+  renderItem: (item: T, realIdx: number, isActive: boolean) => ReactNode;
+  width?: number;
+  showCount?: boolean;
+  headerOffset?: number;
+  minVisible?: number;
+  paddingX?: number;
+  activeColor?: string;
+  inactiveColor?: string;
+}
+
+export default function ScrollableList<T>({
   title,
   items,
   selectedIndex,
@@ -26,7 +40,7 @@ export default function ScrollableList({
   paddingX = 1,
   activeColor = '#79C0FF',
   inactiveColor = 'gray'
-}) {
+}: ScrollableListProps<T>) {
   const {
     visibleList,
     hasMoreAbove,
@@ -58,7 +72,7 @@ export default function ScrollableList({
         const isActive = realIdx === selectedIndex;
         return (
           <Box
-            key={typeof item === 'string' ? item : item.key || i}
+            key={typeof item === 'string' ? item : i}
             flexDirection="row"
             width={rowWidth}
             backgroundColor={isActive ? activeColor : undefined}

@@ -8,8 +8,8 @@
     "mcp-manager": "./dist/cli.js"
   },
   "scripts": {
-    "build": "babel --out-dir=dist src",
-    "dev": "babel --out-dir=dist --watch src",
+    "build": "tsc",
+    "dev": "tsc --watch",
     "start": "npm run build && node dist/cli.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -28,15 +28,8 @@
     "react": "^19.2.4"
   },
   "devDependencies": {
-    "@babel/cli": "^7.28.6",
-    "@babel/core": "^7.29.0",
-    "@babel/node": "^7.29.0",
-    "@babel/preset-react": "^7.28.5",
-    "@babel/register": "^7.28.6"
-  },
-  "babel": {
-    "presets": [
-      "@babel/preset-react"
-    ]
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "typescript": "^7.0.2"
   }
 }

@@ -4,6 +4,11 @@ import { useStdout } from 'ink';
 // 终端可用尺寸兜底值：非 TTY（管道/重定向）时 stdout.columns 不存在
 const FALLBACK = { width: 120, height: 30 };
 
+export interface TerminalSize {
+  width: number;
+  height: number;
+}
+
 /**
  * useTerminalSize — 终端尺寸自适应 Hook
  *
@@ -12,9 +17,9 @@ const FALLBACK = { width: 120, height: 30 };
  * 这里订阅 stdout 的 'resize' 事件，把尺寸存进 state，
  * 尺寸一变 → App 重渲染 → 所有以 terminalWidth/Height 为 props 的页面跟着重排。
  */
-export function useTerminalSize() {
+export function useTerminalSize(): TerminalSize {
   const { stdout } = useStdout();
-  const [size, setSize] = useState(() => ({
+  const [size, setSize] = useState<TerminalSize>(() => ({
     width: stdout?.columns || FALLBACK.width,
     height: stdout?.rows || FALLBACK.height
   }));

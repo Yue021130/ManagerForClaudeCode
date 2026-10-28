@@ -1,4 +1,5 @@
-import React, { createContext, useContext } from 'react';
+import { createContext, useContext } from 'react';
+import type { ShellValue } from '../types.js';
 
 /**
  * ShellContext — 外壳下发给页面的通道
@@ -12,11 +13,11 @@ import React, { createContext, useContext } from 'react';
  *   import { useShell } from '../shell/context.js';
  *   const { width, height, setMessage, setError } = useShell();
  */
-const ShellContext = createContext(null);
+const ShellContext = createContext<ShellValue | null>(null);
 
 export const ShellProvider = ShellContext.Provider;
 
-export function useShell() {
+export function useShell(): ShellValue {
   const ctx = useContext(ShellContext);
   if (!ctx) throw new Error('useShell 必须在 App 外壳内使用');
   return ctx;

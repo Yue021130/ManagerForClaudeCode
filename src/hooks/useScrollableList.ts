@@ -6,14 +6,29 @@ import { useMemo } from 'react';
  * 根据终端高度动态计算可见窗口，避免渲染超出屏幕的列表项。
  * 策略：以选中项为中心，上下各留一半可见区，超出部分用 "↑ N" / "↓ N" 指示。
  *
- * @param {Array}  list           - 完整列表
- * @param {number} selectedIndex  - 当前选中索引
- * @param {number} terminalHeight - 终端行数
- * @param {number} headerOffset   - 顶部固定占用的行数（标题栏+分割线+底部栏）
- * @param {number} minVisible     - 最小可见项数
- * @returns {Object} { visibleList, scrollOffset, hasMoreAbove, hasMoreBelow, aboveCount, belowCount }
+ * @param list           - 完整列表
+ * @param selectedIndex  - 当前选中索引
+ * @param terminalHeight - 终端行数
+ * @param headerOffset   - 顶部固定占用的行数（标题栏+分割线+底部栏）
+ * @param minVisible     - 最小可见项数
  */
-export function useScrollableList(list, selectedIndex, terminalHeight, headerOffset = 5, minVisible = 5) {
+export interface ScrollableWindow<T> {
+  listVisible: number;
+  scrollOffset: number;
+  visibleList: T[];
+  hasMoreAbove: boolean;
+  hasMoreBelow: boolean;
+  aboveCount: number;
+  belowCount: number;
+}
+
+export function useScrollableList<T>(
+  list: T[],
+  selectedIndex: number,
+  terminalHeight: number,
+  headerOffset = 5,
+  minVisible = 5
+): ScrollableWindow<T> {
   return useMemo(() => {
     const contentHeight = terminalHeight - headerOffset;
     const listVisible = Math.max(minVisible, contentHeight);

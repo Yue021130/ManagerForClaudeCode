@@ -8,8 +8,8 @@ import chalk from 'chalk';
  *
  *   完全清屏（含 scrollback）→ 字符画由暗到亮渐显 → 定格保留
  *
- * 画面是紧凑的：左上角一个小块，只占几行，不居中也铺满全屏
- * （启动页 splash.js 才是全屏居中，两者刻意区分开）。
+ * 画面是紧凑的：左上角一个小块，只占几行，不居中也不铺满全屏
+ * （启动页 splash.ts 才是全屏居中，两者刻意区分开）。
  *
  * ── 可自定义区域 ─────────────────────────────────────
  * 想改退出画面，就改下面这两个常量，其他不用动。
@@ -33,12 +33,11 @@ export const CUSTOM_TEXT = '你说把爱渐渐放下会走更远';
 // 渐显亮度步进：深灰 → 中灰 → 浅灰 → 主题青
 const FADE_STEPS = ['#3A3F4A', '#6B7280', '#9CA3AF', '#22D3EE'];
 const STEP_DELAY = 90;      // 每步间隔 ms，4 步 ≈ 0.36s
-const ART_COLOR = '#22D3EE'; // 定格颜色（THEME.accent）
 
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 // 时长格式化：1分23秒 / 45 秒
-function formatDuration(ms) {
+function formatDuration(ms: number): string {
   const totalSec = Math.round(ms / 1000);
   const min = Math.floor(totalSec / 60);
   const sec = totalSec % 60;
@@ -48,12 +47,18 @@ function formatDuration(ms) {
 /**
  * playGoodbye — 播放退出画面
  *
- * @param durationMs 本次使用时长（cli.js 从启动计时）
+ * @param durationMs 本次使用时长（cli.tsx 从启动计时）
  * @param stdout     输出流（默认 process.stdout，测试可注入假流）
  *
  * 非 TTY（管道/CI）直接静默返回，不往日志里灌控制码。
  */
-export async function playGoodbye({ durationMs, stdout = process.stdout }) {
+export async function playGoodbye({
+  durationMs,
+  stdout = process.stdout
+}: {
+  durationMs: number;
+  stdout?: typeof process.stdout;
+}): Promise<void> {
   if (!stdout.isTTY) return;
 
   // 不居中：退出画面是左上角的一个紧凑小块，只占几行，左侧留两格呼吸

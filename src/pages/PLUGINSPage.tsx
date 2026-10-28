@@ -1,12 +1,12 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import type { PageMeta } from '../types.js';
 
 /**
  * PLUGINS 页 — 占位
  * 规划功能：MCP / Skills / 插件统一分类管理（编程类/逆向类…），
  *           一键拔插：不用的移入备份池，要用的载入，减少无用上下文
  */
-export const meta = {
+export const meta: PageMeta = {
   num: 2,
   label: 'PLUGINS',
   color: '#56D364',

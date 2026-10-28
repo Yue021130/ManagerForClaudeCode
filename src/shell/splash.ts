@@ -4,7 +4,7 @@ import { GOODBYE_ART } from './goodbye.js';
 /**
  * splash — 启动页
  *
- * 和 goodbye.js 对称：Ink 挂载前先播开场画面
+ * 和 goodbye.ts 对称：Ink 挂载前先播开场画面
  *
  *   完全清屏 → 字符画渐显 → 定格呼吸动画（提示行常亮）→ 等回车 → 淡出 → 清屏交还 Ink
  *
@@ -14,7 +14,7 @@ import { GOODBYE_ART } from './goodbye.js';
  * resize 自适应：每帧现读终端尺寸重算居中边距；
  * 动画期间改了窗口大小 → 收到 resize 事件 → 下一帧全清重排。
  *
- * 字符画复用 goodbye.js 的 GOODBYE_ART，两处永远同步。
+ * 字符画复用 goodbye.ts 的 GOODBYE_ART，两处永远同步。
  * 想改文案就改下面两个常量。
  */
 
@@ -28,13 +28,14 @@ const PULSE_MS = 450;          // 呼吸节奏
 const ART_BRIGHT = '#22D3EE';  // 呼吸亮档
 const ART_DIM = '#157F96';     // 呼吸暗档
 
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 const ART_WIDTH = Math.max(...GOODBYE_ART.map(l => l.length));
 // 字符画 + 空行 + 副标题 + 空行 + 提示行
 const TOTAL_LINES = GOODBYE_ART.length + 1 + 1 + 1 + 1;
 
-const displayWidth = (s) => [...s].reduce((w, c) => w + (c.codePointAt(0) > 0xFF ? 2 : 1), 0);
+const displayWidth = (s: string): number =>
+  [...s].reduce((w, c) => w + ((c.codePointAt(0) ?? 0) > 0xFF ? 2 : 1), 0);
 
 /**
  * playSplash — 播放启动画面，停在呼吸动画上等回车，结束后屏幕已清空、光标在左上角
@@ -44,7 +45,13 @@ const displayWidth = (s) => [...s].reduce((w, c) => w + (c.codePointAt(0) > 0xFF
  *
  * 非 TTY（管道/CI）静默跳过，不等按键，直接把终端交给 Ink。
  */
-export async function playSplash({ stdout = process.stdout, stdin = process.stdin } = {}) {
+export async function playSplash({
+  stdout = process.stdout,
+  stdin = process.stdin
+}: {
+  stdout?: typeof process.stdout;
+  stdin?: typeof process.stdin;
+} = {}): Promise<void> {
   if (!stdout.isTTY || !stdin.isTTY) return;
 
   // ── 帧渲染器：每帧现读终端尺寸（resize 即自适应）──
@@ -53,13 +60,13 @@ export async function playSplash({ stdout = process.stdout, stdin = process.stdi
   const onResize = () => { needsClear = true; };
   stdout.on('resize', onResize);
 
-  const frame = (artColor, subtitleColor, hintColor) => {
+  const frame = (artColor: (s: string) => string, subtitleColor: (s: string) => string, hintColor: (s: string) => string) => {
     const cols = stdout.columns || 80;
     const rows = stdout.rows || 24;
     const leftPad = Math.max(0, Math.floor((cols - ART_WIDTH) / 2));
     const topPad = Math.max(0, Math.floor((rows - TOTAL_LINES) / 2));
     const pad = ' '.repeat(leftPad);
-    const center = (text) =>
+    const center = (text: string) =>
       ' '.repeat(Math.max(0, Math.floor((cols - displayWidth(text)) / 2))) + text;
 
     if (needsClear) {
@@ -98,7 +105,7 @@ export async function playSplash({ stdout = process.stdout, stdin = process.stdi
     // 2) 定格等待：只有字符画呼吸（亮青↔暗青），提示行常亮不闪，直到回车
     //    此时 Ink 未挂载，自己临时接管 stdin（raw mode 才能逐键捕获）
     const ENTER = ['\r', '\n'];
-    await new Promise((resolve) => {
+    await new Promise<void>((resolve) => {
       let tick = 0;
       const timer = setInterval(() => {
         tick++;
@@ -115,7 +122,7 @@ export async function playSplash({ stdout = process.stdout, stdin = process.stdi
         stdin.setRawMode(false);
         stdin.pause();
       };
-      const onData = (buf) => {
+      const onData = (buf: Buffer) => {
         const input = buf.toString();
         if (input === '\x03' || input === '\x1b') {   // Ctrl+C / Esc：直接退出进程
           cleanup();

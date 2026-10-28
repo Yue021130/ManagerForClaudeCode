@@ -1,11 +1,11 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import type { PageMeta } from '../types.js';
 
 /**
  * SETTING 页 — 占位
  * 规划功能：设置
  */
-export const meta = {
+export const meta: PageMeta = {
   num: 3,
   label: 'SETTING',
   color: '#67E8F9',

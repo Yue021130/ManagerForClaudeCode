@@ -1,13 +1,18 @@
-import React from 'react';
+import type { ReactNode } from 'react';
 import { Box } from 'ink';
 import VerticalDivider from './VerticalDivider.js';
 
 /**
  * SidebarLayout — 页面级布局组件
  * 左侧面板 + 竖线分割 + 右侧面板
- * MCP / Skills 两个页面共用此布局
  */
-export default function SidebarLayout({ leftWidth, leftContent, rightContent }) {
+export interface SidebarLayoutProps {
+  leftWidth?: number;
+  leftContent: ReactNode;
+  rightContent: ReactNode;
+}
+
+export default function SidebarLayout({ leftContent, rightContent }: SidebarLayoutProps) {
   return (
     <Box flexGrow={1} flexDirection="row" overflow="hidden">
       {leftContent}

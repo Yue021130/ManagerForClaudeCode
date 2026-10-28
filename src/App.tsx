@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
+import type { ShellValue } from './types.js';
 import { useTerminalSize } from './hooks/useTerminalSize.js';
 import { ShellProvider } from './shell/context.js';
 import { PAGE_REGISTRY } from './pages/registry.js';
 
 /**
- * App — 纯外壳：不认识任何具体页面，一切由 pages/registry.js 驱动
+ * App — 纯外壳：不认识任何具体页面，一切由 pages/registry.ts 驱动
  *
  * 职责：
  * - 顶栏：遍历注册表渲染页面胶囊 Tab，右侧显示页面的反馈消息（message/error）
@@ -22,8 +23,8 @@ export default function App() {
   const [pageKey, setPageKey] = useState(PAGE_REGISTRY[0].key);
 
   // ── 反馈状态：页面通过 useShell() 上报 ──
-  const [error, setError] = useState(null);
-  const [message, setMessage] = useState(null);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   const current = PAGE_REGISTRY.find(p => p.key === pageKey) || PAGE_REGISTRY[0];
 
@@ -42,7 +43,7 @@ export default function App() {
   const { width: terminalWidth, height: terminalHeight } = useTerminalSize();
 
   // content 区域尺寸：总高 - 顶栏1 - 分割线2 - 底栏1
-  const shell = useMemo(() => ({
+  const shell = useMemo<ShellValue>(() => ({
     width: terminalWidth,
     height: Math.max(1, terminalHeight - 4),
     setMessage,
@@ -90,7 +91,7 @@ export default function App() {
 
       {/* ── 底栏：页面键帽 + 全局退出 ── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
-        {[...current.meta.hints, ['esc', 'quit']].map(([k, label]) => (
+        {[...current.meta.hints, ['esc', 'quit'] as [string, string]].map(([k, label]) => (
           <Box key={k} flexDirection="row" marginRight={2}>
             <Text bold backgroundColor="#161B22" color="#79C0FF">{` ${k} `}</Text>
             <Text color="#57606A">{` ${label}`}</Text>
