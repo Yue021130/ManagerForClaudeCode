@@ -16,7 +16,7 @@ import { GOODBYE_ART } from './goodbye.js';
  */
 
 export const SPLASH_SUBTITLE = 'Manager For Claude Code';
-export const SPLASH_HINT = '按 回 车 进 入';
+export const SPLASH_HINT = '回 车 进 入 · Esc 退 出';
 
 const FADE_IN = ['#3A3F4A', '#6B7280', '#9CA3AF', '#22D3EE'];
 const FADE_OUT = ['#6B7280', '#2A2E36'];
@@ -108,7 +108,7 @@ export async function playSplash({ stdout = process.stdout, stdin = process.stdi
     };
     const onData = (buf) => {
       const input = buf.toString();
-      if (input === '\x03') {          // Ctrl+C：直接退出进程
+      if (input === '\x03' || input === '\x1b') {   // Ctrl+C / Esc：直接退出进程
         cleanup();
         stdout.write('\x1b[2J\x1b[3J\x1b[H');
         process.exit(0);
