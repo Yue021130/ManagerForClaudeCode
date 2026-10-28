@@ -1,5 +1,5 @@
 {
-  "name": "ManagerForClaudeCode",
+  "name": "managerforclaudecode",
   "version": "1.0.0",
   "description": "Claude Code Manager - CCR 路由 / MCP 服务器 / Skills 统一管理终端工具",
   "main": "dist/cli.js",
