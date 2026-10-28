@@ -8,6 +8,9 @@ import chalk from 'chalk';
  *
  *   完全清屏（含 scrollback）→ 字符画由暗到亮渐显 → 定格保留
  *
+ * 画面是紧凑的：左上角一个小块，只占几行，不居中也铺满全屏
+ * （启动页 splash.js 才是全屏居中，两者刻意区分开）。
+ *
  * ── 可自定义区域 ─────────────────────────────────────
  * 想改退出画面，就改下面这两个常量，其他不用动。
  */
@@ -53,23 +56,11 @@ function formatDuration(ms) {
 export async function playGoodbye({ durationMs, stdout = process.stdout }) {
   if (!stdout.isTTY) return;
 
-  const cols = stdout.columns || 80;
-  const rows = stdout.rows || 24;
-
-  // 画面总行数：字符画 + 空行 + 时长 + 自定义文案
-  const artWidth = Math.max(...GOODBYE_ART.map(l => l.length));
-  const totalLines = GOODBYE_ART.length + 1 + 1 + 1;
-
-  // 水平/垂直居中
-  const leftPad = Math.max(0, Math.floor((cols - artWidth) / 2));
-  const topPad = Math.max(0, Math.floor((rows - totalLines) / 2));
-  const pad = ' '.repeat(leftPad);
+  // 不居中：退出画面是左上角的一个紧凑小块，只占几行，左侧留两格呼吸
+  const topPad = 1;
+  const pad = '  ';
 
   const durationLine = `本次使用 ${formatDuration(durationMs)}`;
-  // 按显示宽度居中（中文按 2 列算；字符画是纯符号按 length 算，不走这里）
-  const displayWidth = (s) => [...s].reduce((w, c) => w + (c.codePointAt(0) > 0xFF ? 2 : 1), 0);
-  const center = (text) =>
-    ' '.repeat(Math.max(0, Math.floor((cols - displayWidth(text)) / 2))) + text;
 
   // 1) 完全清屏（\x1b[3J 连 scrollback 一起清），光标回左上角
   stdout.write('\x1b[2J\x1b[3J\x1b[H');
@@ -88,10 +79,10 @@ export async function playGoodbye({ durationMs, stdout = process.stdout }) {
     if (step < FADE_STEPS.length - 1) await sleep(STEP_DELAY);
   }
 
-  // 3) 定格：时长 + 自定义文案（暗色，不抢字符画的风头）
+  // 3) 定格：时长 + 自定义文案（文本严格左对齐，只有字符画留两格）
   stdout.write('\n');
-  stdout.write(chalk.hex('#6B7280')(center(durationLine)) + '\n');
-  stdout.write(chalk.hex('#9CA3AF')(center(CUSTOM_TEXT)) + '\n');
+  stdout.write(chalk.hex('#6B7280')(durationLine) + '\n');
+  stdout.write(chalk.hex('#9CA3AF')(CUSTOM_TEXT) + '\n');
   stdout.write('\n');
   // 光标留在画面下方，shell 提示符接在这里
 }
