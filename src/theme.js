@@ -1,11 +1,10 @@
 /**
- * 全局主题与常量定义
+ * 全局主题与工具函数
  *
  * THEME    — 终端色彩方案（hex 真彩色，老旧终端由 chalk 自动降级到最近似色）
- * PAGES    — 页面标识常量
- * PAGE_META — 4 个页面的元信息（编号/名称/主题色），顶部 Tab 胶囊与标题渲染用
- * MCP_WINDOWS — MCP 页面的 2 个子窗口索引常量，避免魔术数字
  * maskValue / maskApiKey — 敏感信息脱敏工具
+ *
+ * 页面标识/名称/主题色不再集中在这里，改为各页面文件自己导出 meta（见 pages/registry.js）
  */
 
 export const THEME = {
@@ -34,27 +33,6 @@ export const THEME = {
   onAccent: '#0D1117',    // 高亮背景上的深色文字
   chipBg: '#161B22',      // 键帽/徽章底色
   rowBg: '#1C2128'        // 非选中行的悬停底（备用）
-};
-
-export const PAGES = {
-  CCR: 'ccr',
-  MCP: 'mcp',
-  SKILL: 'SKILL',
-  SETTING: 'SETTING'
-};
-
-// 按键 0-3 与页面的映射：CCR 是核心功能，排在第一位
-export const PAGE_META = {
-  [PAGES.CCR]:      { num: 0, label: 'CCR',      color: THEME.magentaBright },
-  [PAGES.MCP]:      { num: 1, label: 'MCP',      color: THEME.successBright },
-  [PAGES.SKILL]:   { num: 2, label: 'SKILL',   color: THEME.infoBright },
-  [PAGES.SETTING]: { num: 3, label: 'SETTING', color: THEME.accentBright }
-};
-
-// MCP 页面两栏布局：列表 | 详情
-export const MCP_WINDOWS = {
-  LIST: 0,
-  DETAILS: 1
 };
 
 // 用于判断字段名是否可能包含敏感信息
