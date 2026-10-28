@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import { THEME } from '../theme.js';
 
 export const meta = {
-  num: 2,
+  num: 3,
   label: 'SKILL',
   color: THEME.infoBright,
   hints: []

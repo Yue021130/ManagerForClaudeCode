@@ -7,7 +7,7 @@ import { THEME } from '../theme.js';
  * meta 是页面与外壳的契约：num(数字键) / label(Tab名) / color(Tab色) / hints(底部键帽)
  */
 export const meta = {
-  num: 0,
+  num: 1,
   label: 'CCR',
   color: THEME.magentaBright,
   hints: []
