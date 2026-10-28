@@ -6,7 +6,7 @@ import { GOODBYE_ART } from './goodbye.js';
  *
  * 和 goodbye.js 对称：Ink 挂载前先播开场画面
  *
- *   完全清屏 → 字符画渐显 → 定格呼吸动画 + 提示闪烁 → 等回车 → 淡出 → 清屏交还 Ink
+ *   完全清屏 → 字符画渐显 → 定格呼吸动画（提示行常亮）→ 等回车 → 淡出 → 清屏交还 Ink
  *
  * 回车前的等待是本文件自己监听 stdin（raw mode），此时 Ink 还没挂载；
  * 交还前会移除监听并关掉 raw mode，不跟 Ink 抢输入。
@@ -83,18 +83,20 @@ export async function playSplash({ stdout = process.stdout, stdin = process.stdi
     await sleep(STEP_DELAY);
   }
 
-  // 2) 定格等待：字符画呼吸（亮青↔暗青）+ 提示行闪烁，直到回车
+  // 渐显收尾帧：提示行点亮（常亮，不再参与后续动画）
+  frame(chalk.hex(ART_BRIGHT), chalk.hex('#9CA3AF'), chalk.hex('#E5E7EB'));
+
+  // 2) 定格等待：只有字符画呼吸（亮青↔暗青），提示行常亮不闪，直到回车
   //    此时 Ink 未挂载，自己临时接管 stdin（raw mode 才能逐键捕获）
   const ENTER = ['\r', '\n'];
   await new Promise((resolve) => {
     let tick = 0;
     const timer = setInterval(() => {
       tick++;
-      const bright = tick % 2 === 0;
       frame(
-        chalk.hex(bright ? ART_BRIGHT : ART_DIM),
+        chalk.hex(tick % 2 === 0 ? ART_BRIGHT : ART_DIM),
         chalk.hex('#9CA3AF'),
-        bright ? chalk.hex('#E5E7EB') : chalk.hex('#3A3F4A')
+        chalk.hex('#E5E7EB')
       );
     }, PULSE_MS);
 
