@@ -10,8 +10,8 @@ import { PAGE_REGISTRY } from './pages/registry.js';
  *
  * 职责：
  * - 顶栏：遍历注册表渲染页面胶囊 Tab，右侧显示页面的反馈消息（message/error）
- * - 底栏：当前页 meta.hints + 自动追加 q quit
- * - 全局键：q 退出、数字键按 meta.num 切页
+ * - 底栏：当前页 meta.hints + 自动追加 esc quit
+ * - 全局键：Esc 退出、数字键按 meta.num 切页
  *   （页面自己的按键在页面组件内部用 useInput 处理——只有当前页被挂载，互不干扰）
  * - 布局：顶栏 / 分割线 / content / 分割线 / 底栏，终端 resize 即时重排
  * - 通过 ShellProvider 向页面下发 { width, height, setMessage, setError }
@@ -29,12 +29,12 @@ export default function App() {
   const current = PAGE_REGISTRY.find(p => p.key === pageKey) || PAGE_REGISTRY[0];
 
   // ── 全局键盘：只处理退出与切页，其余按键留给页面自己 ──
-  useInput((input) => {
+  useInput((input, key) => {
     // 按任意键清除上次的反馈消息
     if (message) setMessage(null);
     if (error) setError(null);
 
-    if (input === 'q') { exit(); return; }
+    if (key.escape) { exit(); return; }
 
     const target = PAGE_REGISTRY.find(p => String(p.meta.num) === input);
     if (target) setPageKey(target.key);
@@ -91,7 +91,7 @@ export default function App() {
 
       {/* ── 底栏：页面键帽 + 全局退出 ── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
-        {[...current.meta.hints, ['q', 'quit']].map(([k, label]) => (
+        {[...current.meta.hints, ['esc', 'quit']].map(([k, label]) => (
           <Box key={k} flexDirection="row" marginRight={2}>
             <Text bold backgroundColor={THEME.chipBg} color={THEME.infoBright}>{` ${k} `}</Text>
             <Text color={THEME.faint}>{` ${label}`}</Text>
