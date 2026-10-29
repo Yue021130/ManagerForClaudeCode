@@ -3,19 +3,16 @@ import chalk from 'chalk';
 /**
  * goodbye — 退出画面
  *
- * 进程退场不走 Ink（卸载后再渲染 React 是自找麻烦），
+ * 进程退场不走 Ink
  * 这里用纯 ANSI 转义序列 + chalk 直接写 stdout：
  *
- *   完全清屏（含 scrollback）→ 字符画由暗到亮渐显 → 定格保留
+ *   完全清屏 → 字符画由暗到亮渐显 → 定格保留
  *
  * 画面是紧凑的：左上角一个小块，只占几行，不居中也不铺满全屏
- * （启动页 splash.ts 才是全屏居中，两者刻意区分开）。
  *
- * ── 可自定义区域 ─────────────────────────────────────
- * 想改退出画面，就改下面这两个常量，其他不用动。
  */
 
-// MFCC 方块字符画（6 行，等宽显示）
+// 字符画
 export const GOODBYE_ART = [
   '███╗   ███╗███████╗ ██████╗ ██████╗',
   '████╗ ████║██╔════╝██╔════╝██╔════╝',
@@ -25,8 +22,8 @@ export const GOODBYE_ART = [
   '╚═╝     ╚═╝╚═╝      ╚═════╝ ╚═════╝'
 ];
 
-// 自定义告别文案（显示在时长下面一行）
-export const CUSTOM_TEXT = '你说把爱渐渐放下会走更远';
+// 自定义告别文案
+export const CUSTOM_TEXT = '你说把爱渐渐放下会走更远。';
 
 // ── 以下为实现，一般不用动 ─────────────────────────────
 
@@ -36,7 +33,7 @@ const STEP_DELAY = 90;      // 每步间隔 ms，4 步 ≈ 0.36s
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
-// 时长格式化：1分23秒 / 45 秒
+// 时长格式化
 function formatDuration(ms: number): string {
   const totalSec = Math.round(ms / 1000);
   const min = Math.floor(totalSec / 60);
@@ -47,8 +44,10 @@ function formatDuration(ms: number): string {
 /**
  * playGoodbye — 播放退出画面
  *
- * @param durationMs 本次使用时长（cli.tsx 从启动计时）
- * @param stdout     输出流（默认 process.stdout，测试可注入假流）
+ * @param durationMs 本次使用时长
+ * @param stdout     输出流
+ *
+ * 本质： 向 stdout输入流 中写内容。
  *
  * 非 TTY（管道/CI）直接静默返回，不往日志里灌控制码。
  */
@@ -65,7 +64,7 @@ export async function playGoodbye({
   const topPad = 1;
   const pad = '  ';
 
-  const durationLine = `本次使用 ${formatDuration(durationMs)}`;
+  const durationLine = `🥰 本次使用 ${formatDuration(durationMs)}。`;
 
   // 1) 完全清屏（\x1b[3J 连 scrollback 一起清），光标回左上角
   stdout.write('\x1b[2J\x1b[3J\x1b[H');
@@ -84,10 +83,10 @@ export async function playGoodbye({
     if (step < FADE_STEPS.length - 1) await sleep(STEP_DELAY);
   }
 
-  // 3) 定格：时长 + 自定义文案（文本严格左对齐，只有字符画留两格）
+  // 3) 定格：时长 + 自定义文案
+  //  文本严格左对齐，只有字符画留两格
   stdout.write('\n');
   stdout.write(chalk.hex('#6B7280')(durationLine) + '\n');
   stdout.write(chalk.hex('#9CA3AF')(CUSTOM_TEXT) + '\n');
   stdout.write('\n');
-  // 光标留在画面下方，shell 提示符接在这里
 }
