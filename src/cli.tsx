@@ -31,19 +31,104 @@ import App from './App.js';
 import { playSplash } from './shell/splash.js';
 import { playGoodbye } from './shell/goodbye.js';
 
+
+
 // 生命周期三段式：
 //   启动页（splash）→ App 运行 → 退出画面（goodbye）
 // splash/goodbye 都是纯 ANSI 直写 stdout，不经过 Ink；
-// Ink 挂载前屏幕已清空、光标在左上角，卸载后由 goodbye 接管
-const startTime = Date.now();
-await playSplash();
+const startTime = Date.now();  // CLI启动时间
+
+/*
+*
+   关键理解 await playSplash() 这一行：
+
+   ```
+     程序跑到这里 → playSplash() 开始执行
+         ↓
+     渐显（4 次 frame + sleep(90) 串行）    ← 这是循环，但用的是同步 await sleep，所以每 90ms 一帧
+         ↓
+     定格等待：setInterval 每 450ms 画一帧   ← Promise 挂起，但定时器在后台活着！
+         ↓（用户按回车 → resolve()）
+     淡出（2 次 frame + sleep(90) 串行）
+         ↓
+     函数 return → await 放行 → 继续走 cli.tsx 下一行（render App）
+   ```
+* */
+await playSplash();  // 启动页画面
 
 // render() 挂载 <App/> 到终端,接管 stdout/stdin
 // Ink 自动处理: 只重绘变化行(ANSI 光标控制)、stdin 原始模式捕获按键、
-// 退出时恢复终端状态 —— 对应浏览器里 React/DOM 替你做的事
 const { waitUntilExit } = render(<App />);
-
-// 退出流程：用户在 App 里按 Esc → Ink 卸载 → waitUntilExit 兑现 →
-// goodbye 接管 stdout：完全清屏 → 字符画渐显 → 定格（shell 提示符接在画面下）
 await waitUntilExit();
-await playGoodbye({ durationMs: Date.now() - startTime });
+
+await playGoodbye({ durationMs: Date.now() - startTime }); // 结束页画面
+
+/**
+ *  ● render() 返回的不是一个函数，是一个对象，这个对象里带着几个方法，我们只用了解构出来的 waitUntilExit。
+ *  关键问题是：为什么render() 要把这些东西「带回来」给你？
+ *
+ *    1. render() 启动的是一个「长跑进程」
+ *
+ *    看 render(<App />) 这一行干了什么：它把 React 应用挂到终端上，从此刻起这个应用就一直活着——监听键盘、更新界面、响应用户操作。它不像普通函数那
+ *    样「算完就 return」，而是一个持续运行的东西。
+ *
+ *    所以 render() 必须返回一个句柄（handle）——你握着这个句柄，才能对那个正在运行的应用说话。就像：
+ *
+ *    ```ts
+ *      const timer = setInterval(cb, 1000);
+ *      // ↑ 这个"闹钟"也是长跑的，所以 setInterval 也返回一个句柄（timer）
+ *      //   你以后要靠 timer 来 clearInterval(timer)
+ *    ```
+ *
+ *    Ink 的 render() 返回的对象类似这样（简化）：
+ *
+ *    ```ts
+ *      {
+ *        waitUntilExit: () => Promise<void>,   // ← 我们用的：等应用退出
+ *        unmount: () => void,                  // 手动卸载
+ *        rerender: (node) => void,             // 强制重渲染
+ *        cleanup: () => void,                  // 清理
+ *      }
+ *    ```
+ *
+ *    2. 为什么需要 waitUntilExit？
+ *
+ *    看我们的使用场景：
+ *
+ *    ```ts
+ *      const { waitUntilExit } = render(<App />);  // 应用挂上去了，一直跑着
+ *      await waitUntilExit();                       // 在这里等"应用退出"这个事件
+ *      // ↓ 应用真的退出了，才往下走（playGoodbye）
+ *    ```
+ *
+ *    问题：render() 这一行执行完时，App 才刚挂载，用户还正用着它。但我们想表达的是「等用户退出 App 后，再去放退出动画」。这是个典型的「等事件」——
+ *    和 splash.ts 里等回车完全一样。
+ *
+ *    所以 Ink 给了 waitUntilExit()：它返回一个 Promise，App 卸载（用户按 Esc）时 resolve。你 await 它，程序就挂在那，直到 App 结束。
+ *
+ *    没有它的话，你就只能把后续代码塞进回调里（回调地狱，前面讲 Promise 那轮说过）。有了它，代码保持线性时间线：
+ *
+ *    ```ts
+ *      await playSplash();        // 1. 启动页播完
+ *      await waitUntilExit();     // 2. App 运行，直到用户退出
+ *      await playGoodbye(...);    // 3. 然后放退出动画
+ *    ```
+ *
+ *    3. 从设计角度：为什么不直接把「退出事件」做成回调？
+ *
+ *    ```ts
+ *      // 假如 Ink 设计成回调式：
+ *      render(<App />, { onExit: () => playGoodbye(...) });  // 难看，逻辑散了
+ *    ```
+ *
+ *    返回句柄 + Promise 的好处：
+ *
+ *    • 调用方掌握控制权：什么时候等、在哪个线程等、要不要同时做别的事，都由 cli.tsx 决定，而不是被 Ink 写死
+ *    • 可组合：await waitUntilExit() 可以和其他 Promise 一起用（Promise.race 等）
+ *    • 职责分离：Ink 只负责「告诉你发生了」，cli.tsx 决定「发生后做什么」
+ *
+ *    一句话
+ *
+ *    render() 返回的不是数据，是一个「遥控器」——因为 React 应用挂载后是持续运行的东西，你必须拿着遥控器才能对它下指令（等待退出、卸载、清理）。
+ *    waitUntilExit() 就是遥控器上「等它退场」那个按钮，按下去（await）就挂起，直到用户退出才放行。
+ * */
