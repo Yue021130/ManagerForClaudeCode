@@ -13,7 +13,7 @@ const BRAND_TEXT = 'Yue 💫 · Claude Code Manager';
  *
  * 职责：
  * - 顶栏：左侧页面 Tab（激活 = 粗体+下划线+页面主题色），右侧品牌文字
- * - 底栏：左侧当前页 meta.hints + 自动追加 esc quit，右侧页面反馈消息（message/error）
+ * - 底栏：左侧当前页 meta.hints，右侧页面反馈消息（message/error）
  * - 全局键：Esc 退出、数字键按 meta.num 切页
  *   （页面自己的按键在页面组件内部用 useInput 处理——只有当前页被挂载，互不干扰）
  * - 布局：顶栏 / 分割线 / content / 分割线 / 底栏，终端 resize 即时重排
@@ -94,7 +94,7 @@ export default function App() {
 
       {/* ── 底栏：左侧键位（键粗体亮 + 说明暗）/ 右侧反馈消息 ── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
-        {[...current.meta.hints, ['esc', 'quit'] as [string, string]].map(([k, label]) => (
+        {current.meta.hints.map(([k, label]) => (
           <Box key={k} flexDirection="row" marginRight={2}>
             <Text bold color="#E6EDF3">{k}</Text>
             <Text color="#57606A">{` ${label}`}</Text>
