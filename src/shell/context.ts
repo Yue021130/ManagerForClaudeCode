@@ -2,16 +2,16 @@ import { createContext, useContext } from 'react';
 import type { ShellValue } from '../types.js';
 
 /**
- * ShellContext — 外壳下发给页面的通道
+ * ShellContext — 外壳下发给页面的通道  |  组件间传递数据的桥梁useContext
  *
  * App（外壳）渲染时提供：
- *   width/height — content 区域尺寸（已扣除顶栏/分割线/底栏）
- *   setMessage   — 页面向顶栏发成功反馈（✓ 绿色）
- *   setError     — 页面向顶栏发失败反馈（✗ 红色）
+ *   setMessage   — 页面向底栏发成功反馈（✓ 绿色）
+ *   setError     — 页面向底栏发失败反馈（✗ 红色）
+ *   （尺寸不走这里，页面从 props 拿 width/height，见 PageProps）
  *
  * 页面内使用：
  *   import { useShell } from '../shell/context.js';
- *   const { width, height, setMessage, setError } = useShell();
+ *   const { setMessage, setError } = useShell();
  */
 const ShellContext = createContext<ShellValue | null>(null);
 

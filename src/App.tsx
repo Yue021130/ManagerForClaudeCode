@@ -18,7 +18,7 @@ const BRAND_TEXT = 'Yue 💫 · Claude Code Manager';
  *    | 页面自己的按键在页面组件内部用 useInput 处理 ———— 只有当前页被挂载，互不干扰
  * - 布局：顶栏 / 分割线 / content / 分割线 / 底栏      (终端 resize 即时重排
  *
- * - 通过 ShellProvider 向页面下发 { width, height, setMessage, setError }
+ * - 通过 ShellProvider 向页面下发 { setMessage, setError }；尺寸走 props
  */
 export default function App() {
   const { exit } = useApp();
@@ -50,13 +50,15 @@ export default function App() {
 
   const { width: terminalWidth, height: terminalHeight } = useTerminalSize();
 
-  // content 区域尺寸：总高 - 顶栏1 - 分割线2 - 底栏1
+  // 页面渲染：宽度满、高度扣除顶栏1+分割线2+底栏1
+  const contentWidth = terminalWidth;
+  const contentHeight = Math.max(1, terminalHeight - 4);
+
+  // shell 通道：只下发反馈函数；尺寸由 props 直传（见 PageProps）
   const shell = useMemo<ShellValue>(() => ({
-    width: terminalWidth,
-    height: Math.max(1, terminalHeight - 4),
     setMessage,
     setError
-  }), [terminalWidth, terminalHeight]);  // 宽高变则重新计算渲染
+  }), []);
 
   const ActiveComponent = current.Component;
 
@@ -64,6 +66,7 @@ export default function App() {
     <Box flexDirection="column" width={terminalWidth} height={terminalHeight}>
       {/* ── 顶栏：左侧 Tab / 右侧文字 ── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
+        {/*  左侧 Tab */}
         {PAGE_REGISTRY.map(p => {
           const active = p.key === current.key;
           return (
@@ -79,6 +82,7 @@ export default function App() {
           );
         })}
         <Box flexGrow={1} />
+        {/*  右侧文本 */}
         <Text color="#57606A">{BRAND_TEXT}</Text>
       </Box>
       {/* ── 分割线 ── */}
@@ -86,12 +90,14 @@ export default function App() {
         <Text color="#30363D">{'─'.repeat(terminalWidth - 2)}</Text>
       </Box>
 
+
       {/* ── content：当前页 ── */}
       <Box flexGrow={1} flexDirection="row" overflow="hidden">
         <ShellProvider value={shell}>
-          <ActiveComponent width={shell.width} height={shell.height} />
+          <ActiveComponent width={contentWidth} height={contentHeight} />
         </ShellProvider>
       </Box>
+
 
         {/* ── 分割线 ── */}
       <Box height={1} paddingX={1}>
@@ -99,6 +105,7 @@ export default function App() {
       </Box>
       {/* ── 底栏：左侧键位 / 右侧反馈消息 ── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
+        {/*  左侧键位 */}
         {current.meta.hints.map(([k, label]) => (
           <Box key={k} flexDirection="row" marginRight={2}>
             <Text bold color="#E6EDF3">{k}</Text>
@@ -106,6 +113,7 @@ export default function App() {
           </Box>
         ))}
         <Box flexGrow={1} />
+        {/*  右侧反馈消息 */}
         {error && <Text bold color="#FF7B72">✗ {error}</Text>}
         {!error && message && <Text bold color="#56D364">✓ {message}</Text>}
       </Box>

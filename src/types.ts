@@ -11,7 +11,7 @@ export interface PageMeta {
   num: number;                    // 数字键 1-9，全局切页用 | 不可重复
   label: string;                  // 顶栏 Tab 显示名
   color: string;                  // Tab 胶囊高亮色
-  hints: [string, string][];      // 底栏键帽 [按键, 说明]；外壳自动追加 esc quit
+  hints: [string, string][];      // 底栏键帽 [按键, 说明]
 }
 
 export interface PageProps {
@@ -28,10 +28,8 @@ export interface PageEntry {
   Component: PageComponent;
 }
 
-/** 外壳通过 ShellProvider 下发给页面的通道 */
+/** 外壳通过 ShellProvider 下发给页面的通道（尺寸走 props，见 PageProps） */
 export interface ShellValue {
-  width: number;
-  height: number;
-  setMessage: (m: string | null) => void;   // 顶栏右侧绿色 ✓
-  setError: (e: string | null) => void;     // 顶栏右侧红色 ✗
+  setMessage: (m: string | null) => void;   // 底栏右侧绿色 ✓
+  setError: (e: string | null) => void;     // 底栏右侧红色 ✗
 }
