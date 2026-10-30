@@ -32,4 +32,6 @@ export interface PageEntry {
 export interface ShellValue {
   setMessage: (m: string | null) => void;   // 底栏右侧绿色 ✓
   setError: (e: string | null) => void;     // 底栏右侧红色 ✗
+  /** 页面进入输入模式（如搜索框）时调 false，外壳数字切页让位；退出时调 true */
+  setKeysEnabled: (enabled: boolean) => void;
 }

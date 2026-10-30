@@ -30,6 +30,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  // ── 页面输入模式（搜索框等）：禁用外壳数字切页，Esc 仍然生效 ──
+  const [keysEnabled, setKeysEnabled] = useState(true);
+
 
   // ── 当前页 ──
   const current = PAGE_REGISTRY.find(p => p.key === pageKey) || PAGE_REGISTRY[0];
@@ -41,7 +44,12 @@ export default function App() {
     if (error) setError(null);
 
     // esc键退出
-    if (key.escape) { exit(); return; }
+    // Esc 退出：延迟一拍再退。曾在 input 派发栈内同步 exit() 触发 Ink 卸载重入，
+    // 恰好撞上启动扫描后的重渲染时卸载挂起（stdin 已拆、waitUntilExit 永不 resolve）。
+    if (key.escape) { setTimeout(() => exit(), 0); return; }
+
+    // 页面输入模式下，数字键让给页面（如搜索框）
+    if (!keysEnabled) return;
 
     // 数字键切页
     const target = PAGE_REGISTRY.find(p => String(p.meta.num) === input);
@@ -54,10 +62,11 @@ export default function App() {
   const contentWidth = terminalWidth;
   const contentHeight = Math.max(1, terminalHeight - 4);
 
-  // shell 通道：只下发反馈函数；尺寸由 props 直传（见 PageProps）
+  // shell 通道：只下发反馈函数与输入模式开关；尺寸由 props 直传（见 PageProps）
   const shell = useMemo<ShellValue>(() => ({
     setMessage,
-    setError
+    setError,
+    setKeysEnabled
   }), []);
 
   const ActiveComponent = current.Component;

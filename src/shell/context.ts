@@ -5,13 +5,13 @@ import type { ShellValue } from '../types.js';
  * ShellContext — 外壳下发给页面的通道  |  组件间传递数据的桥梁useContext
  *
  * App（外壳）渲染时提供：
- *   setMessage   — 页面向底栏发成功反馈（✓ 绿色）
- *   setError     — 页面向底栏发失败反馈（✗ 红色）
+ *   setMessage/setError — 页面向底栏发反馈（✓ 绿 / ✗ 红）
+ *   setKeysEnabled     — 页面输入模式（搜索框）下禁用外壳数字切页
  *   （尺寸不走这里，页面从 props 拿 width/height，见 PageProps）
  *
  * 页面内使用：
  *   import { useShell } from '../shell/context.js';
- *   const { setMessage, setError } = useShell();
+ *   const { setMessage, setError, setKeysEnabled } = useShell();
  */
 const ShellContext = createContext<ShellValue | null>(null);
 
