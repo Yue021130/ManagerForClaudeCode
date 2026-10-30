@@ -12,11 +12,12 @@ const BRAND_TEXT = 'Yue 💫 · Claude Code Manager';
  * App — 纯外壳：不认识任何具体页面，一切由 pages/registry.ts 驱动
  *
  * 职责：
- * - 顶栏：左侧页面 Tab（激活 = 粗体+下划线+页面主题色），右侧品牌文字
- * - 底栏：左侧当前页 meta.hints，右侧页面反馈消息（message/error）
+ * - 顶栏：左侧页面 Tab，右侧品牌文字
+ * - 底栏：左侧当前页 meta.hints，右侧页面反馈消息
  * - 全局键：Esc 退出、数字键按 meta.num 切页
- *   （页面自己的按键在页面组件内部用 useInput 处理——只有当前页被挂载，互不干扰）
- * - 布局：顶栏 / 分割线 / content / 分割线 / 底栏，终端 resize 即时重排
+ *    | 页面自己的按键在页面组件内部用 useInput 处理 ———— 只有当前页被挂载，互不干扰
+ * - 布局：顶栏 / 分割线 / content / 分割线 / 底栏      (终端 resize 即时重排
+ *
  * - 通过 ShellProvider 向页面下发 { width, height, setMessage, setError }
  */
 export default function App() {
@@ -29,6 +30,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+
+  // ── 当前页 ──
   const current = PAGE_REGISTRY.find(p => p.key === pageKey) || PAGE_REGISTRY[0];
 
   // ── 全局键盘：只处理退出与切页，其余按键留给页面自己 ──
@@ -37,8 +40,10 @@ export default function App() {
     if (message) setMessage(null);
     if (error) setError(null);
 
+    // esc键退出
     if (key.escape) { exit(); return; }
 
+    // 数字键切页
     const target = PAGE_REGISTRY.find(p => String(p.meta.num) === input);
     if (target) setPageKey(target.key);
   });
@@ -51,13 +56,13 @@ export default function App() {
     height: Math.max(1, terminalHeight - 4),
     setMessage,
     setError
-  }), [terminalWidth, terminalHeight]);
+  }), [terminalWidth, terminalHeight]);  // 宽高变则重新计算渲染
 
   const ActiveComponent = current.Component;
 
   return (
     <Box flexDirection="column" width={terminalWidth} height={terminalHeight}>
-      {/* ── 顶栏：左侧 Tab（粗体+下划线+页面色）/ 右侧品牌文字 ── */}
+      {/* ── 顶栏：左侧 Tab / 右侧文字 ── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
         {PAGE_REGISTRY.map(p => {
           const active = p.key === current.key;
@@ -76,23 +81,23 @@ export default function App() {
         <Box flexGrow={1} />
         <Text color="#57606A">{BRAND_TEXT}</Text>
       </Box>
-
+      {/* ── 分割线 ── */}
       <Box height={1} paddingX={1}>
         <Text color="#30363D">{'─'.repeat(terminalWidth - 2)}</Text>
       </Box>
 
-      {/* ── content：渲染当前页（切换即卸载旧页，状态不保留） ── */}
+      {/* ── content：当前页 ── */}
       <Box flexGrow={1} flexDirection="row" overflow="hidden">
         <ShellProvider value={shell}>
           <ActiveComponent width={shell.width} height={shell.height} />
         </ShellProvider>
       </Box>
 
+        {/* ── 分割线 ── */}
       <Box height={1} paddingX={1}>
         <Text color="#30363D">{'─'.repeat(terminalWidth - 2)}</Text>
       </Box>
-
-      {/* ── 底栏：左侧键位（键粗体亮 + 说明暗）/ 右侧反馈消息 ── */}
+      {/* ── 底栏：左侧键位 / 右侧反馈消息 ── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
         {current.meta.hints.map(([k, label]) => (
           <Box key={k} flexDirection="row" marginRight={2}>

@@ -19,6 +19,6 @@ export const ShellProvider = ShellContext.Provider;
 
 export function useShell(): ShellValue {
   const ctx = useContext(ShellContext);
-  if (!ctx) throw new Error('useShell 必须在 App 外壳内使用');
+  if (!ctx) throw new Error('useShell 必须在 App 外壳内使用'); // AI给的这个是什么意思啊？？？ 2026年10月30日09点38分
   return ctx;
 }

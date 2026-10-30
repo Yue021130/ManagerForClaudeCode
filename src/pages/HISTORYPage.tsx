@@ -11,7 +11,7 @@ export const meta: PageMeta = {
   label: 'HISTORY',
   color: '#79C0FF',
   // 设计稿键位（纯展示，逻辑待填充）
-  hints: [['↑↓', '选择'], ['enter', '预览'], ['d', '删除'], ['x', '归档'], ['e', '导出MD']]
+  hints: [['↑↓', '选择'], ['enter', '预览'], ['d', '删除'], ['x', '归档'], ['e', '导出']]
 };
 
 export default function HISTORYPage() {
