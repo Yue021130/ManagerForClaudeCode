@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -10,6 +10,8 @@ import DetailPanel from '../../components/DetailPanel.js';
 import VerticalDivider from '../../components/VerticalDivider.js';
 import {
   scanAllProjects,
+  scanSession,
+  claudeProjectsRoot,
   readConversation,
   moveSession,
   exportMarkdown
@@ -103,28 +105,6 @@ export default function HISTORYPage({ width, height }: PageProps) {
   // 改用 mtime 新鲜度：3 分钟内有写入 = 正在使用
   const [confirmLocked, setConfirmLocked] = useState(false);
 
-  // ── 运行中状态轮询：每 5s stat 全部会话文件（纯 stat，不读内容），绿 ● 标在会话行上 ──
-  const [runningSet, setRunningSet] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    if (!projects) return;
-    let alive = true;
-    const paths = projects.flatMap((p) => p.sessions.map((s) => s.filePath));
-    const tick = () => {
-      const fresh = new Set<string>();
-      for (const p of paths) {
-        if (isFreshPath(p)) fresh.add(p);
-      }
-      if (alive) setRunningSet(fresh);
-    };
-    tick();
-    const timer = setInterval(tick, 5000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [projects]);
-  const isRunning = (s: SessionMeta): boolean => runningSet.has(s.filePath);
-
   // 首次扫描：让出首帧再扫（scan 同步阻塞 <100ms）
   useEffect(() => {
     const t = setTimeout(() => {
@@ -181,6 +161,105 @@ export default function HISTORYPage({ width, height }: PageProps) {
     [detail, width, expandedPastes]
   );
   const dIdx = Math.min(detailIdx, Math.max(0, detailLines.length - 1));
+
+  // 轮询里要用最新值（不重建 interval），每渲染同步进 ref
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
+  const previewWRef = useRef(previewW);
+  previewWRef.current = previewW;
+  const expandedRef = useRef(expandedPastes);
+  expandedRef.current = expandedPastes;
+  const blocksLenRef = useRef(blocks.length);
+  blocksLenRef.current = blocks.length;
+
+  // ── 实时刷新：每 3s stat 全部会话文件，一次扫描喂全部用途 ──
+  //  1) mtime < 3min        → 绿点（运行中）
+  //  2) mtime 变化          → 刷新该会话 meta（标题/时间/大小实时）
+  //  3) 目录形状变化        → 全量重扫（新会话出现 / 旧会话消失）
+  //  4) 预览选中文件有写入  → 重载对话；原本停在末尾则跟随末尾，阅读中途不打扰
+  const [runningSet, setRunningSet] = useState<Set<string>>(new Set());
+  const mtimesRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (!projects) return;
+    const root = claudeProjectsRoot();
+    if (!root) return;
+    let alive = true;
+    const tick = () => {
+      const prev = mtimesRef.current;
+      const fresh = new Map<string, number>();
+      let shapeChanged = false;
+      for (const p of projects) {
+        let files: string[];
+        try {
+          files = fs.readdirSync(path.join(root, p.dirName)).filter((f) => f.endsWith('.jsonl'));
+        } catch {
+          shapeChanged = true;
+          continue;
+        }
+        if (files.length !== p.sessions.length) shapeChanged = true;
+        for (const s of p.sessions) {
+          try {
+            fresh.set(s.filePath, fs.statSync(s.filePath).mtimeMs);
+          } catch {
+            shapeChanged = true;
+          }
+        }
+      }
+      if (!alive) return;
+      const now = Date.now();
+      const running = new Set<string>();
+      for (const [fp, mt] of fresh) {
+        if (now - mt < RUNNING_WINDOW_MS) running.add(fp);
+      }
+      setRunningSet(running);
+      if (shapeChanged) {
+        rescan();
+        return;
+      }
+      const changed: string[] = [];
+      for (const [fp, mt] of fresh) {
+        if (prev.get(fp) !== mt) changed.push(fp);
+      }
+      mtimesRef.current = fresh;
+      if (!changed.length) return;
+      setProjects((ps) =>
+        ps
+          ? ps.map((p) => ({
+              ...p,
+              sessions: p.sessions.map((s) => {
+                if (!changed.includes(s.filePath)) return s;
+                try {
+                  return scanSession(s.filePath);
+                } catch {
+                  return s;
+                }
+              })
+            }))
+          : ps
+      );
+      const pfp = previewRef.current?.session.filePath;
+      if (pfp && changed.includes(pfp)) {
+        try {
+          const list = readConversation(pfp);
+          const meta = scanSession(pfp); // meta 一并刷新（问数/答数/大小实时）
+          setPreview((old) => (old ? { session: meta, entries: list } : old));
+          setPreviewIdx((idx) => {
+            const newLen = buildBlocks(list, Math.max(10, previewWRef.current - 6), expandedRef.current).length;
+            return idx >= blocksLenRef.current - 2 ? Math.max(0, newLen - 1) : idx;
+          });
+        } catch {
+          /* 读取失败等下一轮 */
+        }
+      }
+    };
+    tick();
+    const timer = setInterval(tick, 3000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [projects]);
+  const isRunning = (s: SessionMeta): boolean => runningSet.has(s.filePath);
 
   // ── 操作 ──
   const rescan = () => {
