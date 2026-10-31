@@ -72,7 +72,7 @@ export default function ScrollableList<T>({
         const isActive = realIdx === selectedIndex;
         return (
           <Box
-            key={typeof item === 'string' ? item : i}
+            key={i}
             flexDirection="row"
             width={rowWidth}
             backgroundColor={isActive ? activeColor : undefined}
