@@ -806,25 +806,25 @@ function BlockWindow({
   const lastRendered = peekBottom > 0 ? end + 1 : end;
   const rowW = Math.max(1, width - 2); // paddingX 1*2
 
-  // 取块的前 n 行；未展示完整且末行是普通文本时拼 ' ...'（chip 本身就代表截断）
+  // 取块的前 n 行（n 含截断行预算）；超出时省略号单独成行，渲染成底色块（见 renderBlock）
   const headLines = (b: Block, n: number): BlockLine[] => {
-    const ls = b.lines.slice(0, Math.max(1, n));
-    if (n < b.lines.length) {
-      const last = ls[ls.length - 1];
-      if (last.kind === 'text') ls[ls.length - 1] = { ...last, text: `${last.text} ...` };
-    }
-    return ls;
+    if (b.lines.length <= n) return b.lines.slice();
+    return [...b.lines.slice(0, Math.max(0, n - 1)), { kind: 'text', text: '...' }];
   };
 
   const renderBlock = (b: Block, realIdx: number, lines: BlockLine[]) => {
     const active = realIdx === selected;
     const isUser = b.role === 'user';
+    // 末行是省略号标记 = 块被截断：正文不渲染它，改为块底通栏横条
+    const lastLn = lines[lines.length - 1];
+    const truncated = !!lastLn && lastLn.kind === 'text' && lastLn.text === '...';
+    const body = truncated ? lines.slice(0, -1) : lines;
     return (
       <Box key={realIdx} flexDirection="row" width={rowW}>
         <Text bold color={active ? '#79C0FF' : '#6E7681'}>
           {active ? '❯ ' : '  '}
         </Text>
-        <Box flexGrow={1} backgroundColor={active ? '#1F2937' : undefined}>
+        <Box flexGrow={1} flexDirection="column" backgroundColor={active ? '#1F2937' : undefined}>
           <Text>
             {/* 头像做成底色徽章：终端格子字无法调字号，用色块把它和文字层级拉开 */}
             <Text bold color={isUser ? '#79C0FF' : '#3FB950'} wrap="truncate">
@@ -832,7 +832,7 @@ function BlockWindow({
               {` ${b.label}`}
             </Text>
             {'\n'}
-            {lines.flatMap((ln, i) => [
+            {body.flatMap((ln, i) => [
               i > 0 ? '\n' : '',
               ln.kind === 'chip' ? (
                 <Text key={i} backgroundColor="#21262D" color="#E3B341">{` 📋 ${ln.preview}… `}</Text>
@@ -840,6 +840,8 @@ function BlockWindow({
                 <Text key={i} color={isUser ? '#F0A6C9' : '#C9D1D9'}>{`  ${ln.text}`}</Text>
               )
             ])}
+            {/* 截断徽章：跟在末行文字后面，不单独占行 */}
+            {truncated && <Text backgroundColor="#3A3D42" color="#A371F7">{' 🔽 ……… '}</Text>}
             {'\n'}
           </Text>
         </Box>
