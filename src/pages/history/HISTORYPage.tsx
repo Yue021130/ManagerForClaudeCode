@@ -401,15 +401,14 @@ export default function HISTORYPage({ width, height }: PageProps) {
  * Block — 预览区的一项 = 一条对话（Q 或 A），整块选中/高亮
  *
  * 工具调用（role==='tool'）在预览层直接丢弃（导出 MD 仍走原始 entries）。
- * 长块正文按面板宽预折行后截断到 MAX_BLOCK_LINES 行，末行拼 ' ...'，
+ * 正文按面板宽预折行存 fullLines，默认只露前 MAX_BLOCK_LINES 行（末行拼 ' ...'）；
+ * 视口有剩余空间时 BlockWindow 会弹性展开被截断的块（选中块优先）。
  * enter 进详情视图看完整内容。
  */
 type Block = {
   role: 'user' | 'assistant';
-  label: string;      // 标签行：🧑 你 / 🤖 AI · 时间
-  lines: string[];    // 预折行后的正文（已截断）
-  truncated: boolean;
-  height: number;     // 1 标签行 + lines.length + 1 块间空行
+  label: string;       // 标签行：🧑 你 / 🤖 AI · 时间
+  fullLines: string[]; // 预折行后的完整正文（未截断）
   entry: ChatEntry;
 };
 
@@ -449,22 +448,16 @@ function wrapEntryText(entry: ChatEntry, maxWidth: number): string[] {
   return out;
 }
 
-/** 对话流 → 块列表（丢弃工具行） */
+/** 对话流 → 块列表（丢弃工具行；正文保留完整折行，截断交给视口） */
 function buildBlocks(entries: ChatEntry[], maxWidth: number): Block[] {
   const blocks: Block[] = [];
   for (const e of entries) {
     if (e.role === 'tool') continue;
     const isUser = e.role === 'user';
-    const wrapped = wrapEntryText(e, maxWidth);
-    const truncated = wrapped.length > MAX_BLOCK_LINES;
-    const lines = truncated ? wrapped.slice(0, MAX_BLOCK_LINES) : wrapped;
-    if (truncated) lines[lines.length - 1] = `${lines[lines.length - 1]} ...`;
     blocks.push({
       role: e.role,
       label: `${isUser ? '🧑 你' : '🤖 AI'}${e.timestamp ? ` · ${fmtDate(e.timestamp)}` : ''}`,
-      lines,
-      truncated,
-      height: lines.length + 2,
+      fullLines: wrapEntryText(e, maxWidth),
       entry: e
     });
   }
@@ -474,8 +467,12 @@ function buildBlocks(entries: ChatEntry[], maxWidth: number): Block[] {
 /**
  * BlockWindow — 按块高（不定高）计算可见窗口的预览列表
  *
- * ScrollableList 假设「一项一行」，块是不定高的（1～8 行），窗口按累计块高算：
- * 从选中块向上累加直到放不下，再向下补齐；两端画 ↑ N / ↓ N 溢出指示。
+ * ScrollableList 假设「一项一行」，块是不定高的，窗口按累计块高算：
+ * 从选中块向上累加再向下补齐，两端画 ↑ N / ↓ N 溢出指示。
+ * 窗口算完后若还有剩余行，自适应填充，避免底部留白像「还有一页」：
+ *   1. 弹性展开窗口内被截断的块（选中块优先）；
+ *   2. 底部预窥下一块头部，顶部预窥上一块尾部（暗色，表示上下文）。
+ * 只有对话内容真的到头了，才留空。
  */
 function BlockWindow({
   blocks,
@@ -489,44 +486,106 @@ function BlockWindow({
   width: number;
 }) {
   const sel = Math.max(0, Math.min(selected, blocks.length - 1));
+  const cap = (b: Block) => Math.min(b.fullLines.length, MAX_BLOCK_LINES);
+  const minH = (b: Block) => cap(b) + 2; // 标签1 + 正文 + 块间空行1
+
+  // 每块初始只露前 MAX_BLOCK_LINES 行
+  const show = blocks.map(cap);
+
   let start = sel;
-  let used = blocks[sel]?.height ?? 0;
-  while (start > 0 && used + blocks[start - 1].height <= avail) {
-    start--;
-    used += blocks[start].height;
-  }
   let end = sel;
-  while (end < blocks.length - 1 && used + blocks[end + 1].height <= avail) {
-    end++;
-    used += blocks[end].height;
+  let peekTop = 0;
+  let peekBottom = 0;
+
+  if (minH(blocks[sel]) >= avail) {
+    // 极端小视口：只保证选中块可见
+    show[sel] = Math.max(1, avail - 2);
+  } else {
+    // 整块窗口：从选中块向上累加，再向下补齐
+    let used = minH(blocks[sel]);
+    while (start > 0 && used + minH(blocks[start - 1]) <= avail) {
+      start--;
+      used += minH(blocks[start]);
+    }
+    while (end < blocks.length - 1 && used + minH(blocks[end + 1]) <= avail) {
+      end++;
+      used += minH(blocks[end]);
+    }
+
+    // 弹性扩展：剩余行先给选中块，再给窗口内其他被截断的块
+    let leftover = avail - used;
+    const expand = (i: number) => {
+      const grow = Math.min(blocks[i].fullLines.length - show[i], leftover);
+      show[i] += grow;
+      leftover -= grow;
+    };
+    expand(sel);
+    for (let i = start; i <= end && leftover > 0; i++) {
+      if (i !== sel) expand(i);
+    }
+
+    // 仍有余量：底部预窥下一块头部（标签 + 前若干行，成本 = 行数 + 标签1 + 空行1）
+    if (leftover >= 3 && end < blocks.length - 1) {
+      const n = Math.min(blocks[end + 1].fullLines.length, leftover - 2);
+      if (n > 0) {
+        peekBottom = n;
+        leftover -= n + 2;
+      }
+    }
+
+    // 仍有余量：顶部预窥上一块尾部（纯行无标签，成本 = 行数 + 空行1）
+    if (leftover >= 2 && start > 0) {
+      peekTop = Math.min(blocks[start - 1].fullLines.length, leftover - 1);
+    }
   }
 
+  const firstRendered = peekTop > 0 ? start - 1 : start;
+  const lastRendered = peekBottom > 0 ? end + 1 : end;
   const rowW = Math.max(1, width - 2); // paddingX 1*2
+
+  // 取块的前 n 行；未展示完整时末行拼 ' ...'
+  const headLines = (b: Block, n: number): string[] => {
+    const ls = b.fullLines.slice(0, Math.max(1, n));
+    if (n < b.fullLines.length) ls[ls.length - 1] = `${ls[ls.length - 1]} ...`;
+    return ls;
+  };
+
+  const renderBlock = (b: Block, realIdx: number, lines: string[]) => {
+    const active = realIdx === selected;
+    const isUser = b.role === 'user';
+    return (
+      <Box key={realIdx} flexDirection="row" width={rowW}>
+        <Text bold color={active ? '#79C0FF' : '#30363D'}>
+          {active ? '❯ ' : '  '}
+        </Text>
+        <Box flexGrow={1} backgroundColor={active ? '#1F2937' : undefined}>
+          <Text>
+            <Text bold color={isUser ? '#79C0FF' : '#3FB950'}>{b.label}</Text>
+            {'\n'}
+            <Text color={isUser ? '#E6EDF3' : '#C9D1D9'}>{lines.join('\n')}</Text>
+            {'\n'}
+          </Text>
+        </Box>
+      </Box>
+    );
+  };
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      {start > 0 && <Text color="#57606A">{`↑ ${start}`}</Text>}
-      {blocks.slice(start, end + 1).map((b, i) => {
-        const realIdx = start + i;
-        const active = realIdx === selected;
-        const isUser = b.role === 'user';
-        return (
-          <Box key={realIdx} flexDirection="row" width={rowW}>
-            <Text bold color={active ? '#79C0FF' : '#30363D'}>
-              {active ? '❯ ' : '  '}
-            </Text>
-            <Box flexGrow={1} backgroundColor={active ? '#1F2937' : undefined}>
-              <Text>
-                <Text bold color={isUser ? '#79C0FF' : '#3FB950'}>{b.label}</Text>
-                {'\n'}
-                <Text color={isUser ? '#E6EDF3' : '#C9D1D9'}>{b.lines.join('\n')}</Text>
-                {'\n'}
-              </Text>
-            </Box>
+      {firstRendered > 0 && <Text color="#57606A">{`↑ ${firstRendered}`}</Text>}
+      {peekTop > 0 && (
+        <Box flexDirection="row" width={rowW}>
+          <Text color="#30363D">{'  '}</Text>
+          <Box flexGrow={1}>
+            <Text color="#57606A">{`${blocks[start - 1].fullLines.slice(-peekTop).join('\n')}\n`}</Text>
           </Box>
-        );
-      })}
-      {end < blocks.length - 1 && <Text color="#57606A">{`↓ ${blocks.length - 1 - end}`}</Text>}
+        </Box>
+      )}
+      {blocks.slice(start, end + 1).map((b, i) => renderBlock(b, start + i, headLines(b, show[start + i])))}
+      {peekBottom > 0 && renderBlock(blocks[end + 1], end + 1, headLines(blocks[end + 1], peekBottom))}
+      {lastRendered < blocks.length - 1 && (
+        <Text color="#57606A">{`↓ ${blocks.length - 1 - lastRendered}`}</Text>
+      )}
     </Box>
   );
 }
