@@ -401,7 +401,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
             ln.kind === 'chip' ? (
               <Text backgroundColor="#21262D" color="#E3B341">{` 📋 ${ln.preview}… `}</Text>
             ) : (
-              <Text color={active ? '#0D1117' : isUser ? '#E6EDF3' : '#C9D1D9'}>
+              <Text color={active ? '#0D1117' : isUser ? '#F0A6C9' : '#C9D1D9'}>
                 {ln.text === '' ? ' ' : ln.text}
               </Text>
             )
@@ -837,7 +837,7 @@ function BlockWindow({
               ln.kind === 'chip' ? (
                 <Text key={i} backgroundColor="#21262D" color="#E3B341">{` 📋 ${ln.preview}… `}</Text>
               ) : (
-                <Text key={i} color={isUser ? '#E6EDF3' : '#C9D1D9'}>{ln.text}</Text>
+                <Text key={i} color={isUser ? '#F0A6C9' : '#C9D1D9'}>{ln.text}</Text>
               )
             ])}
             {'\n'}
