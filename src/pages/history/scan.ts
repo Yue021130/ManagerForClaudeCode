@@ -41,6 +41,7 @@ interface RawLine {
   timestamp?: string;
   cwd?: string;
   isMeta?: boolean;
+  requestedModel?: string;
   message?: { content?: unknown };
 }
 
@@ -165,7 +166,12 @@ export function readConversation(filePath: string): ChatEntry[] {
         }
       }
       if (texts.length) {
-        entries.push({ role: 'assistant', text: texts.join('\n'), timestamp: ts });
+        entries.push({
+          role: 'assistant',
+          text: texts.join('\n'),
+          timestamp: ts,
+          model: typeof o.requestedModel === 'string' ? o.requestedModel : undefined
+        });
       }
     }
   }

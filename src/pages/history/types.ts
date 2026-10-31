@@ -28,4 +28,5 @@ export interface ChatEntry {
   text: string;
   timestamp: string | null;
   toolName?: string;        // role==='tool' 时存在
+  model?: string;           // role==='assistant' 时存在：该行 requestedModel
 }
