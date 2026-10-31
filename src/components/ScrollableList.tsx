@@ -80,7 +80,11 @@ export default function ScrollableList<T>({
             width={rowWidth}
             backgroundColor={isActive ? activeColor : undefined}
           >
-            <Text bold color={isActive ? activeTextColor : inactiveColor}>{isActive ? '❯ ' : '  '}</Text>
+            {/* 标记列固定 2 格且不许收缩：否则行内容超长时 yoga 按比例压缩标记，
+                该行整体左移 1 格，列表左边缘参差 */}
+            <Box width={2} flexShrink={0}>
+              <Text bold color={isActive ? activeTextColor : inactiveColor}>{isActive ? '❯ ' : '  '}</Text>
+            </Box>
             {renderItem(item, realIdx, isActive)}
           </Box>
         );

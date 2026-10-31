@@ -425,7 +425,9 @@ export default function HISTORYPage({ width, height }: PageProps) {
                 <Text bold={active} color={hot ? '#0D1117' : '#E6EDF3'} wrap="truncate">
                   {projName(p)}
                 </Text>
-                <Text color={hot ? '#0D1117' : '#57606A'}>{` ${p.sessions.length}`}</Text>
+                <Box flexShrink={0}>
+                  <Text color={hot ? '#0D1117' : '#57606A'}>{` ${p.sessions.length}`}</Text>
+                </Box>
               </>
             );
           }}
@@ -461,10 +463,15 @@ export default function HISTORYPage({ width, height }: PageProps) {
                     {`${s.cwd ? path.basename(s.cwd) : '?'} · `}
                   </Text>
                 )}
-                <Text color={hot ? '#0D1117' : '#8B949E'}>{`${fmtDate(s.lastTime)} `}</Text>
-                <Text bold={active} color={hot ? '#0D1117' : '#E6EDF3'} wrap="truncate">
-                  {s.title}
-                </Text>
+                {/* 固定 12 格且不许收缩：日期列永远完整对齐，挤压力全给标题 */}
+                <Box width={12} flexShrink={0}>
+                  <Text color={hot ? '#0D1117' : '#8B949E'} wrap="truncate">{`${fmtDate(s.lastTime)} `}</Text>
+                </Box>
+                <Box flexGrow={1}>
+                  <Text bold={active} color={hot ? '#0D1117' : '#E6EDF3'} wrap="truncate">
+                    {s.title}
+                  </Text>
+                </Box>
               </>
             );
           }}
