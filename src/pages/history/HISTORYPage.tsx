@@ -404,18 +404,24 @@ export default function HISTORYPage({ width, height }: PageProps) {
         <ScrollableList<ProjectInfo>
           title="PROJECTS"
           items={projects}
-          selectedIndex={focus === 'project' ? pIdx : -1}
+          // 当前项目常显标记：焦点在 = 蓝底高亮；焦点不在 = 深底蓝标（同会话列联动）
+          selectedIndex={pIdx}
+          activeColor={focus === 'project' ? '#79C0FF' : '#21262D'}
+          activeTextColor={focus === 'project' ? '#0D1117' : '#79C0FF'}
           terminalHeight={height}
           width={projW}
           headerOffset={5}
-          renderItem={(p, _i, active) => (
-            <>
-              <Text bold={active} color={active ? '#0D1117' : '#E6EDF3'} wrap="truncate">
-                {projName(p)}
-              </Text>
-              <Text color={active ? '#0D1117' : '#57606A'}>{` ${p.sessions.length}`}</Text>
-            </>
-          )}
+          renderItem={(p, _i, active) => {
+            const hot = active && focus === 'project';
+            return (
+              <>
+                <Text bold={active} color={hot ? '#0D1117' : '#E6EDF3'} wrap="truncate">
+                  {projName(p)}
+                </Text>
+                <Text color={hot ? '#0D1117' : '#57606A'}>{` ${p.sessions.length}`}</Text>
+              </>
+            );
+          }}
         />
       </Box>
 
