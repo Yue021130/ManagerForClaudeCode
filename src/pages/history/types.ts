@@ -13,6 +13,7 @@ export interface SessionMeta {
   userCount: number;        // 真实 user 行数（已排除 meta/命令）
   assistantCount: number;   // assistant 行数
   sizeBytes: number;        // 文件体积
+  mtimeMs: number;          // 文件最后写入时间（epoch ms），判断「运行中/最近活跃」用
 }
 
 /** 一个项目目录（~/.claude/projects/<dirName>/） */

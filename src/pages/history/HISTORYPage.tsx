@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { PageMeta, PageProps } from '../../types.js';
@@ -64,6 +65,17 @@ const shortModel = (m: string): string => {
   return tail.length > 16 ? `${tail.slice(0, 15)}…` : tail;
 };
 
+// 「运行中」判定窗口：N 分钟内有写入视为正在使用（Claude Code 日志句柄不常驻，只能看 mtime）
+const RUNNING_MIN = 3;
+const RUNNING_WINDOW_MS = RUNNING_MIN * 60_000;
+const isFreshPath = (p: string): boolean => {
+  try {
+    return Date.now() - fs.statSync(p).mtimeMs < RUNNING_WINDOW_MS;
+  } catch {
+    return false;
+  }
+};
+
 type Focus = 'project' | 'session' | 'preview';
 
 const FOCUS_ORDER: Focus[] = ['project', 'session', 'preview'];
@@ -87,6 +99,31 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const [confirming, setConfirming] = useState<SessionMeta | null>(null);
   const [confirmInput, setConfirmInput] = useState('');
   const [confirmError, setConfirmError] = useState(false); // 输入不匹配，内联红字提示
+  // 运行中检测：Claude Code 写日志是开-写-关（句柄不常驻，Restart Manager 探不到），
+  // 改用 mtime 新鲜度：3 分钟内有写入 = 正在使用
+  const [confirmLocked, setConfirmLocked] = useState(false);
+
+  // ── 运行中状态轮询：每 5s stat 全部会话文件（纯 stat，不读内容），绿 ● 标在会话行上 ──
+  const [runningSet, setRunningSet] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!projects) return;
+    let alive = true;
+    const paths = projects.flatMap((p) => p.sessions.map((s) => s.filePath));
+    const tick = () => {
+      const fresh = new Set<string>();
+      for (const p of paths) {
+        if (isFreshPath(p)) fresh.add(p);
+      }
+      if (alive) setRunningSet(fresh);
+    };
+    tick();
+    const timer = setInterval(tick, 5000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [projects]);
+  const isRunning = (s: SessionMeta): boolean => runningSet.has(s.filePath);
 
   // 首次扫描：让出首帧再扫（scan 同步阻塞 <100ms）
   useEffect(() => {
@@ -214,6 +251,12 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
   const removeOrArchive = (kind: 'trash' | 'archive', target: SessionMeta | null = currentSession) => {
     if (!target) return;
+    // 执行前复查：最近 3 分钟有写入 = 会话可能正在使用，拦截防止记录劈叉
+    if (isFreshPath(target.filePath)) {
+      const verb = kind === 'trash' ? '删除' : '归档';
+      setError(`「${target.title.slice(0, 16)}」最近 ${RUNNING_MIN} 分钟内有写入（会话可能正在运行），不可${verb}`);
+      return;
+    }
     try {
       moveSession(target.filePath, kind);
       setMessage(
@@ -272,17 +315,23 @@ export default function HISTORYPage({ width, height }: PageProps) {
         setConfirming(null);
         setConfirmInput('');
         setConfirmError(false);
+        setConfirmLocked(false);
         setKeysEnabled(true);
         return;
       }
       if (key.return) {
         if (confirmInput === 'YUE') {
+          if (confirmLocked) {
+            setConfirmInput(''); // 运行中：清空输入并提示，不移除
+            return;
+          }
           const target = confirming;
           setConfirming(null);
           setConfirmInput('');
           setConfirmError(false);
+          setConfirmLocked(false);
           setKeysEnabled(true);
-          removeOrArchive('trash', target);
+          removeOrArchive('trash', target); // 执行前还会再复查一次
         } else {
           setConfirmInput('');
           setConfirmError(true);
@@ -352,6 +401,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
       if (!currentSession) return;
       setConfirming(currentSession);
       setConfirmInput('');
+      setConfirmError(false);
+      setConfirmLocked(isFreshPath(currentSession.filePath)); // 同步 mtime 检测，无等待
       setKeysEnabled(false); // 弹窗接管键盘：数字键不切页、Esc 不退出
       return;
     }
@@ -476,6 +527,14 @@ export default function HISTORYPage({ width, height }: PageProps) {
                 <Box width={12} flexShrink={0}>
                   <Text color={hot ? '#0D1117' : '#A9B4C0'} wrap="truncate">{`${fmtDate(s.lastTime)} `}</Text>
                 </Box>
+                {/* 运行中状态：绿●占 2 格，非运行行用空格占位保持标题对齐 */}
+                <Box width={2} flexShrink={0}>
+                  {isRunning(s) ? (
+                    <Text color={hot ? '#0D1117' : '#3FB950'}>● </Text>
+                  ) : (
+                    <Text>{'  '}</Text>
+                  )}
+                </Box>
                 <Box flexGrow={1}>
                   <Text bold={active} color={hot ? '#0D1117' : '#E6EDF3'} wrap="truncate">
                     {s.title}
@@ -510,6 +569,12 @@ export default function HISTORYPage({ width, height }: PageProps) {
             <Text color="#8B949E">{' · '}</Text>
             {/* 时间段：紫 */}
             <Text color="#D2A8FF">{`${fmtDate(preview.session.firstTime)} ~ ${fmtDate(preview.session.lastTime)}`}</Text>
+            {isRunning(preview.session) && (
+              <>
+                <Text color="#8B949E">{' · '}</Text>
+                <Text color="#3FB950">● 运行中</Text>
+              </>
+            )}
           </Box>
         )}
         {preview?.session.cwd && (
@@ -557,7 +622,11 @@ export default function HISTORYPage({ width, height }: PageProps) {
             </Text>
           </Box>
           <Box justifyContent="center" marginBottom={1}>
-            <Text color="#8B949E">移到 ~/.claude/backups/mfcc-trash，可恢复</Text>
+            {confirmLocked ? (
+              <Text color="#FF7B72">⚠ 会话最近 {RUNNING_MIN} 分钟内有写入（可能正在运行），不可删除</Text>
+            ) : (
+              <Text color="#8B949E">移到 ~/.claude/backups/mfcc-trash，可恢复</Text>
+            )}
           </Box>
           <Box justifyContent="center" marginBottom={1}>
             <Text color="#A9B4C0">输入 </Text>

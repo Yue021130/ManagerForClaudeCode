@@ -78,7 +78,8 @@ export function scanSession(filePath: string): SessionMeta {
     lastTime: null,
     userCount: 0,
     assistantCount: 0,
-    sizeBytes: st.size
+    sizeBytes: st.size,
+    mtimeMs: st.mtimeMs
   };
 
   for (const line of fs.readFileSync(filePath, 'utf8').split('\n')) {
