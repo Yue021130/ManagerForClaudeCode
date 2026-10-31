@@ -489,21 +489,23 @@ export default function HISTORYPage({ width, height }: PageProps) {
       <DetailPanel
         flexGrow
         isFocused={focus === 'preview'}
-        title="预览"
+        title=""
         emptyMessage="enter 预览会话"
       >
         {preview && (
           <Box>
-            <Text color="#8B949E">
-              {`${preview.session.userCount}问 ${preview.session.assistantCount}答 · ${fmtSize(
-                preview.session.sizeBytes
-              )} · ${fmtDate(preview.session.firstTime)} ~ ${fmtDate(preview.session.lastTime)}`}
-            </Text>
+            <Text color="#3FB950">{`${preview.session.userCount}问 `}</Text>
+            <Text color="#E3B341">{`${preview.session.assistantCount}答`}</Text>
+            <Text color="#8B949E">{' · '}</Text>
+            <Text color="#F0883E">{fmtSize(preview.session.sizeBytes)}</Text>
+            <Text color="#8B949E">{' · '}</Text>
+            {/* 时间段：紫 */}
+            <Text color="#D2A8FF">{`${fmtDate(preview.session.firstTime)} ~ ${fmtDate(preview.session.lastTime)}`}</Text>
           </Box>
         )}
         {preview?.session.cwd && (
           <Box>
-            <Text color="#8B949E" wrap="truncate">
+            <Text color="#22D3EE" wrap="truncate">
               {`📁 ${shortPath(preview.session.cwd)}`}
             </Text>
           </Box>
@@ -512,7 +514,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           <BlockWindow
             blocks={blocks}
             selected={focus === 'preview' ? vIdx : -1}
-            avail={Math.max(4, height - (preview.session.cwd ? 3 : 2))}
+            avail={Math.max(4, height - (preview.session.cwd ? 2 : 1))}
             width={previewW}
           />
         )}

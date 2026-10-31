@@ -28,11 +28,13 @@ export default function DetailPanel({
 
   return (
     <Box {...boxProps} flexDirection="column" paddingX={paddingX}>
-      <Box>
-        <Text bold color={isFocused ? '#E6EDF3' : '#8B949E'}>{title}</Text>
-        {/* 焦点窗口时显示强调色指示器 */}
-        {isFocused && <Text color="#E3B341">{'  ◉'}</Text>}
-      </Box>
+      {title && (
+        <Box>
+          <Text bold color={isFocused ? '#D2A8FF' : '#A371F7'}>{title}</Text>
+          {/* 焦点窗口时显示强调色指示器 */}
+          {isFocused && <Text color="#E3B341">{'  ◉'}</Text>}
+        </Box>
+      )}
       {children ? children : (
         <Text color="#8B949E">{emptyMessage}</Text>
       )}
