@@ -109,7 +109,6 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const projW = Math.min(28, Math.max(16, Math.floor(width * 0.18)));
   const sessW = Math.min(46, Math.max(26, Math.floor(width * 0.30)));
   const previewW = Math.max(20, width - projW - sessW - 2); // -2 = 两条竖线
-  const modalW = Math.min(54, Math.max(34, width - 10)); // 删除确认弹窗宽
 
   // ── 预览：块为单位（Q 一块 A 一块；工具行不展示；长块截断 +...） ──
   const blocks = useMemo(
@@ -438,26 +437,28 @@ export default function HISTORYPage({ width, height }: PageProps) {
         )}
       </DetailPanel>
 
-      {/* ── 删除确认弹窗：绝对定位浮在三栏之上，背景色盖住下层内容 ── */}
+      {/* ── 删除确认弹窗：通栏横带浮在列表之上 ──
+          不用居中小框：小框左右边缘会把底层文字拦腰切断，视觉上边框像波浪线。
+          横带横贯全宽、只留上下两条横边（必直），背景列表在带的上方/下方仍可见。 */}
       {confirming && (
         <Box
           position="absolute"
           marginTop={Math.max(0, Math.floor((height - 12) / 2))}
-          marginLeft={Math.max(0, Math.floor((width - modalW) / 2))}
-          width={modalW}
+          width={width}
           flexDirection="column"
-          borderStyle="round"
+          borderStyle="single"
+          borderLeft={false}
+          borderRight={false}
           borderColor="#FF7B72"
           backgroundColor="#0D1117"
-          paddingX={2}
           paddingY={1}
         >
           <Box justifyContent="center" marginBottom={1}>
-            <Text bold color="#FF7B72">⚠ 确认删除该会话</Text>
+            <Text bold color="#FF7B72">确认删除该会话</Text>
           </Box>
           <Box justifyContent="center">
             <Text color="#E6EDF3" wrap="truncate">
-              {confirming.title.length > 24 ? `${confirming.title.slice(0, 24)}…` : confirming.title}
+              {confirming.title.length > 24 ? `${confirming.title.slice(0, 24)}...` : confirming.title}
             </Text>
           </Box>
           <Box justifyContent="center" marginBottom={1}>
@@ -466,7 +467,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           <Box justifyContent="center" marginBottom={1}>
             <Text color="#8B949E">输入 </Text>
             <Text bold color="#E3B341">YUE</Text>
-            <Text color="#8B949E">：</Text>
+            <Text color="#8B949E">  </Text>
             {[0, 1, 2].map(i => {
               const ch = confirmInput[i];
               const isCursor = i === confirmInput.length;
@@ -476,9 +477,9 @@ export default function HISTORYPage({ width, height }: PageProps) {
                   <Text
                     backgroundColor="#21262D"
                     bold={!!ch}
-                    color={ch || isCursor ? '#E3B341' : '#3D444D'}
+                    color={ch || isCursor ? '#E3B341' : '#57606A'}
                   >
-                    {` ${ch ?? (isCursor ? '▌' : '·')} `}
+                    {` ${ch ?? (isCursor ? '_' : '·')} `}
                   </Text>
                 </Text>
               );
@@ -486,7 +487,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           </Box>
           <Box justifyContent="center">
             {confirmError ? (
-              <Text color="#FF7B72">✗ 输入不匹配，重试或 esc 取消</Text>
+              <Text color="#FF7B72">输入不匹配，重试或 esc 取消</Text>
             ) : (
               <Text color="#57606A">enter 确认 · esc 取消</Text>
             )}
