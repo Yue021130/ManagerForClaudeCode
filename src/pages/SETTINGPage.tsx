@@ -15,7 +15,7 @@ export const meta: PageMeta = {
 export default function SETTINGPage() {
   return (
     <Box flexGrow={1} alignItems="center" justifyContent="center">
-      <Text color="#57606A">🚀 SETTING · 待填充</Text>
+      <Text color="#8B949E">🚀 SETTING · 待填充</Text>
     </Box>
   );
 }

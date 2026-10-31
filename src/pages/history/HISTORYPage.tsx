@@ -358,7 +358,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
   if (!projects) {
     return (
       <Box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
-        <Text color="#8B949E">正在扫描 ~/.claude/projects …</Text>
+        <Text color="#A9B4C0">正在扫描 ~/.claude/projects …</Text>
       </Box>
     );
   }
@@ -366,7 +366,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
   if (!projects.length) {
     return (
       <Box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
-        <Text color="#57606A">没有找到 Claude 对话历史（~/.claude/projects 为空）</Text>
+        <Text color="#8B949E">没有找到 Claude 对话历史（~/.claude/projects 为空）</Text>
       </Box>
     );
   }
@@ -379,7 +379,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
         <Box height={1} flexDirection="row" paddingX={1}>
           <Text bold color={isUser ? '#79C0FF' : '#3FB950'}>{`${detail.label} · 完整内容`}</Text>
           <Box flexGrow={1} />
-          <Text color="#57606A">↑↓ 滚动  space 粘贴  esc 返回</Text>
+          <Text color="#8B949E">↑↓ 滚动  space 粘贴  esc 返回</Text>
         </Box>
         <ScrollableList<BlockLine>
           items={detailLines}
@@ -426,7 +426,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
                   {projName(p)}
                 </Text>
                 <Box flexShrink={0}>
-                  <Text color={hot ? '#0D1117' : '#57606A'}>{` ${p.sessions.length}`}</Text>
+                  <Text color={hot ? '#0D1117' : '#8B949E'}>{` ${p.sessions.length}`}</Text>
                 </Box>
               </>
             );
@@ -459,13 +459,13 @@ export default function HISTORYPage({ width, height }: PageProps) {
             return (
               <>
                 {inSearch && (
-                  <Text color={hot ? '#0D1117' : '#57606A'} wrap="truncate">
+                  <Text color={hot ? '#0D1117' : '#8B949E'} wrap="truncate">
                     {`${s.cwd ? path.basename(s.cwd) : '?'} · `}
                   </Text>
                 )}
                 {/* 固定 12 格且不许收缩：日期列永远完整对齐，挤压力全给标题 */}
                 <Box width={12} flexShrink={0}>
-                  <Text color={hot ? '#0D1117' : '#8B949E'} wrap="truncate">{`${fmtDate(s.lastTime)} `}</Text>
+                  <Text color={hot ? '#0D1117' : '#A9B4C0'} wrap="truncate">{`${fmtDate(s.lastTime)} `}</Text>
                 </Box>
                 <Box flexGrow={1}>
                   <Text bold={active} color={hot ? '#0D1117' : '#E6EDF3'} wrap="truncate">
@@ -478,7 +478,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
         />
         {!sessions.length && (
           <Box paddingX={1}>
-            <Text color="#57606A">{inSearch ? '没有匹配的会话' : '无会话'}</Text>
+            <Text color="#8B949E">{inSearch ? '没有匹配的会话' : '无会话'}</Text>
           </Box>
         )}
       </Box>
@@ -494,7 +494,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
       >
         {preview && (
           <Box>
-            <Text color="#57606A">
+            <Text color="#8B949E">
               {`${preview.session.userCount}问 ${preview.session.assistantCount}答 · ${fmtSize(
                 preview.session.sizeBytes
               )} · ${fmtDate(preview.session.firstTime)} ~ ${fmtDate(preview.session.lastTime)}`}
@@ -503,7 +503,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
         )}
         {preview?.session.cwd && (
           <Box>
-            <Text color="#57606A" wrap="truncate">
+            <Text color="#8B949E" wrap="truncate">
               {`📁 ${shortPath(preview.session.cwd)}`}
             </Text>
           </Box>
@@ -517,7 +517,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           />
         )}
         {preview && blocks.length === 0 && (
-          <Text color="#57606A">此会话没有可展示的对话（可能是纯命令会话）</Text>
+          <Text color="#8B949E">此会话没有可展示的对话（可能是纯命令会话）</Text>
         )}
       </DetailPanel>
 
@@ -546,12 +546,12 @@ export default function HISTORYPage({ width, height }: PageProps) {
             </Text>
           </Box>
           <Box justifyContent="center" marginBottom={1}>
-            <Text color="#57606A">移到 ~/.claude/backups/mfcc-trash，可恢复</Text>
+            <Text color="#8B949E">移到 ~/.claude/backups/mfcc-trash，可恢复</Text>
           </Box>
           <Box justifyContent="center" marginBottom={1}>
-            <Text color="#8B949E">输入 </Text>
+            <Text color="#A9B4C0">输入 </Text>
             <Text bold color="#E3B341">YUE</Text>
-            <Text color="#8B949E">  </Text>
+            <Text color="#A9B4C0">  </Text>
             {[0, 1, 2].map(i => {
               const ch = confirmInput[i];
               const isCursor = i === confirmInput.length;
@@ -561,7 +561,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
                   <Text
                     backgroundColor="#21262D"
                     bold={!!ch}
-                    color={ch || isCursor ? '#E3B341' : '#57606A'}
+                    color={ch || isCursor ? '#E3B341' : '#8B949E'}
                   >
                     {` ${ch ?? (isCursor ? '_' : '·')} `}
                   </Text>
@@ -573,7 +573,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
             {confirmError ? (
               <Text color="#FF7B72">输入不匹配，重试或 esc 取消</Text>
             ) : (
-              <Text color="#57606A">enter 确认 · esc 取消</Text>
+              <Text color="#8B949E">enter 确认 · esc 取消</Text>
             )}
           </Box>
         </Box>
@@ -802,7 +802,7 @@ function BlockWindow({
     const isUser = b.role === 'user';
     return (
       <Box key={realIdx} flexDirection="row" width={rowW}>
-        <Text bold color={active ? '#79C0FF' : '#30363D'}>
+        <Text bold color={active ? '#79C0FF' : '#6E7681'}>
           {active ? '❯ ' : '  '}
         </Text>
         <Box flexGrow={1} backgroundColor={active ? '#1F2937' : undefined}>
@@ -826,12 +826,12 @@ function BlockWindow({
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      {firstRendered > 0 && <Text color="#57606A">{`↑ ${firstRendered}`}</Text>}
+      {firstRendered > 0 && <Text color="#8B949E">{`↑ ${firstRendered}`}</Text>}
       {peekTop > 0 && (
         <Box flexDirection="row" width={rowW}>
-          <Text color="#30363D">{'  '}</Text>
+          <Text color="#6E7681">{'  '}</Text>
           <Box flexGrow={1}>
-            <Text color="#57606A">{`${blocks[start - 1].lines
+            <Text color="#8B949E">{`${blocks[start - 1].lines
               .slice(-peekTop)
               .map(ln => (ln.kind === 'chip' ? `📋 ${ln.preview}…` : ln.text))
               .join('\n')}\n`}</Text>
@@ -841,7 +841,7 @@ function BlockWindow({
       {blocks.slice(start, end + 1).map((b, i) => renderBlock(b, start + i, headLines(b, show[start + i])))}
       {peekBottom > 0 && renderBlock(blocks[end + 1], end + 1, headLines(blocks[end + 1], peekBottom))}
       {lastRendered < blocks.length - 1 && (
-        <Text color="#57606A">{`↓ ${blocks.length - 1 - lastRendered}`}</Text>
+        <Text color="#8B949E">{`↓ ${blocks.length - 1 - lastRendered}`}</Text>
       )}
     </Box>
   );

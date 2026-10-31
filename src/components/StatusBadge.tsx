@@ -11,8 +11,8 @@ export default function StatusBadge({ disabled = false, activeLabel = 'ON', disa
   return (
     <Text
       bold
-      backgroundColor={disabled ? '#161B22' : '#3FB950'}
-      color={disabled ? '#8B949E' : '#0D1117'}
+      backgroundColor={disabled ? '#6E7681' : '#3FB950'}
+      color="#0D1117"
     >
       {` ${disabled ? disabledLabel : activeLabel} `}
     </Text>

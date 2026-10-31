@@ -87,7 +87,7 @@ export default function App() {
               <Text
                 bold={active}
                 underline={active}
-                color={active ? p.meta.color : '#57606A'}
+                color={active ? p.meta.color : '#8B949E'}
               >
                 {`${p.meta.num} ${p.meta.label}`}
               </Text>
@@ -96,11 +96,11 @@ export default function App() {
         })}
         <Box flexGrow={1} />
         {/*  右侧文本 */}
-        <Text color="#57606A">{BRAND_TEXT}</Text>
+        <Text color="#8B949E">{BRAND_TEXT}</Text>
       </Box>
       {/* ── 分割线 ── */}
       <Box height={1} paddingX={1}>
-        <Text color="#30363D">{'─'.repeat(terminalWidth - 2)}</Text>
+        <Text color="#6E7681">{'─'.repeat(terminalWidth - 2)}</Text>
       </Box>
 
 
@@ -114,7 +114,7 @@ export default function App() {
 
         {/* ── 分割线 ── */}
       <Box height={1} paddingX={1}>
-        <Text color="#30363D">{'─'.repeat(terminalWidth - 2)}</Text>
+        <Text color="#6E7681">{'─'.repeat(terminalWidth - 2)}</Text>
       </Box>
       {/* ── 底栏：左侧键位 / 右侧反馈消息 ── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
@@ -122,7 +122,7 @@ export default function App() {
         {current.meta.hints.map(([k, label]) => (
           <Box key={k} flexDirection="row" marginRight={2}>
             <Text bold color="#E6EDF3">{k}</Text>
-            <Text color="#57606A">{` ${label}`}</Text>
+            <Text color="#8B949E">{` ${label}`}</Text>
           </Box>
         ))}
         <Box flexGrow={1} />

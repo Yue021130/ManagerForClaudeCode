@@ -16,8 +16,8 @@ export const meta: PageMeta = {
 export default function PLUGINSPage() {
   return (
     <Box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
-      <Text color="#57606A">PLUGINS · 待填充</Text>
-      <Text color="#57606A" dimColor>MCP / Skills / 插件分类管理 · 一键拔插 · 备份池</Text>
+      <Text color="#8B949E">PLUGINS · 待填充</Text>
+      <Text color="#8B949E" dimColor>MCP / Skills / 插件分类管理 · 一键拔插 · 备份池</Text>
     </Box>
   );
 }

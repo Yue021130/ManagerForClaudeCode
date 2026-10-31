@@ -42,7 +42,7 @@ export default function ScrollableList<T>({
   paddingX = 1,
   activeColor = '#79C0FF',
   activeTextColor = '#0D1117',
-  inactiveColor = 'gray'
+  inactiveColor = '#8B949E'
 }: ScrollableListProps<T>) {
   const {
     visibleList,
@@ -63,12 +63,12 @@ export default function ScrollableList<T>({
         <Box>
           <Text bold color="#E6EDF3">{title}</Text>
           {showCount && (
-            <Text color="#0D1117" backgroundColor="#161B22">{` ${items.length} `}</Text>
+            <Text color="#0D1117" backgroundColor="#6E7681">{` ${items.length} `}</Text>
           )}
         </Box>
       )}
       {/* 上方溢出指示 */}
-      {hasMoreAbove && <Text color="#57606A">↑ {aboveCount}</Text>}
+      {hasMoreAbove && <Text color="#8B949E">↑ {aboveCount}</Text>}
       {/* 可见项渲染 — 选中行整行背景高亮 */}
       {visibleList.map((item, i) => {
         const realIdx = scrollOffset + i;
@@ -90,7 +90,7 @@ export default function ScrollableList<T>({
         );
       })}
       {/* 下方溢出指示 */}
-      {hasMoreBelow && <Text color="#57606A">↓ {belowCount}</Text>}
+      {hasMoreBelow && <Text color="#8B949E">↓ {belowCount}</Text>}
     </Box>
   );
 }

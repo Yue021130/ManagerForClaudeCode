@@ -8,7 +8,7 @@ export interface VerticalDividerProps {
 export default function VerticalDivider({ paddingY = 0 }: VerticalDividerProps) {
   return (
     <Box width={1} flexDirection="column" paddingY={paddingY}>
-      <Text color="#30363D">│</Text>
+      <Text color="#6E7681">│</Text>
     </Box>
   );
 }

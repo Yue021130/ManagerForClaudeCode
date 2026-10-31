@@ -10,13 +10,13 @@ export default function SectionHeader({ title }: SectionHeaderProps) {
   return (
     <Box marginY={1} flexDirection="row">
       <Box flexShrink={0}>
-        <Text color="#30363D">{'─'}</Text>
+        <Text color="#6E7681">{'─'}</Text>
       </Box>
       <Box flexShrink={0}>
         <Text bold color="#E6EDF3">{title ? ` ${title} ` : ''}</Text>
       </Box>
       <Box flexGrow={1}>
-        <Text color="#30363D" wrap="truncate">{'─'.repeat(120)}</Text>
+        <Text color="#6E7681" wrap="truncate">{'─'.repeat(120)}</Text>
       </Box>
     </Box>
   );
