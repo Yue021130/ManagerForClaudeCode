@@ -542,13 +542,18 @@ function wrapText(text: string, maxWidth: number): string[] {
   return out;
 }
 
-/** 一条 entry 的正文 → 折行数组（详情视图用，不截断） */
+/** 一条 entry 的正文 → 折行数组（剥掉首尾空行；中间空行是排版，保留） */
 function wrapEntryText(entry: ChatEntry, maxWidth: number): string[] {
   const out: string[] = [];
   for (const para of stripAnsi(entry.text).split('\n')) {
     out.push(...wrapText(para, maxWidth));
   }
-  return out;
+  // 粘贴内容常带前导/尾随换行，渲染出来是大片空白
+  let start = 0;
+  let end = out.length;
+  while (start < end && out[start].trim() === '') start++;
+  while (end > start && out[end - 1].trim() === '') end--;
+  return out.slice(start, end);
 }
 
 /** 对话流 → 块列表（丢弃工具行；正文保留完整折行，截断交给视口） */
