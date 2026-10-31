@@ -5,7 +5,7 @@ export interface VerticalDividerProps {
   paddingY?: number;
 }
 
-export default function VerticalDivider({ paddingY = 1 }: VerticalDividerProps) {
+export default function VerticalDivider({ paddingY = 0 }: VerticalDividerProps) {
   return (
     <Box width={1} flexDirection="column" paddingY={paddingY}>
       <Text color="#30363D">│</Text>

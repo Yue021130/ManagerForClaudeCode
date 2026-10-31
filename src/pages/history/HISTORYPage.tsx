@@ -486,7 +486,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
         emptyMessage="enter 预览会话"
       >
         {preview && (
-          <Box marginBottom={1}>
+          <Box>
             <Text color="#57606A">
               {`${preview.session.userCount}问 ${preview.session.assistantCount}答 · ${fmtSize(
                 preview.session.sizeBytes
@@ -495,7 +495,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           </Box>
         )}
         {preview?.session.cwd && (
-          <Box marginBottom={1}>
+          <Box>
             <Text color="#57606A" wrap="truncate">
               {`📁 ${shortPath(preview.session.cwd)}`}
             </Text>
@@ -505,7 +505,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           <BlockWindow
             blocks={blocks}
             selected={focus === 'preview' ? vIdx : -1}
-            avail={Math.max(4, height - 6 - (preview.session.cwd ? 1 : 0))}
+            avail={Math.max(4, height - (preview.session.cwd ? 3 : 2))}
             width={previewW}
           />
         )}

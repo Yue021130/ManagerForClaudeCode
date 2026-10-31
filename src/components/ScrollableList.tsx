@@ -58,9 +58,9 @@ export default function ScrollableList<T>({
 
   return (
     <Box width={width} flexDirection="column" paddingX={paddingX}>
-      {/* 标题行 + 计数徽章 */}
+      {/* 标题行 + 计数徽章（紧贴列表，不留空行） */}
       {title && (
-        <Box marginBottom={1}>
+        <Box>
           <Text bold color="#E6EDF3">{title}</Text>
           {showCount && (
             <Text color="#0D1117" backgroundColor="#161B22">{` ${items.length} `}</Text>
