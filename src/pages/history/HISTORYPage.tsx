@@ -58,6 +58,12 @@ const shortPath = (p: string): string => {
   return p.toLowerCase().startsWith(home.toLowerCase()) ? '~' + p.slice(home.length) : p;
 };
 
+// 模型名展示：去掉供应商前缀，超长截断（ccr 的哈希名能到 40+ 字符）
+const shortModel = (m: string): string => {
+  const tail = m.slice(m.lastIndexOf('/') + 1);
+  return tail.length > 16 ? `${tail.slice(0, 15)}…` : tail;
+};
+
 type Focus = 'project' | 'session' | 'preview';
 
 const FOCUS_ORDER: Focus[] = ['project', 'session', 'preview'];
@@ -377,7 +383,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
     return (
       <Box flexGrow={1} flexDirection="column" overflow="hidden">
         <Box height={1} flexDirection="row" paddingX={1}>
-          <Text bold color={isUser ? '#79C0FF' : '#3FB950'}>
+          <Text bold color={isUser ? '#79C0FF' : '#3FB950'} wrap="truncate">
             <Text backgroundColor={isUser ? '#1F6FEB' : '#238636'}>{` ${isUser ? '😏' : '👾'} `}</Text>
             {` ${detail.label} · 完整内容`}
           </Text>
@@ -704,7 +710,7 @@ function buildBlocks(entries: ChatEntry[], maxWidth: number, expandedPastes: Rea
     const { lines, pasteIds } = buildEntryLines(e, maxWidth, expandedPastes);
     blocks.push({
       role: e.role,
-      label: `${isUser ? '你' : 'AI'}${e.timestamp ? ` · ${fmtDate(e.timestamp)}` : ''}`,
+      label: `${isUser ? '你' : 'AI'}${!isUser && e.model ? ` · ${shortModel(e.model)}` : ''}${e.timestamp ? ` · ${fmtDate(e.timestamp)}` : ''}`,
       lines,
       pasteIds,
       entry: e
@@ -813,7 +819,7 @@ function BlockWindow({
         <Box flexGrow={1} backgroundColor={active ? '#1F2937' : undefined}>
           <Text>
             {/* 头像做成底色徽章：终端格子字无法调字号，用色块把它和文字层级拉开 */}
-            <Text bold color={isUser ? '#79C0FF' : '#3FB950'}>
+            <Text bold color={isUser ? '#79C0FF' : '#3FB950'} wrap="truncate">
               <Text backgroundColor={isUser ? '#1F6FEB' : '#238636'}>{` ${isUser ? '😏' : '👾'} `}</Text>
               {` ${b.label}`}
             </Text>
