@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
+import os from 'node:os';
 import path from 'node:path';
 import type { PageMeta, PageProps } from '../../types.js';
 import { useShell } from '../../shell/context.js';
@@ -50,6 +51,12 @@ const fmtSize = (b: number): string =>
   b >= 1048576 ? `${(b / 1048576).toFixed(1)}M` : b >= 1024 ? `${Math.round(b / 1024)}K` : `${b}B`;
 
 const projName = (p: ProjectInfo): string => (p.cwd ? path.basename(p.cwd) : p.dirName);
+
+// 展示路径：home 前缀缩成 ~，省横向空间
+const shortPath = (p: string): string => {
+  const home = os.homedir();
+  return p.toLowerCase().startsWith(home.toLowerCase()) ? '~' + p.slice(home.length) : p;
+};
 
 type Focus = 'project' | 'session' | 'preview';
 
@@ -487,11 +494,18 @@ export default function HISTORYPage({ width, height }: PageProps) {
             </Text>
           </Box>
         )}
+        {preview?.session.cwd && (
+          <Box marginBottom={1}>
+            <Text color="#57606A" wrap="truncate">
+              {`📁 ${shortPath(preview.session.cwd)}`}
+            </Text>
+          </Box>
+        )}
         {preview && blocks.length > 0 && (
           <BlockWindow
             blocks={blocks}
             selected={focus === 'preview' ? vIdx : -1}
-            avail={Math.max(4, height - 6)}
+            avail={Math.max(4, height - 6 - (preview.session.cwd ? 1 : 0))}
             width={previewW}
           />
         )}
