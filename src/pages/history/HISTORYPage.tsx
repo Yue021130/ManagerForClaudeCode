@@ -663,7 +663,7 @@ function parseSegments(text: string): Segment[] {
 
 /**
  * 一条 entry → 展示行：普通段折行；粘贴段折叠为 chip（或展开时折行）。
- * 首尾空行剥掉（粘贴内容常带前导/尾随换行，渲染出来是大片空白）。
+ * 首尾空行剥掉、中间连续空行压成一行（粘贴内容常带大量换行，渲染出来是大片空白）。
  */
 function buildEntryLines(
   entry: ChatEntry,
@@ -698,7 +698,15 @@ function buildEntryLines(
   };
   while (start < end && blank(start)) start++;
   while (end > start && blank(end - 1)) end--;
-  return { lines: lines.slice(start, end), pasteIds };
+  // 连续空行压成一行：粘贴段后常跟多个换行，原样渲染会空一大片
+  const trimmed = lines.slice(start, end);
+  const collapsed: BlockLine[] = [];
+  for (const ln of trimmed) {
+    const prev = collapsed[collapsed.length - 1];
+    if (ln.kind === 'text' && ln.text.trim() === '' && prev?.kind === 'text' && prev.text.trim() === '') continue;
+    collapsed.push(ln);
+  }
+  return { lines: collapsed, pasteIds };
 }
 
 /** 对话流 → 块列表（丢弃工具行；正文保留完整折行，截断交给视口） */
