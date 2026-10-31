@@ -377,7 +377,10 @@ export default function HISTORYPage({ width, height }: PageProps) {
     return (
       <Box flexGrow={1} flexDirection="column" overflow="hidden">
         <Box height={1} flexDirection="row" paddingX={1}>
-          <Text bold color={isUser ? '#79C0FF' : '#3FB950'}>{`${detail.label} · 完整内容`}</Text>
+          <Text bold color={isUser ? '#79C0FF' : '#3FB950'}>
+            <Text backgroundColor={isUser ? '#1F6FEB' : '#238636'}>{` ${isUser ? '😏' : '👾'} `}</Text>
+            {` ${detail.label} · 完整内容`}
+          </Text>
           <Box flexGrow={1} />
           <Text color="#8B949E">↑↓ 滚动  space 粘贴  esc 返回</Text>
         </Box>
@@ -602,7 +605,7 @@ type BlockLine =
  */
 type Block = {
   role: 'user' | 'assistant';
-  label: string;       // 标签行：🧑 你 / 🤖 AI · 时间
+  label: string;       // 标签行：你 / AI · 时间（头像由渲染处加徽章）
   lines: BlockLine[];  // 展示行（已按粘贴展开状态生成）
   pasteIds: string[];  // 块内粘贴段 id（没有则 space 无效）
   entry: ChatEntry;
@@ -701,7 +704,7 @@ function buildBlocks(entries: ChatEntry[], maxWidth: number, expandedPastes: Rea
     const { lines, pasteIds } = buildEntryLines(e, maxWidth, expandedPastes);
     blocks.push({
       role: e.role,
-      label: `${isUser ? '🧑 你' : '🤖 AI'}${e.timestamp ? ` · ${fmtDate(e.timestamp)}` : ''}`,
+      label: `${isUser ? '你' : 'AI'}${e.timestamp ? ` · ${fmtDate(e.timestamp)}` : ''}`,
       lines,
       pasteIds,
       entry: e
@@ -809,7 +812,11 @@ function BlockWindow({
         </Text>
         <Box flexGrow={1} backgroundColor={active ? '#1F2937' : undefined}>
           <Text>
-            <Text bold color={isUser ? '#79C0FF' : '#3FB950'}>{b.label}</Text>
+            {/* 头像做成底色徽章：终端格子字无法调字号，用色块把它和文字层级拉开 */}
+            <Text bold color={isUser ? '#79C0FF' : '#3FB950'}>
+              <Text backgroundColor={isUser ? '#1F6FEB' : '#238636'}>{` ${isUser ? '😏' : '👾'} `}</Text>
+              {` ${b.label}`}
+            </Text>
             {'\n'}
             {lines.flatMap((ln, i) => [
               i > 0 ? '\n' : '',
