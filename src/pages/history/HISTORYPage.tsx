@@ -70,6 +70,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
   // ── 删除二次确认（弹窗，必须输入 YUE）──
   const [confirming, setConfirming] = useState<SessionMeta | null>(null);
   const [confirmInput, setConfirmInput] = useState('');
+  const [confirmError, setConfirmError] = useState(false); // 输入不匹配，内联红字提示
 
   // 首次扫描：让出首帧再扫（scan 同步阻塞 <100ms）
   useEffect(() => {
@@ -108,7 +109,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const projW = Math.min(28, Math.max(16, Math.floor(width * 0.18)));
   const sessW = Math.min(46, Math.max(26, Math.floor(width * 0.30)));
   const previewW = Math.max(20, width - projW - sessW - 2); // -2 = 两条竖线
-  const modalW = Math.min(60, Math.max(30, width - 10)); // 删除确认弹窗宽
+  const modalW = Math.min(54, Math.max(34, width - 10)); // 删除确认弹窗宽
 
   // ── 预览：块为单位（Q 一块 A 一块；工具行不展示；长块截断 +...） ──
   const blocks = useMemo(
@@ -218,6 +219,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
       if (key.escape) {
         setConfirming(null);
         setConfirmInput('');
+        setConfirmError(false);
         setKeysEnabled(true);
         return;
       }
@@ -226,16 +228,23 @@ export default function HISTORYPage({ width, height }: PageProps) {
           const target = confirming;
           setConfirming(null);
           setConfirmInput('');
+          setConfirmError(false);
           setKeysEnabled(true);
           removeOrArchive('trash', target);
         } else {
           setConfirmInput('');
-          setError('输入不匹配（需要输入 YUE），未删除');
+          setConfirmError(true);
         }
         return;
       }
-      if (key.backspace) return setConfirmInput(s => s.slice(0, -1));
-      if (!key.ctrl && !key.meta && input) return setConfirmInput(s => s + input);
+      if (key.backspace) {
+        setConfirmError(false);
+        return setConfirmInput(s => s.slice(0, -1));
+      }
+      if (!key.ctrl && !key.meta && input) {
+        setConfirmError(false);
+        return setConfirmInput(s => (s + input).slice(0, 3)); // 就 3 个槽位
+      }
       return;
     }
 
@@ -433,7 +442,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
       {confirming && (
         <Box
           position="absolute"
-          marginTop={Math.max(0, Math.floor((height - 10) / 2))}
+          marginTop={Math.max(0, Math.floor((height - 12) / 2))}
           marginLeft={Math.max(0, Math.floor((width - modalW) / 2))}
           width={modalW}
           flexDirection="column"
@@ -441,15 +450,47 @@ export default function HISTORYPage({ width, height }: PageProps) {
           borderColor="#FF7B72"
           backgroundColor="#0D1117"
           paddingX={2}
+          paddingY={1}
         >
-          <Text bold color="#FF7B72">确认删除</Text>
-          <Text color="#E6EDF3" wrap="wrap">{confirming.title}</Text>
-          <Text color="#57606A">删除 = 移到 ~/.claude/backups/mfcc-trash，可恢复</Text>
-          <Text color="#E6EDF3">
-            输入 <Text bold color="#E3B341">YUE</Text> 确认：{confirmInput}
-            <Text color="#E3B341">▌</Text>
-          </Text>
-          <Text color="#57606A">enter 确认 · esc 取消</Text>
+          <Box justifyContent="center" marginBottom={1}>
+            <Text bold color="#FF7B72">⚠ 确认删除该会话</Text>
+          </Box>
+          <Box justifyContent="center">
+            <Text color="#E6EDF3" wrap="truncate">
+              {confirming.title.length > 24 ? `${confirming.title.slice(0, 24)}…` : confirming.title}
+            </Text>
+          </Box>
+          <Box justifyContent="center" marginBottom={1}>
+            <Text color="#57606A">移到 ~/.claude/backups/mfcc-trash，可恢复</Text>
+          </Box>
+          <Box justifyContent="center" marginBottom={1}>
+            <Text color="#8B949E">输入 </Text>
+            <Text bold color="#E3B341">YUE</Text>
+            <Text color="#8B949E">：</Text>
+            {[0, 1, 2].map(i => {
+              const ch = confirmInput[i];
+              const isCursor = i === confirmInput.length;
+              return (
+                <Text key={i}>
+                  {i > 0 && ' '}
+                  <Text
+                    backgroundColor="#21262D"
+                    bold={!!ch}
+                    color={ch || isCursor ? '#E3B341' : '#3D444D'}
+                  >
+                    {` ${ch ?? (isCursor ? '▌' : '·')} `}
+                  </Text>
+                </Text>
+              );
+            })}
+          </Box>
+          <Box justifyContent="center">
+            {confirmError ? (
+              <Text color="#FF7B72">✗ 输入不匹配，重试或 esc 取消</Text>
+            ) : (
+              <Text color="#57606A">enter 确认 · esc 取消</Text>
+            )}
+          </Box>
         </Box>
       )}
     </Box>
