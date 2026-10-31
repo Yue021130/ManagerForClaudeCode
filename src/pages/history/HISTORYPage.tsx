@@ -20,8 +20,9 @@ import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
  * 三栏：项目列表 | 会话列表 | 对话预览
  * 数据：~/.claude/projects/<dir>/<sessionId>.jsonl（见 scan.ts）
  *
- * 键位：↑↓ 移动（随焦点）  ←→/tab 切焦点  enter 预览（项目行=下钻会话）  space 粘贴段展开/收起
+ * 键位：↑↓ 移动（随焦点）  ←→/tab 切焦点  enter 下钻/进详情  space 粘贴段展开/收起
  *       / 搜索（Enter 或删空退出）  d 删除（弹窗输入 YUE 确认）  x 归档  e 导出MD  r 重新扫描
+ * 会话选中即自动预览（120ms 防抖），enter 在会话行只是把焦点送进预览。
  * 删除/归档 = 移到 ~/.claude/backups/，可恢复。
  * <pasted_content> 段默认折叠成一行颜色块（前 20 字符 + …），space 展开。
  */
@@ -140,19 +141,38 @@ export default function HISTORYPage({ width, height }: PageProps) {
     }
   };
 
-  const openPreview = (s: SessionMeta) => {
+  // 读取会话进预览（不切焦点）；换会话时粘贴段回到全折叠、定位到最后一块
+  const loadPreview = (s: SessionMeta) => {
     try {
       const list = readConversation(s.filePath);
       setPreview({ session: s, entries: list });
-      setExpandedPastes(new Set()); // 换会话，粘贴段回到全折叠
-      // 定位到最后一块（按块计）
+      setExpandedPastes(new Set());
       const newBlocks = buildBlocks(list, Math.max(10, previewW - 4), new Set());
       setPreviewIdx(Math.max(0, newBlocks.length - 1));
-      setFocus('preview');
     } catch (e) {
       setError(`读取失败: ${String(e)}`);
     }
   };
+
+  // enter 跳进预览焦点；自动预览已载过就不重复读文件
+  const openPreview = (s: SessionMeta) => {
+    if (preview?.session.filePath !== s.filePath) loadPreview(s);
+    setFocus('preview');
+  };
+
+  // 选中即预览：当前会话变化后稍等一拍再载入（快速翻页只载最后停下的那条）
+  const currentPath = currentSession?.filePath ?? null;
+  useEffect(() => {
+    if (!currentPath) {
+      setPreview(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      if (currentSession) loadPreview(currentSession);
+    }, 120);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只跟随 filePath；同一文件不重复载入
+  }, [currentPath]);
 
   const openDetail = (b: Block) => {
     setDetail(b);
@@ -627,7 +647,11 @@ function buildEntryLines(
   }
   let start = 0;
   let end = lines.length;
-  const blank = (i: number) => lines[i].kind === 'text' && (lines[i].text as string).trim() === '';
+  // 先绑局部常量再收窄：lines[i] 每次访问都是新的联合类型，IDE 的 TS 5.x 不会对它收窄 2026年10月31日17点50分
+  const blank = (i: number) => {
+    const ln = lines[i];
+    return ln.kind === 'text' && ln.text.trim() === '';
+  };
   while (start < end && blank(start)) start++;
   while (end > start && blank(end - 1)) end--;
   return { lines: lines.slice(start, end), pasteIds };
