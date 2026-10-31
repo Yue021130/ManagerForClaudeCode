@@ -21,7 +21,7 @@ import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
  * 数据：~/.claude/projects/<dir>/<sessionId>.jsonl（见 scan.ts）
  *
  * 键位：↑↓ 移动（随焦点）  ←→/tab 切焦点  enter 预览（项目行=下钻会话）
- *       / 搜索（Enter 或删空退出）  d 删除  x 归档  e 导出MD  r 重新扫描
+ *       / 搜索（Enter 或删空退出）  d 删除（弹窗输入 YUE 确认）  x 归档  e 导出MD  r 重新扫描
  * 删除/归档 = 移到 ~/.claude/backups/，可恢复。
  */
 export const meta: PageMeta = {
@@ -67,6 +67,10 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
 
+  // ── 删除二次确认（弹窗，必须输入 YUE）──
+  const [confirming, setConfirming] = useState<SessionMeta | null>(null);
+  const [confirmInput, setConfirmInput] = useState('');
+
   // 首次扫描：让出首帧再扫（scan 同步阻塞 <100ms）
   useEffect(() => {
     const t = setTimeout(() => {
@@ -104,6 +108,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const projW = Math.min(28, Math.max(16, Math.floor(width * 0.18)));
   const sessW = Math.min(46, Math.max(26, Math.floor(width * 0.30)));
   const previewW = Math.max(20, width - projW - sessW - 2); // -2 = 两条竖线
+  const modalW = Math.min(60, Math.max(30, width - 10)); // 删除确认弹窗宽
 
   // ── 预览：块为单位（Q 一块 A 一块；工具行不展示；长块截断 +...） ──
   const blocks = useMemo(
@@ -154,16 +159,16 @@ export default function HISTORYPage({ width, height }: PageProps) {
     setKeysEnabled(true);
   };
 
-  const removeOrArchive = (kind: 'trash' | 'archive') => {
-    if (!currentSession) return;
+  const removeOrArchive = (kind: 'trash' | 'archive', target: SessionMeta | null = currentSession) => {
+    if (!target) return;
     try {
-      moveSession(currentSession.filePath, kind);
+      moveSession(target.filePath, kind);
       setMessage(
         kind === 'trash'
-          ? `已删除「${currentSession.title.slice(0, 16)}」（~/.claude/backups/mfcc-trash 可找回）`
-          : `已归档「${currentSession.title.slice(0, 16)}」`
+          ? `已删除「${target.title.slice(0, 16)}」（~/.claude/backups/mfcc-trash 可找回）`
+          : `已归档「${target.title.slice(0, 16)}」`
       );
-      if (preview?.session.filePath === currentSession.filePath) {
+      if (preview?.session.filePath === target.filePath) {
         setPreview(null);
         setDetail(null);
       }
@@ -208,6 +213,32 @@ export default function HISTORYPage({ width, height }: PageProps) {
   useInput((input, key) => {
     if (!projects) return;
 
+    // 删除确认弹窗：输入 YUE + enter 才执行；esc 取消；其余键吃掉
+    if (confirming) {
+      if (key.escape) {
+        setConfirming(null);
+        setConfirmInput('');
+        setKeysEnabled(true);
+        return;
+      }
+      if (key.return) {
+        if (confirmInput === 'YUE') {
+          const target = confirming;
+          setConfirming(null);
+          setConfirmInput('');
+          setKeysEnabled(true);
+          removeOrArchive('trash', target);
+        } else {
+          setConfirmInput('');
+          setError('输入不匹配（需要输入 YUE），未删除');
+        }
+        return;
+      }
+      if (key.backspace) return setConfirmInput(s => s.slice(0, -1));
+      if (!key.ctrl && !key.meta && input) return setConfirmInput(s => s + input);
+      return;
+    }
+
     // 详情视图：↑↓ 滚动，Esc 返回，吃掉其余键
     if (detail) {
       if (key.escape) return closeDetail();
@@ -249,7 +280,13 @@ export default function HISTORYPage({ width, height }: PageProps) {
       setSessIdx(0);
       return;
     }
-    if (input === 'd') return removeOrArchive('trash');
+    if (input === 'd') {
+      if (!currentSession) return;
+      setConfirming(currentSession);
+      setConfirmInput('');
+      setKeysEnabled(false); // 弹窗接管键盘：数字键不切页、Esc 不退出
+      return;
+    }
     if (input === 'x') return removeOrArchive('archive');
     if (input === 'e') return doExport();
     if (input === 'r') return rescan();
@@ -391,6 +428,30 @@ export default function HISTORYPage({ width, height }: PageProps) {
           <Text color="#57606A">此会话没有可展示的对话（可能是纯命令会话）</Text>
         )}
       </DetailPanel>
+
+      {/* ── 删除确认弹窗：绝对定位浮在三栏之上，背景色盖住下层内容 ── */}
+      {confirming && (
+        <Box
+          position="absolute"
+          marginTop={Math.max(0, Math.floor((height - 10) / 2))}
+          marginLeft={Math.max(0, Math.floor((width - modalW) / 2))}
+          width={modalW}
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="#FF7B72"
+          backgroundColor="#0D1117"
+          paddingX={2}
+        >
+          <Text bold color="#FF7B72">确认删除</Text>
+          <Text color="#E6EDF3" wrap="wrap">{confirming.title}</Text>
+          <Text color="#57606A">删除 = 移到 ~/.claude/backups/mfcc-trash，可恢复</Text>
+          <Text color="#E6EDF3">
+            输入 <Text bold color="#E3B341">YUE</Text> 确认：{confirmInput}
+            <Text color="#E3B341">▌</Text>
+          </Text>
+          <Text color="#57606A">enter 确认 · esc 取消</Text>
+        </Box>
+      )}
     </Box>
   );
 }
