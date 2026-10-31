@@ -48,8 +48,14 @@ export const meta: PageMeta = {
 };
 
 // ── 展示格式化 ──
-const fmtDate = (iso: string | null): string =>
-  iso ? `${iso.slice(5, 10)} ${iso.slice(11, 16)}` : '--     --:--';
+// 注意：jsonl 时间戳是 UTC ISO 串，必须转本地时区再切分，直接 slice 会差 8 小时（UTC+8）
+const fmtDate = (iso: string | null): string => {
+  if (!iso) return '--     --:--';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '--     --:--';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 const fmtSize = (b: number): string =>
   b >= 1048576 ? `${(b / 1048576).toFixed(1)}M` : b >= 1024 ? `${Math.round(b / 1024)}K` : `${b}B`;
