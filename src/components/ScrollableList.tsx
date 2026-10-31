@@ -24,6 +24,8 @@ export interface ScrollableListProps<T> {
   minVisible?: number;
   paddingX?: number;
   activeColor?: string;
+  /** 选中行 ❯ 的颜色；深色 activeColor 时换成亮色 */
+  activeTextColor?: string;
   inactiveColor?: string;
 }
 
@@ -39,6 +41,7 @@ export default function ScrollableList<T>({
   minVisible = 5,
   paddingX = 1,
   activeColor = '#79C0FF',
+  activeTextColor = '#0D1117',
   inactiveColor = 'gray'
 }: ScrollableListProps<T>) {
   const {
@@ -77,7 +80,7 @@ export default function ScrollableList<T>({
             width={rowWidth}
             backgroundColor={isActive ? activeColor : undefined}
           >
-            <Text bold color={isActive ? '#0D1117' : inactiveColor}>{isActive ? '❯ ' : '  '}</Text>
+            <Text bold color={isActive ? activeTextColor : inactiveColor}>{isActive ? '❯ ' : '  '}</Text>
             {renderItem(item, realIdx, isActive)}
           </Box>
         );
