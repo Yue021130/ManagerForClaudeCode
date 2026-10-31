@@ -131,7 +131,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
   // ── 预览：块为单位（Q 一块 A 一块；工具行不展示；长块截断 +...） ──
   const blocks = useMemo(
-    () => buildBlocks(entries, Math.max(10, previewW - 4), expandedPastes),
+    () => buildBlocks(entries, Math.max(10, previewW - 6), expandedPastes),
     [entries, previewW, expandedPastes]
   );
   const vIdx = Math.min(previewIdx, Math.max(0, blocks.length - 1));
@@ -160,7 +160,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
       const list = readConversation(s.filePath);
       setPreview({ session: s, entries: list });
       setExpandedPastes(new Set());
-      const newBlocks = buildBlocks(list, Math.max(10, previewW - 4), new Set());
+      const newBlocks = buildBlocks(list, Math.max(10, previewW - 6), new Set());
       setPreviewIdx(Math.max(0, newBlocks.length - 1));
     } catch (e) {
       setError(`读取失败: ${String(e)}`);
@@ -402,7 +402,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
               <Text backgroundColor="#21262D" color="#E3B341">{` 📋 ${ln.preview}… `}</Text>
             ) : (
               <Text color={active ? '#0D1117' : isUser ? '#F0A6C9' : '#C9D1D9'}>
-                {ln.text === '' ? ' ' : ln.text}
+                {ln.text === '' ? ' ' : `  ${ln.text}`}
               </Text>
             )
           }
@@ -837,7 +837,7 @@ function BlockWindow({
               ln.kind === 'chip' ? (
                 <Text key={i} backgroundColor="#21262D" color="#E3B341">{` 📋 ${ln.preview}… `}</Text>
               ) : (
-                <Text key={i} color={isUser ? '#F0A6C9' : '#C9D1D9'}>{ln.text}</Text>
+                <Text key={i} color={isUser ? '#F0A6C9' : '#C9D1D9'}>{`  ${ln.text}`}</Text>
               )
             ])}
             {'\n'}
