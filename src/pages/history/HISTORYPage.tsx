@@ -482,7 +482,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
       <DetailPanel
         flexGrow
         isFocused={focus === 'preview'}
-        title={preview ? `预览 — ${preview.session.title}` : '预览'}
+        title="预览"
         emptyMessage="enter 预览会话"
       >
         {preview && (
