@@ -89,7 +89,12 @@ export function scanSession(filePath: string): SessionMeta {
     if (isRealUserText(o)) {
       meta.userCount++;
       if (meta.title === '(空会话)') {
-        meta.title = o.message.content.replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX) || '(空消息)';
+        // 剥掉 <pasted_content> 标签，标题只留可读内容
+        meta.title = o.message.content
+          .replace(/<\/?pasted_content[^>]*>/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, TITLE_MAX) || '(空消息)';
       }
     } else if (o.type === 'assistant') {
       meta.assistantCount++;

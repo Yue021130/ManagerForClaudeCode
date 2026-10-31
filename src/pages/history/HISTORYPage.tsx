@@ -20,9 +20,10 @@ import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
  * 三栏：项目列表 | 会话列表 | 对话预览
  * 数据：~/.claude/projects/<dir>/<sessionId>.jsonl（见 scan.ts）
  *
- * 键位：↑↓ 移动（随焦点）  ←→/tab 切焦点  enter 预览（项目行=下钻会话）
+ * 键位：↑↓ 移动（随焦点）  ←→/tab 切焦点  enter 预览（项目行=下钻会话）  space 粘贴段展开/收起
  *       / 搜索（Enter 或删空退出）  d 删除（弹窗输入 YUE 确认）  x 归档  e 导出MD  r 重新扫描
  * 删除/归档 = 移到 ~/.claude/backups/，可恢复。
+ * <pasted_content> 段默认折叠成一行颜色块（前 20 字符 + …），space 展开。
  */
 export const meta: PageMeta = {
   num: 1,
@@ -32,6 +33,7 @@ export const meta: PageMeta = {
     ['↑↓', '选择'],
     ['←→', '切换'],
     ['enter', '展开'],
+    ['space', '粘贴'],
     ['/', '搜索'],
     ['d', '删除'],
     ['x', '归档'],
@@ -110,10 +112,13 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const sessW = Math.min(46, Math.max(26, Math.floor(width * 0.30)));
   const previewW = Math.max(20, width - projW - sessW - 2); // -2 = 两条竖线
 
+  // ── 粘贴段展开状态：默认全部折叠成 chip，space 切换（切换会话时重置） ──
+  const [expandedPastes, setExpandedPastes] = useState<ReadonlySet<string>>(new Set());
+
   // ── 预览：块为单位（Q 一块 A 一块；工具行不展示；长块截断 +...） ──
   const blocks = useMemo(
-    () => buildBlocks(entries, Math.max(10, previewW - 4)),
-    [entries, previewW]
+    () => buildBlocks(entries, Math.max(10, previewW - 4), expandedPastes),
+    [entries, previewW, expandedPastes]
   );
   const vIdx = Math.min(previewIdx, Math.max(0, blocks.length - 1));
 
@@ -121,8 +126,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const [detail, setDetail] = useState<Block | null>(null);
   const [detailIdx, setDetailIdx] = useState(0);
   const detailLines = useMemo(
-    () => (detail ? wrapEntryText(detail.entry, Math.max(10, width - 4)) : []),
-    [detail, width]
+    () => (detail ? buildEntryLines(detail.entry, Math.max(10, width - 4), expandedPastes).lines : []),
+    [detail, width, expandedPastes]
   );
   const dIdx = Math.min(detailIdx, Math.max(0, detailLines.length - 1));
 
@@ -139,8 +144,9 @@ export default function HISTORYPage({ width, height }: PageProps) {
     try {
       const list = readConversation(s.filePath);
       setPreview({ session: s, entries: list });
+      setExpandedPastes(new Set()); // 换会话，粘贴段回到全折叠
       // 定位到最后一块（按块计）
-      const newBlocks = buildBlocks(list, Math.max(10, previewW - 4));
+      const newBlocks = buildBlocks(list, Math.max(10, previewW - 4), new Set());
       setPreviewIdx(Math.max(0, newBlocks.length - 1));
       setFocus('preview');
     } catch (e) {
@@ -157,6 +163,20 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const closeDetail = () => {
     setDetail(null);
     setKeysEnabled(true);
+  };
+
+  // 切换一组粘贴段的展开状态（块内多个时同开同关）
+  const togglePaste = (ids: string[]) => {
+    if (!ids.length) return;
+    setExpandedPastes(prev => {
+      const next = new Set(prev);
+      const allOpen = ids.every(id => next.has(id));
+      for (const id of ids) {
+        if (allOpen) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
   };
 
   const removeOrArchive = (kind: 'trash' | 'archive', target: SessionMeta | null = currentSession) => {
@@ -247,9 +267,10 @@ export default function HISTORYPage({ width, height }: PageProps) {
       return;
     }
 
-    // 详情视图：↑↓ 滚动，Esc 返回，吃掉其余键
+    // 详情视图：↑↓ 滚动，space 展开/收起粘贴段，Esc 返回，吃掉其余键
     if (detail) {
       if (key.escape) return closeDetail();
+      if (input === ' ') return togglePaste(detail.pasteIds);
       if (key.upArrow) return setDetailIdx(Math.max(0, dIdx - 1));
       if (key.downArrow) return setDetailIdx(Math.min(detailLines.length - 1, dIdx + 1));
       return;
@@ -273,6 +294,12 @@ export default function HISTORYPage({ width, height }: PageProps) {
     if (key.downArrow) return move(1);
     if (key.leftArrow || (key.shift && key.tab)) return cycleFocus(-1);
     if (key.rightArrow || key.tab) return cycleFocus(1);
+
+    // space：预览焦点下展开/收起选中块里的粘贴段
+    if (input === ' ') {
+      if (focus === 'preview' && blocks[vIdx]) togglePaste(blocks[vIdx].pasteIds);
+      return;
+    }
 
     if (key.return) {
       if (focus === 'project') return setFocus('session');
@@ -325,20 +352,24 @@ export default function HISTORYPage({ width, height }: PageProps) {
         <Box height={1} flexDirection="row" paddingX={1}>
           <Text bold color={isUser ? '#79C0FF' : '#3FB950'}>{`${detail.label} · 完整内容`}</Text>
           <Box flexGrow={1} />
-          <Text color="#57606A">↑↓ 滚动  esc 返回</Text>
+          <Text color="#57606A">↑↓ 滚动  space 粘贴  esc 返回</Text>
         </Box>
-        <ScrollableList<string>
+        <ScrollableList<BlockLine>
           items={detailLines}
           selectedIndex={dIdx}
           terminalHeight={height}
           width={width}
           headerOffset={3}
           minVisible={8}
-          renderItem={(line, _i, active) => (
-            <Text color={active ? '#0D1117' : isUser ? '#E6EDF3' : '#C9D1D9'}>
-              {line === '' ? ' ' : line}
-            </Text>
-          )}
+          renderItem={(ln, _i, active) =>
+            ln.kind === 'chip' ? (
+              <Text backgroundColor="#21262D" color="#E3B341">{` 📋 ${ln.preview}… `}</Text>
+            ) : (
+              <Text color={active ? '#0D1117' : isUser ? '#E6EDF3' : '#C9D1D9'}>
+                {ln.text === '' ? ' ' : ln.text}
+              </Text>
+            )
+          }
         />
       </Box>
     );
@@ -500,18 +531,25 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
 // ── 预览块 ──
 
+/** 展示行：普通文本行，或折叠的粘贴段（chip 颜色块，📋 + 前 20 字符 + …） */
+type BlockLine =
+  | { kind: 'text'; text: string }
+  | { kind: 'chip'; id: string; preview: string };
+
 /**
  * Block — 预览区的一项 = 一条对话（Q 或 A），整块选中/高亮
  *
  * 工具调用（role==='tool'）在预览层直接丢弃（导出 MD 仍走原始 entries）。
- * 正文按面板宽预折行存 fullLines，默认只露前 MAX_BLOCK_LINES 行（末行拼 ' ...'）；
+ * <pasted_content> 段默认折叠成一行 chip，space 展开/收起（pasteIds 切换）。
+ * 正文按面板宽预折行，默认只露前 MAX_BLOCK_LINES 行（末行拼 ' ...'）；
  * 视口有剩余空间时 BlockWindow 会弹性展开被截断的块（选中块优先）。
  * enter 进详情视图看完整内容。
  */
 type Block = {
   role: 'user' | 'assistant';
   label: string;       // 标签行：🧑 你 / 🤖 AI · 时间
-  fullLines: string[]; // 预折行后的完整正文（未截断）
+  lines: BlockLine[];  // 展示行（已按粘贴展开状态生成）
+  pasteIds: string[];  // 块内粘贴段 id（没有则 space 无效）
   entry: ChatEntry;
 };
 
@@ -542,30 +580,71 @@ function wrapText(text: string, maxWidth: number): string[] {
   return out;
 }
 
-/** 一条 entry 的正文 → 折行数组（剥掉首尾空行；中间空行是排版，保留） */
-function wrapEntryText(entry: ChatEntry, maxWidth: number): string[] {
-  const out: string[] = [];
-  for (const para of stripAnsi(entry.text).split('\n')) {
-    out.push(...wrapText(para, maxWidth));
+/** 消息文本里的 <pasted_content id="X">…</pasted_content id="X"> 段 */
+type Segment = { kind: 'text'; text: string } | { kind: 'paste'; id: string; text: string };
+
+const PASTE_RE = /<pasted_content id="([^"]+)">([\s\S]*?)<\/pasted_content id="\1">/g;
+
+function parseSegments(text: string): Segment[] {
+  const segs: Segment[] = [];
+  let last = 0;
+  for (const m of text.matchAll(PASTE_RE)) {
+    if (m.index > last) segs.push({ kind: 'text', text: text.slice(last, m.index) });
+    segs.push({ kind: 'paste', id: m[1], text: m[2] });
+    last = m.index + m[0].length;
   }
-  // 粘贴内容常带前导/尾随换行，渲染出来是大片空白
+  if (last < text.length) segs.push({ kind: 'text', text: text.slice(last) });
+  return segs;
+}
+
+/**
+ * 一条 entry → 展示行：普通段折行；粘贴段折叠为 chip（或展开时折行）。
+ * 首尾空行剥掉（粘贴内容常带前导/尾随换行，渲染出来是大片空白）。
+ */
+function buildEntryLines(
+  entry: ChatEntry,
+  maxWidth: number,
+  expandedPastes: ReadonlySet<string>
+): { lines: BlockLine[]; pasteIds: string[] } {
+  const lines: BlockLine[] = [];
+  const pasteIds: string[] = [];
+  const wrapSeg = (text: string) => {
+    for (const para of text.split('\n')) {
+      for (const t of wrapText(para, maxWidth)) lines.push({ kind: 'text', text: t });
+    }
+  };
+  for (const seg of parseSegments(stripAnsi(entry.text))) {
+    if (seg.kind === 'text') {
+      wrapSeg(seg.text);
+    } else {
+      pasteIds.push(seg.id);
+      if (expandedPastes.has(seg.id)) {
+        wrapSeg(seg.text);
+      } else {
+        lines.push({ kind: 'chip', id: seg.id, preview: seg.text.replace(/\s+/g, ' ').trim().slice(0, 20) });
+      }
+    }
+  }
   let start = 0;
-  let end = out.length;
-  while (start < end && out[start].trim() === '') start++;
-  while (end > start && out[end - 1].trim() === '') end--;
-  return out.slice(start, end);
+  let end = lines.length;
+  const blank = (i: number) => lines[i].kind === 'text' && (lines[i].text as string).trim() === '';
+  while (start < end && blank(start)) start++;
+  while (end > start && blank(end - 1)) end--;
+  return { lines: lines.slice(start, end), pasteIds };
 }
 
 /** 对话流 → 块列表（丢弃工具行；正文保留完整折行，截断交给视口） */
-function buildBlocks(entries: ChatEntry[], maxWidth: number): Block[] {
+function buildBlocks(entries: ChatEntry[], maxWidth: number, expandedPastes: ReadonlySet<string>): Block[] {
   const blocks: Block[] = [];
   for (const e of entries) {
     if (e.role === 'tool') continue;
     const isUser = e.role === 'user';
+    const { lines, pasteIds } = buildEntryLines(e, maxWidth, expandedPastes);
     blocks.push({
       role: e.role,
       label: `${isUser ? '🧑 你' : '🤖 AI'}${e.timestamp ? ` · ${fmtDate(e.timestamp)}` : ''}`,
-      fullLines: wrapEntryText(e, maxWidth),
+      lines,
+      pasteIds,
       entry: e
     });
   }
@@ -594,7 +673,7 @@ function BlockWindow({
   width: number;
 }) {
   const sel = Math.max(0, Math.min(selected, blocks.length - 1));
-  const cap = (b: Block) => Math.min(b.fullLines.length, MAX_BLOCK_LINES);
+  const cap = (b: Block) => Math.min(b.lines.length, MAX_BLOCK_LINES);
   const minH = (b: Block) => cap(b) + 2; // 标签1 + 正文 + 块间空行1
 
   // 每块初始只露前 MAX_BLOCK_LINES 行
@@ -623,7 +702,7 @@ function BlockWindow({
     // 弹性扩展：剩余行先给选中块，再给窗口内其他被截断的块
     let leftover = avail - used;
     const expand = (i: number) => {
-      const grow = Math.min(blocks[i].fullLines.length - show[i], leftover);
+      const grow = Math.min(blocks[i].lines.length - show[i], leftover);
       show[i] += grow;
       leftover -= grow;
     };
@@ -634,7 +713,7 @@ function BlockWindow({
 
     // 仍有余量：底部预窥下一块头部（标签 + 前若干行，成本 = 行数 + 标签1 + 空行1）
     if (leftover >= 3 && end < blocks.length - 1) {
-      const n = Math.min(blocks[end + 1].fullLines.length, leftover - 2);
+      const n = Math.min(blocks[end + 1].lines.length, leftover - 2);
       if (n > 0) {
         peekBottom = n;
         leftover -= n + 2;
@@ -643,7 +722,7 @@ function BlockWindow({
 
     // 仍有余量：顶部预窥上一块尾部（纯行无标签，成本 = 行数 + 空行1）
     if (leftover >= 2 && start > 0) {
-      peekTop = Math.min(blocks[start - 1].fullLines.length, leftover - 1);
+      peekTop = Math.min(blocks[start - 1].lines.length, leftover - 1);
     }
   }
 
@@ -651,14 +730,17 @@ function BlockWindow({
   const lastRendered = peekBottom > 0 ? end + 1 : end;
   const rowW = Math.max(1, width - 2); // paddingX 1*2
 
-  // 取块的前 n 行；未展示完整时末行拼 ' ...'
-  const headLines = (b: Block, n: number): string[] => {
-    const ls = b.fullLines.slice(0, Math.max(1, n));
-    if (n < b.fullLines.length) ls[ls.length - 1] = `${ls[ls.length - 1]} ...`;
+  // 取块的前 n 行；未展示完整且末行是普通文本时拼 ' ...'（chip 本身就代表截断）
+  const headLines = (b: Block, n: number): BlockLine[] => {
+    const ls = b.lines.slice(0, Math.max(1, n));
+    if (n < b.lines.length) {
+      const last = ls[ls.length - 1];
+      if (last.kind === 'text') ls[ls.length - 1] = { ...last, text: `${last.text} ...` };
+    }
     return ls;
   };
 
-  const renderBlock = (b: Block, realIdx: number, lines: string[]) => {
+  const renderBlock = (b: Block, realIdx: number, lines: BlockLine[]) => {
     const active = realIdx === selected;
     const isUser = b.role === 'user';
     return (
@@ -670,7 +752,14 @@ function BlockWindow({
           <Text>
             <Text bold color={isUser ? '#79C0FF' : '#3FB950'}>{b.label}</Text>
             {'\n'}
-            <Text color={isUser ? '#E6EDF3' : '#C9D1D9'}>{lines.join('\n')}</Text>
+            {lines.flatMap((ln, i) => [
+              i > 0 ? '\n' : '',
+              ln.kind === 'chip' ? (
+                <Text key={i} backgroundColor="#21262D" color="#E3B341">{` 📋 ${ln.preview}… `}</Text>
+              ) : (
+                <Text key={i} color={isUser ? '#E6EDF3' : '#C9D1D9'}>{ln.text}</Text>
+              )
+            ])}
             {'\n'}
           </Text>
         </Box>
@@ -685,7 +774,10 @@ function BlockWindow({
         <Box flexDirection="row" width={rowW}>
           <Text color="#30363D">{'  '}</Text>
           <Box flexGrow={1}>
-            <Text color="#57606A">{`${blocks[start - 1].fullLines.slice(-peekTop).join('\n')}\n`}</Text>
+            <Text color="#57606A">{`${blocks[start - 1].lines
+              .slice(-peekTop)
+              .map(ln => (ln.kind === 'chip' ? `📋 ${ln.preview}…` : ln.text))
+              .join('\n')}\n`}</Text>
           </Box>
         </Box>
       )}
