@@ -432,23 +432,29 @@ export default function HISTORYPage({ width, height }: PageProps) {
         <ScrollableList<SessionMeta>
           title={inSearch ? `搜索 “${query.trim()}”` : 'SESSIONS'}
           items={sessions}
-          selectedIndex={focus === 'session' ? sIdx : -1}
+          // 自动预览后当前会话永远带标记：焦点在 = 蓝底高亮；焦点不在 = 深底蓝标（正在预览）
+          selectedIndex={sIdx}
+          activeColor={focus === 'session' ? '#79C0FF' : '#21262D'}
+          activeTextColor={focus === 'session' ? '#0D1117' : '#79C0FF'}
           terminalHeight={height - (searching ? 1 : 0)}
           width={sessW}
           headerOffset={5}
-          renderItem={(s, _i, active) => (
-            <>
-              {inSearch && (
-                <Text color={active ? '#0D1117' : '#57606A'} wrap="truncate">
-                  {`${s.cwd ? path.basename(s.cwd) : '?'} · `}
+          renderItem={(s, _i, active) => {
+            const hot = active && focus === 'session'; // 蓝底时用深字；深底联动标记保持亮字
+            return (
+              <>
+                {inSearch && (
+                  <Text color={hot ? '#0D1117' : '#57606A'} wrap="truncate">
+                    {`${s.cwd ? path.basename(s.cwd) : '?'} · `}
+                  </Text>
+                )}
+                <Text color={hot ? '#0D1117' : '#8B949E'}>{`${fmtDate(s.lastTime)} `}</Text>
+                <Text bold={active} color={hot ? '#0D1117' : '#E6EDF3'} wrap="truncate">
+                  {s.title}
                 </Text>
-              )}
-              <Text color={active ? '#0D1117' : '#8B949E'}>{`${fmtDate(s.lastTime)} `}</Text>
-              <Text bold={active} color={active ? '#0D1117' : '#E6EDF3'} wrap="truncate">
-                {s.title}
-              </Text>
-            </>
-          )}
+              </>
+            );
+          }}
         />
         {!sessions.length && (
           <Box paddingX={1}>
