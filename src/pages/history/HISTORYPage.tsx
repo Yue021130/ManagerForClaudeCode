@@ -805,20 +805,40 @@ function BlockWindow({
   const firstRendered = peekTop > 0 ? start - 1 : start;
   const lastRendered = peekBottom > 0 ? end + 1 : end;
   const rowW = Math.max(1, width - 2); // paddingX 1*2
+  const contentW = Math.max(1, rowW - 2); // 内容盒 = 行宽 - 标记列2
 
-  // 取块的前 n 行（n 含截断行预算）；超出时省略号单独成行，渲染成底色块（见 renderBlock）
-  const headLines = (b: Block, n: number): BlockLine[] => {
-    if (b.lines.length <= n) return b.lines.slice();
-    return [...b.lines.slice(0, Math.max(0, n - 1)), { kind: 'text', text: '...' }];
+  // 截断徽章：跟在末行文字后面。行尾没位置时终端会把它折到第 0 列（溢出 bug），
+  // 所以截断时必须把末行缩短到 内容宽 - 徽章宽 - 缩进2，保证永远塞得下
+  const ELLIPSIS_BADGE = ' 🔽 ……… ';
+  const badgeW = [...ELLIPSIS_BADGE].reduce((w, ch) => w + ((ch.codePointAt(0) ?? 0) > 0xff ? 2 : 1), 0);
+  const fitWidth = (s: string, budget: number): string => {
+    let w = 0;
+    const out: string[] = [];
+    for (const ch of s) {
+      const cw = (ch.codePointAt(0) ?? 0) > 0xff ? 2 : 1;
+      if (w + cw > budget) break;
+      out.push(ch);
+      w += cw;
+    }
+    return out.join('');
   };
 
-  const renderBlock = (b: Block, realIdx: number, lines: BlockLine[]) => {
+  // 取块的前 n 行（n 含徽章占的行）；截断时末行缩短给徽章让位
+  const headLines = (b: Block, n: number): { body: BlockLine[]; truncated: boolean } => {
+    if (b.lines.length <= n) return { body: b.lines.slice(), truncated: false };
+    const body = b.lines.slice(0, Math.max(0, n - 1));
+    const lastLn = body[body.length - 1];
+    if (lastLn && lastLn.kind === 'text') {
+      const budget = Math.max(0, contentW - badgeW - 2); // -2 = 行首缩进
+      body[body.length - 1] = { kind: 'text', text: fitWidth(lastLn.text, budget) };
+    }
+    return { body, truncated: true };
+  };
+
+  const renderBlock = (b: Block, realIdx: number, hl: { body: BlockLine[]; truncated: boolean }) => {
     const active = realIdx === selected;
     const isUser = b.role === 'user';
-    // 末行是省略号标记 = 块被截断：正文不渲染它，改为块底通栏横条
-    const lastLn = lines[lines.length - 1];
-    const truncated = !!lastLn && lastLn.kind === 'text' && lastLn.text === '...';
-    const body = truncated ? lines.slice(0, -1) : lines;
+    const { body, truncated } = hl;
     return (
       <Box key={realIdx} flexDirection="row" width={rowW}>
         <Text bold color={active ? '#79C0FF' : '#6E7681'}>
@@ -840,8 +860,8 @@ function BlockWindow({
                 <Text key={i} color={isUser ? '#F0A6C9' : '#C9D1D9'}>{`  ${ln.text}`}</Text>
               )
             ])}
-            {/* 截断徽章：跟在末行文字后面，不单独占行 */}
-            {truncated && <Text backgroundColor="#3A3D42" color="#A371F7">{' 🔽 ……… '}</Text>}
+            {/* 截断徽章：跟在末行文字后面（末行已缩短让位），不单独占行 */}
+            {truncated && <Text backgroundColor="#3A3D42" color="#A371F7">{ELLIPSIS_BADGE}</Text>}
             {'\n'}
           </Text>
         </Box>
