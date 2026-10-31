@@ -46,7 +46,11 @@ export default function App() {
     // esc键退出
     // Esc 退出：延迟一拍再退。曾在 input 派发栈内同步 exit() 触发 Ink 卸载重入，
     // 恰好撞上启动扫描后的重渲染时卸载挂起（stdin 已拆、waitUntilExit 永不 resolve）。
-    if (key.escape) { setTimeout(() => exit(), 0); return; }
+    // keysEnabled=false（页面输入/详情模式）时 Esc 归页面自己处理（返回/关闭）。
+    if (key.escape) {
+      if (keysEnabled) setTimeout(() => exit(), 0);
+      return;
+    }
 
     // 页面输入模式下，数字键让给页面（如搜索框）
     if (!keysEnabled) return;
