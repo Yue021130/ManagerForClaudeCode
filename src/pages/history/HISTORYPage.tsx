@@ -166,13 +166,9 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const detailLines = useMemo(() => {
     if (!detail) return [];
     const w = Math.max(10, width - 4);
-    const base = buildEntryLines(detail.entry, w, expandedPastes).lines;
-    // 工具块：完整内容 = 调用 + 结果（结果已在 scan 层挂到调用条目上）
-    if (detail.entry.role === 'tool' && detail.entry.result) {
-      const rraw = `${detail.entry.resultError ? '✗' : '└'} ${detail.entry.result}`;
-      base.push(...wrapToolLines(rraw, w, detail.entry.resultError, true));
-    }
-    return base;
+    // 工具块：完整内容 = 调用 + 红绿 diff + 结果（与预览同一构造）
+    if (detail.entry.role === 'tool') return buildToolLines(detail.entry, w);
+    return buildEntryLines(detail.entry, w, expandedPastes).lines;
   }, [detail, width, expandedPastes]);
   const dIdx = Math.min(detailIdx, Math.max(0, detailLines.length - 1));
 
@@ -544,6 +540,10 @@ export default function HISTORYPage({ width, height }: PageProps) {
           renderItem={(ln, _i, active) =>
             ln.kind === 'chip' ? (
               <Text backgroundColor="#21262D" color="#E3B341">{` 📋 ${ln.preview}… `}</Text>
+            ) : ln.kind === 'tool' ? (
+              <Text color={active ? '#0D1117' : ln.error || ln.tone === 'del' ? '#FF7B72' : ln.tone === 'add' ? '#3FB950' : ln.result || ln.tone === 'ctx' ? '#8B949E' : '#E3B341'}>
+                {ln.text === '' ? ' ' : `  ${ln.text}`}
+              </Text>
             ) : (
               <Text color={active ? '#0D1117' : isUser ? '#F0A6C9' : '#C9D1D9'}>
                 {ln.text === '' ? ' ' : `  ${ln.text}`}
@@ -761,16 +761,17 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
 // ── 预览块 ──
 
-/** 展示行：普通文本行 / 折叠的粘贴段（chip 颜色块）/ 工具调用·结果行 */
+/** 展示行：普通文本行 / 折叠的粘贴段（chip 颜色块）/ 工具调用·结果·diff 行 */
 type BlockLine =
   | { kind: 'text'; text: string }
   | { kind: 'chip'; id: string; preview: string }
-  | { kind: 'tool'; text: string; error?: boolean; result?: boolean };
+  | { kind: 'tool'; text: string; error?: boolean; result?: boolean; tone?: 'add' | 'del' | 'ctx' };
 
 /**
  * Block — 预览区的一项 = 一条对话（Q / A / 工具调用·结果），整块选中/高亮
  *
- * 工具调用折叠成 ⚡ 行（工具名 + 命令/路径摘要，错误标红）；结果保留多行结构挂在调用下（└ 行）。
+ * 工具调用折叠成 ⚡ 行（工具名 + 命令/路径摘要，错误标红）；Edit/Update 带 old/new，
+ * 渲染红绿 diff（原版颜色对比）；结果保留多行结构挂在调用下（└ 行）。
  * <pasted_content> 段默认折叠成一行 chip，space 展开/收起（pasteIds 切换）。
  * 正文按面板宽预折行，默认只露前 MAX_BLOCK_LINES 行（末行拼 ' ...'）；
  * 视口有剩余空间时 BlockWindow 会弹性展开被截断的块（选中块优先）。
@@ -850,13 +851,94 @@ function wrapText(text: string, maxWidth: number): string[] {
 }
 
 /** 工具行折行：剥 ANSI、按 \n 分段、逐段硬折（wrapText 不认换行符），空段跳过 */
-function wrapToolLines(raw: string, maxWidth: number, error?: boolean, result?: boolean): BlockLine[] {
+function wrapToolLines(
+  raw: string,
+  maxWidth: number,
+  error?: boolean,
+  result?: boolean,
+  tone?: 'add' | 'del' | 'ctx'
+): BlockLine[] {
   const out: BlockLine[] = [];
   for (const para of stripAnsi(raw).split('\n')) {
     if (!para.trim()) continue;
-    for (const t of wrapText(para, maxWidth)) out.push({ kind: 'tool', text: t, error, result });
+    for (const t of wrapText(para, maxWidth)) out.push({ kind: 'tool', text: t, error, result, tone });
   }
   return out;
+}
+
+/**
+ * 行级 LCS diff（Edit/Update 的红绿对比就是这么来的——数据层只有 old/new 原文，
+ * 颜色是原版 TUI 现算的，我们也现算）。
+ * 返回 null = 不做 diff（行数超上限，回退普通展示），调用方自行兜底。
+ */
+function lineDiff(
+  oldText: string,
+  newText: string,
+  maxOps = 80
+): { tag: 'ctx' | 'del' | 'add'; text: string }[] | null {
+  const a = oldText.split('\n');
+  const b = newText.split('\n');
+  if (a.length > 200 || b.length > 200) return null;
+  const m = a.length;
+  const n = b.length;
+  const dp = new Uint16Array((m + 1) * (n + 1));
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i * (n + 1) + j] =
+        a[i] === b[j]
+          ? dp[(i + 1) * (n + 1) + j + 1] + 1
+          : Math.max(dp[(i + 1) * (n + 1) + j], dp[i * (n + 1) + j + 1]);
+    }
+  }
+  const ops: { tag: 'ctx' | 'del' | 'add'; text: string }[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < m && j < n) {
+    if (a[i] === b[j]) {
+      ops.push({ tag: 'ctx', text: a[i] });
+      i++;
+      j++;
+    } else if (dp[(i + 1) * (n + 1) + j] >= dp[i * (n + 1) + j + 1]) {
+      ops.push({ tag: 'del', text: a[i] });
+      i++;
+    } else {
+      ops.push({ tag: 'add', text: b[j] });
+      j++;
+    }
+    if (ops.length > maxOps) return null;
+  }
+  while (i < m) {
+    ops.push({ tag: 'del', text: a[i++] });
+    if (ops.length > maxOps) return null;
+  }
+  while (j < n) {
+    ops.push({ tag: 'add', text: b[j++] });
+    if (ops.length > maxOps) return null;
+  }
+  return ops;
+}
+
+/** 工具块行 = ⚡ 调用行 +（Edit/Update 的）红绿 diff 行 + └ 结果行。预览与详情共用 */
+function buildToolLines(e: ChatEntry, maxWidth: number): BlockLine[] {
+  const lines: BlockLine[] = [];
+  const raw = e.toolName === 'result'
+    ? `${e.isError ? '✗' : '└'} ${e.text}`
+    : `⚡ ${e.toolName ? `${e.toolName} ` : ''}${e.text}`;
+  lines.push(...wrapToolLines(raw, maxWidth, e.isError));
+  if (e.oldText != null && e.newText != null) {
+    const ops = lineDiff(e.oldText, e.newText);
+    if (ops) {
+      for (const op of ops) {
+        const mark = op.tag === 'add' ? '+ ' : op.tag === 'del' ? '- ' : '  ';
+        lines.push(...wrapToolLines(mark + op.text, maxWidth, false, false, op.tag));
+      }
+    }
+  }
+  if (e.result) {
+    const rraw = `${e.resultError ? '✗' : '└'} ${e.result}`;
+    lines.push(...wrapToolLines(rraw, maxWidth, e.resultError, true));
+  }
+  return lines;
 }
 
 /** 消息文本里的 <pasted_content id="X">…</pasted_content id="X"> 段 */
@@ -929,17 +1011,9 @@ function buildBlocks(entries: ChatEntry[], maxWidth: number, expandedPastes: Rea
   const blocks: Block[] = [];
   for (const e of entries) {
     if (e.role === 'tool') {
-      // 工具块 = ⚡ 调用行 + └ 结果行（结果在 scan 层已挂到对应调用上），按面板宽预折行——
+      // 工具块 = ⚡ 调用 +（Edit/Update 的）红绿 diff + └ 结果；行已按面板宽预折——
       // 不折会让正文 Text 超出盒宽被 yoga 二次折行，块高变大顶破窗口预算（溢出即乱排）
-      const lines: BlockLine[] = [];
-      const raw = e.toolName === 'result'
-        ? `${e.isError ? '✗' : '└'} ${e.text}`
-        : `⚡ ${e.toolName ? `${e.toolName} ` : ''}${e.text}`;
-      lines.push(...wrapToolLines(raw, maxWidth, e.isError));
-      if (e.result) {
-        const rraw = `${e.resultError ? '✗' : '└'} ${e.result}`;
-        lines.push(...wrapToolLines(rraw, maxWidth, e.resultError, true));
-      }
+      const lines = buildToolLines(e, maxWidth);
       blocks.push({
         role: 'assistant',
         label: 'AI',
@@ -1125,8 +1199,13 @@ function BlockWindow({
                 <Text key={i} backgroundColor="#21262D" color="#E3B341">{` 📋 ${ln.preview}… `}</Text>
               ) : ln.kind === 'tool' ? (
                 /* 工具行不用 dimColor：暗灰在深色背景上几乎看不见。
-                   调用黄、结果灰、错误红（result 标记来自 scan 层的挂载） */
-                <Text key={i} color={ln.error ? '#FF7B72' : ln.result ? '#8B949E' : '#E3B341'}>{`  ${ln.text}`}</Text>
+                   调用黄、结果灰、错误红；diff 行红删绿加、上下文灰 */
+                <Text key={i} color={
+                  ln.error || ln.tone === 'del' ? '#FF7B72'
+                  : ln.tone === 'add' ? '#3FB950'
+                  : ln.result || ln.tone === 'ctx' ? '#8B949E'
+                  : '#E3B341'
+                }>{`  ${ln.text}`}</Text>
               ) : (
                 <Text key={i} color={isUser ? '#F0A6C9' : '#C9D1D9'}>{`  ${ln.text}`}</Text>
               )
