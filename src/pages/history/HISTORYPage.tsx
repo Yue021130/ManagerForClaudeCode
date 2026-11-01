@@ -177,6 +177,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
   previewRef.current = preview;
   const previewWRef = useRef(previewW);
   previewWRef.current = previewW;
+  // gg 双击检测：上次按 g 的时间戳（预览/详情共用，500ms 窗口）
+  const lastGRef = useRef(0);
   const expandedRef = useRef(expandedPastes);
   expandedRef.current = expandedPastes;
   const blocksLenRef = useRef(blocks.length);
@@ -438,12 +440,22 @@ export default function HISTORYPage({ width, height }: PageProps) {
       return;
     }
 
-    // 详情视图：↑↓ 滚动，space 展开/收起粘贴段，Esc 返回，吃掉其余键
+    // 详情视图：↑↓ 滚动，gg/G 跳顶/底，space 展开/收起粘贴段，Esc 返回，吃掉其余键
     if (detail) {
       if (key.escape) return closeDetail();
       if (input === ' ') return togglePaste(detail.pasteIds);
       if (key.upArrow) return setDetailIdx(Math.max(0, dIdx - 1));
       if (key.downArrow) return setDetailIdx(Math.min(detailLines.length - 1, dIdx + 1));
+      if (input === 'G') return setDetailIdx(Math.max(0, detailLines.length - 1));
+      if (input === 'g') {
+        const now = Date.now();
+        if (now - lastGRef.current < 500) {
+          lastGRef.current = 0;
+          return setDetailIdx(0);
+        }
+        lastGRef.current = now;
+        return;
+      }
       return;
     }
 
@@ -465,6 +477,20 @@ export default function HISTORYPage({ width, height }: PageProps) {
     if (key.downArrow) return move(1);
     if (key.leftArrow || (key.shift && key.tab)) return cycleFocus(-1);
     if (key.rightArrow || key.tab) return cycleFocus(1);
+
+    // 预览列 vim 式跳转：gg 到顶、G 到底（500ms 内连按两次 g）
+    if (focus === 'preview' && blocks.length) {
+      if (input === 'G') return setPreviewIdx(blocks.length - 1);
+      if (input === 'g') {
+        const now = Date.now();
+        if (now - lastGRef.current < 500) {
+          lastGRef.current = 0;
+          return setPreviewIdx(0);
+        }
+        lastGRef.current = now;
+        return;
+      }
+    }
 
     // space：预览焦点下展开/收起选中块里的粘贴段
     if (input === ' ') {
