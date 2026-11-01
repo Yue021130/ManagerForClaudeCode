@@ -42,6 +42,7 @@ interface RawLine {
   cwd?: string;
   isMeta?: boolean;
   requestedModel?: string;
+  aiTitle?: string;         // type==='ai-title'：Claude Code 生成的会话标题
   message?: { content?: unknown };
 }
 
@@ -133,6 +134,10 @@ export function scanSession(filePath: string): SessionMeta {
     if (!o) continue;
 
     if (!meta.cwd && typeof o.cwd === 'string') meta.cwd = o.cwd;
+    // Claude Code 生成的真标题（ai-title 行），优先于首条用户消息截断
+    if (o.type === 'ai-title' && typeof o.aiTitle === 'string' && o.aiTitle.trim()) {
+      meta.title = o.aiTitle.trim().slice(0, TITLE_MAX);
+    }
     if (isRealUserText(o)) {
       meta.userCount++;
       if (meta.title === '(空会话)') {
