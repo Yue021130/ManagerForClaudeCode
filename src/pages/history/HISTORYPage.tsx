@@ -62,17 +62,6 @@ const fmtDate = (iso: string | null): string => {
 const fmtSize = (b: number): string =>
   b >= 1048576 ? `${(b / 1048576).toFixed(1)}M` : b >= 1024 ? `${Math.round(b / 1024)}K` : `${b}B`;
 
-// 时间范围：同一天显示单个时间点（取最后活跃），跨天显示 起 ~ 止
-const fmtRange = (first: string | null, last: string | null): string => {
-  if (!first || !last) return fmtDate(last ?? first);
-  const a = new Date(first);
-  const b = new Date(last);
-  const sameDay =
-    !Number.isNaN(a.getTime()) && !Number.isNaN(b.getTime()) &&
-    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  return sameDay ? fmtDate(last) : `${fmtDate(first)} ~ ${fmtDate(last)}`;
-};
-
 const projName = (p: ProjectInfo): string => (p.cwd ? path.basename(p.cwd) : p.dirName);
 
 // 展示路径：home 前缀缩成 ~，省横向空间
@@ -1376,7 +1365,6 @@ function SessionCards({
 
   const innerW = Math.max(10, width);        // 卡片盒宽（= 栏内容宽）
   const textW = Math.max(8, innerW - 2);     // 卡内文字区 = 内宽 - 左右边框
-  const timeW = 11;                          // MM-DD HH:mm 固定不收缩
 
   return (
     <Box flexDirection="column" width={width}>
@@ -1398,7 +1386,7 @@ function SessionCards({
               {active ? <Text bold color="#A371F7">▌▌</Text> : <Text>{'  '}</Text>}
             </Box>
             <Box flexDirection="column" width={textW}>
-              {/* 行1：运行● + 标题 + 右最后活跃（固定 11 格，窄面板挤压力全给标题） */}
+              {/* 行1：运行● + 标题（时间只保留行2一个，避免同日重复/跨天截断的双时间乱象） */}
               <Box flexDirection="row">
                 <Box width={2} flexShrink={0}>
                   {isRunning(s) ? <Text color="#3FB950">●</Text> : <Text>{' '}</Text>}
@@ -1408,9 +1396,6 @@ function SessionCards({
                     {inSearch ? `[${s.cwd ? path.basename(s.cwd) : '?'}] ` : ''}
                     {s.title}
                   </Text>
-                </Box>
-                <Box width={timeW} flexShrink={0}>
-                  <Text color="#58A6FF">{fmtDate(s.lastTime)}</Text>
                 </Box>
               </Box>
               {/* 行2：彩色统计（绿问/黄答/橙大小，照原右栏统计行分工）+ 右侧紫时间范围 */}
@@ -1428,7 +1413,7 @@ function SessionCards({
                   </Text>
                 </Box>
                 <Box flexShrink={1}>
-                  <Text color="#F85149" wrap="truncate">{fmtRange(s.firstTime, s.lastTime)}</Text>
+                  <Text color="#F85149" wrap="truncate">{fmtDate(s.lastTime)}</Text>
                 </Box>
               </Box>
             </Box>
