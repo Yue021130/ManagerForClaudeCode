@@ -754,15 +754,16 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
 // ── 预览块 ──
 
-/** 展示行：普通文本行，或折叠的粘贴段（chip 颜色块，📋 + 前 20 字符 + …） */
+/** 展示行：普通文本行 / 折叠的粘贴段（chip 颜色块）/ 工具调用·结果行 */
 type BlockLine =
   | { kind: 'text'; text: string }
-  | { kind: 'chip'; id: string; preview: string };
+  | { kind: 'chip'; id: string; preview: string }
+  | { kind: 'tool'; text: string; error?: boolean };
 
 /**
- * Block — 预览区的一项 = 一条对话（Q 或 A），整块选中/高亮
+ * Block — 预览区的一项 = 一条对话（Q / A / 工具调用·结果），整块选中/高亮
  *
- * 工具调用（role==='tool'）在预览层直接丢弃（导出 MD 仍走原始 entries）。
+ * 工具调用折叠为一行（⚡ 工具名 + 单行摘要），工具结果一行（⎿ 首行输出，错误标红）。
  * <pasted_content> 段默认折叠成一行 chip，space 展开/收起（pasteIds 切换）。
  * 正文按面板宽预折行，默认只露前 MAX_BLOCK_LINES 行（末行拼 ' ...'）；
  * 视口有剩余空间时 BlockWindow 会弹性展开被截断的块（选中块优先）。
@@ -869,11 +870,27 @@ function buildEntryLines(
   return { lines: collapsed, pasteIds };
 }
 
-/** 对话流 → 块列表（丢弃工具行；正文保留完整折行，截断交给视口） */
+/** 对话流 → 块列表（用户/AI 文本按 paste 折叠展开；工具调用·结果各成一块，正文保留完整折行，截断交给视口） */
 function buildBlocks(entries: ChatEntry[], maxWidth: number, expandedPastes: ReadonlySet<string>): Block[] {
   const blocks: Block[] = [];
   for (const e of entries) {
-    if (e.role === 'tool') continue;
+    if (e.role === 'tool') {
+      // 工具调用/结果折叠成一行（⚡ 工具名 摘要 / ⎿ 结果首行，错误标红），按面板宽预折行——
+      // 不折会让正文 Text 超出盒宽被 yoga 二次折行，块高变大顶破窗口预算（溢出即乱排）
+      const raw = e.toolName === 'result'
+        ? `${e.isError ? '✗' : '⎿'} ${e.text}`
+        : `⚡ ${e.toolName ? `${e.toolName} ` : ''}${e.text}`;
+      const lines: BlockLine[] = wrapText(raw, maxWidth).map(text => ({ kind: 'tool', text, error: e.isError }));
+      blocks.push({
+        role: 'assistant',
+        label: 'AI',
+        time: e.timestamp ? fmtDate(e.timestamp) : null,
+        lines,
+        pasteIds: [],
+        entry: e
+      });
+      continue;
+    }
     const isUser = e.role === 'user';
     const { lines, pasteIds } = buildEntryLines(e, maxWidth, expandedPastes);
     blocks.push({
@@ -1042,6 +1059,8 @@ function BlockWindow({
               i > 0 ? '\n' : '',
               ln.kind === 'chip' ? (
                 <Text key={i} backgroundColor="#21262D" color="#E3B341">{` 📋 ${ln.preview}… `}</Text>
+              ) : ln.kind === 'tool' ? (
+                <Text key={i} dimColor color={ln.error ? '#FF7B72' : '#8B949E'}>{`  ${ln.text}`}</Text>
               ) : (
                 <Text key={i} color={isUser ? '#F0A6C9' : '#C9D1D9'}>{`  ${ln.text}`}</Text>
               )
