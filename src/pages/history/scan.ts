@@ -77,9 +77,10 @@ function toolBrief(name: string | undefined, input: unknown): string {
   return '(无参数)';
 }
 
-/** 工具结果摘要：保留多行结构（对齐原版 ⎿ 展示），最多 8 行、每行 200 字；
- *  行数超出时末尾标注剩余行数 */
-const RESULT_MAX_LINES = 8;
+/** 工具结果摘要：保留多行结构（对齐原版 └ 展示），最多 200 行、每行 200 字。
+ *  上限只约束详情渲染量与折行成本：预览块每块最多露 MAX_BLOCK_LINES 行（窗口预算另有约束），
+ *  详情可滚动看全；超 200 行的极端输出（构建日志等）末尾标注剩余行数 */
+const RESULT_MAX_LINES = 200;
 const RESULT_LINE_MAX = 200;
 
 function resultBrief(content: unknown, isError: boolean | undefined): { text: string; isError?: boolean } {
