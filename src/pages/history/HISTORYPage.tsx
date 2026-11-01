@@ -163,10 +163,17 @@ export default function HISTORYPage({ width, height }: PageProps) {
   // ── 详情视图（enter 展开整块，esc 返回） ──
   const [detail, setDetail] = useState<Block | null>(null);
   const [detailIdx, setDetailIdx] = useState(0);
-  const detailLines = useMemo(
-    () => (detail ? buildEntryLines(detail.entry, Math.max(10, width - 4), expandedPastes).lines : []),
-    [detail, width, expandedPastes]
-  );
+  const detailLines = useMemo(() => {
+    if (!detail) return [];
+    const w = Math.max(10, width - 4);
+    const base = buildEntryLines(detail.entry, w, expandedPastes).lines;
+    // 工具块：完整内容 = 调用 + 结果（结果已在 scan 层挂到调用条目上）
+    if (detail.entry.role === 'tool' && detail.entry.result) {
+      const rraw = `${detail.entry.resultError ? '✗' : '⎿'} ${detail.entry.result}`;
+      base.push(...wrapToolLines(rraw, w, detail.entry.resultError, true));
+    }
+    return base;
+  }, [detail, width, expandedPastes]);
   const dIdx = Math.min(detailIdx, Math.max(0, detailLines.length - 1));
 
   // 轮询里要用最新值（不重建 interval），每渲染同步进 ref
@@ -758,12 +765,12 @@ export default function HISTORYPage({ width, height }: PageProps) {
 type BlockLine =
   | { kind: 'text'; text: string }
   | { kind: 'chip'; id: string; preview: string }
-  | { kind: 'tool'; text: string; error?: boolean };
+  | { kind: 'tool'; text: string; error?: boolean; result?: boolean };
 
 /**
  * Block — 预览区的一项 = 一条对话（Q / A / 工具调用·结果），整块选中/高亮
  *
- * 工具调用折叠为一行（⚡ 工具名 + 单行摘要），工具结果一行（⎿ 首行输出，错误标红）。
+ * 工具调用折叠成 ⚡ 行（工具名 + 命令/路径摘要，错误标红）；结果保留多行结构挂在调用下（⎿ 行）。
  * <pasted_content> 段默认折叠成一行 chip，space 展开/收起（pasteIds 切换）。
  * 正文按面板宽预折行，默认只露前 MAX_BLOCK_LINES 行（末行拼 ' ...'）；
  * 视口有剩余空间时 BlockWindow 会弹性展开被截断的块（选中块优先）。
@@ -802,6 +809,16 @@ function wrapText(text: string, maxWidth: number): string[] {
     w += cw;
   }
   out.push(cur);
+  return out;
+}
+
+/** 工具行折行：剥 ANSI、按 \n 分段、逐段硬折（wrapText 不认换行符），空段跳过 */
+function wrapToolLines(raw: string, maxWidth: number, error?: boolean, result?: boolean): BlockLine[] {
+  const out: BlockLine[] = [];
+  for (const para of stripAnsi(raw).split('\n')) {
+    if (!para.trim()) continue;
+    for (const t of wrapText(para, maxWidth)) out.push({ kind: 'tool', text: t, error, result });
+  }
   return out;
 }
 
@@ -875,12 +892,17 @@ function buildBlocks(entries: ChatEntry[], maxWidth: number, expandedPastes: Rea
   const blocks: Block[] = [];
   for (const e of entries) {
     if (e.role === 'tool') {
-      // 工具调用/结果折叠成一行（⚡ 工具名 摘要 / ⎿ 结果首行，错误标红），按面板宽预折行——
+      // 工具块 = ⚡ 调用行 + ⎿ 结果行（结果在 scan 层已挂到对应调用上），按面板宽预折行——
       // 不折会让正文 Text 超出盒宽被 yoga 二次折行，块高变大顶破窗口预算（溢出即乱排）
+      const lines: BlockLine[] = [];
       const raw = e.toolName === 'result'
         ? `${e.isError ? '✗' : '⎿'} ${e.text}`
         : `⚡ ${e.toolName ? `${e.toolName} ` : ''}${e.text}`;
-      const lines: BlockLine[] = wrapText(raw, maxWidth).map(text => ({ kind: 'tool', text, error: e.isError }));
+      lines.push(...wrapToolLines(raw, maxWidth, e.isError));
+      if (e.result) {
+        const rraw = `${e.resultError ? '✗' : '⎿'} ${e.result}`;
+        lines.push(...wrapToolLines(rraw, maxWidth, e.resultError, true));
+      }
       blocks.push({
         role: 'assistant',
         label: 'AI',
@@ -1061,8 +1083,8 @@ function BlockWindow({
                 <Text key={i} backgroundColor="#21262D" color="#E3B341">{` 📋 ${ln.preview}… `}</Text>
               ) : ln.kind === 'tool' ? (
                 /* 工具行不用 dimColor：暗灰在深色背景上几乎看不见。
-                   调用黄、结果灰、错误红，按块区分（entry.toolName），续行随块色 */
-                <Text key={i} color={ln.error ? '#FF7B72' : b.entry.toolName === 'result' ? '#8B949E' : '#E3B341'}>{`  ${ln.text}`}</Text>
+                   调用黄、结果灰、错误红（result 标记来自 scan 层的挂载） */
+                <Text key={i} color={ln.error ? '#FF7B72' : ln.result ? '#8B949E' : '#E3B341'}>{`  ${ln.text}`}</Text>
               ) : (
                 <Text key={i} color={isUser ? '#F0A6C9' : '#C9D1D9'}>{`  ${ln.text}`}</Text>
               )
