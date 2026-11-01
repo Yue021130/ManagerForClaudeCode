@@ -1342,17 +1342,18 @@ function BlockWindow({
 }
 
 /**
- * SessionCards — 中栏会话卡片列（固定行高 5：上框/内容2行/下框/间距1）
+ * SessionCards — 中栏会话卡片列（固定行高 4：上框/内容2行/下框，卡间无空行——
+ * 完整卡片感与信息密度的折中：一屏约 6-7 张）
  *
  * 不复用 ScrollableList（它假设一项一行）；useScrollableList 只按项数切窗口，
- * 把 floor(可用行/5) 当作 terminalHeight、headerOffset=0 传入即可复用滚动窗口逻辑。
+ * 把 floor(可用行/4) 当作 terminalHeight、headerOffset=0 传入即可复用滚动窗口逻辑。
  *
  * 卡片：round 边框，选中 = 边框紫 #A371F7 + 浅灰底 #2A2A3E + 左 ▌▌ 竖条（2 列）；
  * 未选中 = 暗灰框无底、竖条位置空格占位。
  * 行1：运行中绿● + 标题（(空会话) 灰）+ 右灰最后活跃时间；
  * 行2：N问 · N答 · 大小（问答主色、大小灰）+ 右灰时间范围（同日单点 / 跨天 起~止）。
  */
-const CARD_H = 5;
+const CARD_H = 4;
 
 function SessionCards({
   sessions,
@@ -1388,7 +1389,6 @@ function SessionCards({
           <Box
             key={realIdx}
             width={innerW}
-            marginBottom={1}
             borderStyle="round"
             borderColor={active ? '#A371F7' : '#3A3D42'}
             backgroundColor={active ? '#2A2A3E' : undefined}
