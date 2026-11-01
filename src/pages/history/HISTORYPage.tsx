@@ -522,7 +522,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
         <Box height={1} flexDirection="row" paddingX={1}>
           <Text bold color={isUser ? '#79C0FF' : '#3FB950'} wrap="truncate">
             <Text backgroundColor={isUser ? '#1F6FEB' : '#238636'}>{` ${isUser ? '😏' : '👾'} `}</Text>
-            {` ${detail.label} · 完整内容`}
+            {` ${detail.label}${detail.time ? ` · ${detail.time}` : ''} · 完整内容`}
           </Text>
           <Box flexGrow={1} />
           <Text color="#8B949E">↑↓ 滚动  space 粘贴  esc 返回</Text>
@@ -766,7 +766,8 @@ type BlockLine =
  */
 type Block = {
   role: 'user' | 'assistant';
-  label: string;       // 标签行：你 / AI · 时间（头像由渲染处加徽章）
+  label: string;       // 标签行：你 / AI · 模型（头像由渲染处加徽章）
+  time: string | null; // 对话时间（渲染时右对齐到块宽）
   lines: BlockLine[];  // 展示行（已按粘贴展开状态生成）
   pasteIds: string[];  // 块内粘贴段 id（没有则 space 无效）
   entry: ChatEntry;
@@ -873,7 +874,8 @@ function buildBlocks(entries: ChatEntry[], maxWidth: number, expandedPastes: Rea
     const { lines, pasteIds } = buildEntryLines(e, maxWidth, expandedPastes);
     blocks.push({
       role: e.role,
-      label: `${isUser ? '你' : 'AI'}${!isUser && e.model ? ` · ${shortModel(e.model)}` : ''}${e.timestamp ? ` · ${fmtDate(e.timestamp)}` : ''}`,
+      label: `${isUser ? '你' : 'AI'}${!isUser && e.model ? ` · ${shortModel(e.model)}` : ''}`,
+      time: e.timestamp ? fmtDate(e.timestamp) : null,
       lines,
       pasteIds,
       entry: e
@@ -1000,13 +1002,16 @@ function BlockWindow({
           {active ? '❯ ' : '  '}
         </Text>
         <Box flexGrow={1} flexDirection="column" backgroundColor={active ? '#1F2937' : undefined}>
-          <Text>
-            {/* 头像做成底色徽章：终端格子字无法调字号，用色块把它和文字层级拉开 */}
+          {/* 块头一行：左 头像+名字+模型；右 对话时间右对齐（挤压力给左边，时间永远完整） */}
+          <Box flexDirection="row">
             <Text bold color={isUser ? '#79C0FF' : '#3FB950'} wrap="truncate">
               <Text backgroundColor={isUser ? '#1F6FEB' : '#238636'}>{` ${isUser ? '😏' : '👾'} `}</Text>
               {` ${b.label}`}
             </Text>
-            {'\n'}
+            <Box flexGrow={1} />
+            {b.time && <Text color={isUser ? '#79C0FF' : '#3FB950'}>{b.time}</Text>}
+          </Box>
+          <Text>
             {body.flatMap((ln, i) => [
               i > 0 ? '\n' : '',
               ln.kind === 'chip' ? (
