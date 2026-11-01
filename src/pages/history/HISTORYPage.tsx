@@ -730,44 +730,17 @@ export default function HISTORYPage({ width, height }: PageProps) {
         title=""
         emptyMessage="enter 预览会话"
       >
-        {preview && (
-          <Box>
-            {/* 套一层 truncate 的父 Text：窄面板时整行干净截断，
-                否则各彩色子 Text 按 flexShrink 比例收缩，各自丢字变成乱码 */}
-            <Text wrap="truncate">
-              <Text color="#3FB950">{`${preview.session.userCount}问 `}</Text>
-              <Text color="#E3B341">{`${preview.session.assistantCount}答`}</Text>
-              <Text color="#8B949E">{' · '}</Text>
-              <Text color="#F0883E">{fmtSize(preview.session.sizeBytes)}</Text>
-              <Text color="#8B949E">{' · '}</Text>
-              {/* 时间段：紫 */}
-              <Text color="#D2A8FF">{`${fmtDate(preview.session.firstTime)} ~ ${fmtDate(preview.session.lastTime)}`}</Text>
-              {isRunning(preview.session) && (
-                <>
-                  <Text color="#8B949E">{' · '}</Text>
-                  <Text color="#3FB950">● 运行中</Text>
-                </>
-              )}
-            </Text>
-          </Box>
-        )}
-        {preview?.session.cwd && (
-          <Box>
-            <Text color="#22D3EE" wrap="truncate">
-              {`📁 ${shortPath(preview.session.cwd)}`}
-            </Text>
-          </Box>
-        )}
+        {/* 顶部不再放统计/路径行：消息直接从面板顶部开始（统计挪到中栏会话卡片） */}
         {preview && blocks.length > 0 && (
           <BlockWindow
             blocks={blocks}
             selected={focus === 'preview' ? vIdx : -1}
-            avail={Math.max(4, height - (preview.session.cwd ? 2 : 1))}
+            avail={Math.max(4, height)}
             width={previewW}
           />
         )}
         {preview && blocks.length === 0 && (
-          <Text color="#8B949E">此会话没有可展示的对话（可能是纯命令会话）</Text>
+          <Text color="#8B949E" wrap="truncate">此会话没有可展示的对话（可能是纯命令会话）</Text>
         )}
       </DetailPanel>
 
