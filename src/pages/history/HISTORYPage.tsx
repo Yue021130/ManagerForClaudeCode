@@ -14,7 +14,8 @@ import {
   claudeProjectsRoot,
   readConversation,
   moveSession,
-  exportMarkdown
+  exportMarkdown,
+  renameSessionTitle
 } from './scan.js';
 import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
 
@@ -25,7 +26,7 @@ import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
  * 数据：~/.claude/projects/<dir>/<sessionId>.jsonl（见 scan.ts）
  *
  * 键位：↑↓ 移动（随焦点）  ←→/tab 切焦点  enter 下钻/进详情  space 粘贴段展开/收起
- *       / 搜索（Enter 或删空退出）  d 删除（弹窗输入 YUE 确认）  x 归档  e 导出MD  r 重新扫描
+ *       / 搜索（Enter 或删空退出）  d 删除（弹窗输入 YUE 确认）  x 归档  e 导出MD  r 重命名（弹窗，运行中锁定）
  * 会话选中即自动预览（120ms 防抖），enter 在会话行只是把焦点送进预览。
  * 删除/归档 = 移到 ~/.claude/backups/，可恢复。
  * <pasted_content> 段默认折叠成一行颜色块（前 20 字符 + …），space 展开。
@@ -43,7 +44,7 @@ export const meta: PageMeta = {
     ['d', '删除'],
     ['x', '归档'],
     ['e', '导出'],
-    ['r', '刷新']
+    ['r', '重命名']
   ]
 };
 
@@ -77,6 +78,8 @@ const shortModel = (m: string): string => {
 // 「运行中」判定窗口：N 分钟内有写入视为正在使用（Claude Code 日志句柄不常驻，只能看 mtime）
 const RUNNING_MIN = 3;
 const RUNNING_WINDOW_MS = RUNNING_MIN * 60_000;
+// 与 scan.ts TITLE_MAX 一致：标题最长 40 字
+const TITLE_MAX = 40;
 const isFreshPath = (p: string): boolean => {
   try {
     return Date.now() - fs.statSync(p).mtimeMs < RUNNING_WINDOW_MS;
@@ -111,6 +114,11 @@ export default function HISTORYPage({ width, height }: PageProps) {
   // 运行中检测：Claude Code 写日志是开-写-关（句柄不常驻，Restart Manager 探不到），
   // 改用 mtime 新鲜度：3 分钟内有写入 = 正在使用
   const [confirmLocked, setConfirmLocked] = useState(false);
+
+  // ── 重命名弹窗（风格同删除确认；运行中锁定同标准：mtime 3 分钟新鲜度）──
+  const [renaming, setRenaming] = useState<SessionMeta | null>(null);
+  const [renameInput, setRenameInput] = useState('');
+  const [renameError, setRenameError] = useState(false); // 标题为空，内联红字提示
 
   // 首次扫描：让出首帧再扫（scan 同步阻塞 <100ms）
   useEffect(() => {
@@ -429,13 +437,56 @@ export default function HISTORYPage({ width, height }: PageProps) {
         }
         return;
       }
-      if (key.backspace) {
+      if (key.backspace || key.delete) {
         setConfirmError(false);
         return setConfirmInput(s => s.slice(0, -1));
       }
       if (!key.ctrl && !key.meta && input) {
         setConfirmError(false);
         return setConfirmInput(s => (s + input).slice(0, 3)); // 就 3 个槽位
+      }
+      return;
+    }
+
+    // 重命名弹窗：enter 提交（trim 非空、运行中锁定则拒）；esc 取消；其余键吃掉
+    if (renaming) {
+      if (key.escape) {
+        setRenaming(null);
+        setRenameInput('');
+        setRenameError(false);
+        setKeysEnabled(true);
+        return;
+      }
+      if (key.return) {
+        if (isFreshPath(renaming.filePath)) return; // 锁定：只能 esc（同删除确认）
+        const title = renameInput.trim().slice(0, TITLE_MAX);
+        if (!title) {
+          setRenameError(true);
+          return;
+        }
+        const target = renaming;
+        try {
+          renameSessionTitle(target.filePath, title);
+          setRenaming(null);
+          setRenameInput('');
+          setRenameError(false);
+          setKeysEnabled(true);
+          setMessage(`已重命名为「${title.slice(0, 16)}」`);
+          rescan();
+        } catch (e) {
+          setRenameError(true);
+          setError(`重命名失败: ${String(e)}`);
+        }
+        return;
+      }
+      // Backspace 键两种字节都收：\b(0x08)→key.backspace、\x7f(0x7F)→key.delete（Windows 终端多发后者）
+      if (key.backspace || key.delete) {
+        setRenameError(false);
+        return setRenameInput(s => s.slice(0, -1));
+      }
+      if (!key.ctrl && !key.meta && input) {
+        setRenameError(false);
+        return setRenameInput(s => (s + input).slice(0, TITLE_MAX));
       }
       return;
     }
@@ -461,14 +512,14 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
     // 搜索模式：行内编辑；Enter / Esc / 删空退出
     if (searching) {
-      if (key.escape || key.return || (key.backspace && !query)) {
+      if (key.escape || key.return || ((key.backspace || key.delete) && !query)) {
         setSearching(false);
         setKeysEnabled(true);
-        if (key.backspace) setQuery('');
+        if (key.backspace || key.delete) setQuery('');
         setSessIdx(0);
         return;
       }
-      if (key.backspace) return setQuery(q => q.slice(0, -1));
+      if (key.backspace || key.delete) return setQuery(q => q.slice(0, -1));
       if (!key.ctrl && !key.meta && input) return setQuery(q => q + input);
       return;
     }
@@ -523,7 +574,14 @@ export default function HISTORYPage({ width, height }: PageProps) {
     }
     if (input === 'x') return removeOrArchive('archive');
     if (input === 'e') return doExport();
-    if (input === 'r') return rescan();
+    if (input === 'r') {
+      if (!currentSession) return;
+      setRenaming(currentSession);
+      setRenameInput(currentSession.title === '(空会话)' || currentSession.title === '(空消息)' ? '' : currentSession.title);
+      setRenameError(false);
+      setKeysEnabled(false); // 弹窗接管键盘：数字键不切页、Esc 不退出
+      return;
+    }
   });
 
   // ── 渲染 ──
@@ -775,6 +833,55 @@ export default function HISTORYPage({ width, height }: PageProps) {
           <Box justifyContent="center">
             {confirmError ? (
               <Text color="#FF7B72">输入不匹配，重试或 esc 取消</Text>
+            ) : (
+              <Text color="#8B949E">enter 确认 · esc 取消</Text>
+            )}
+          </Box>
+        </Box>
+      )}
+
+      {renaming && (
+        <Box
+          position="absolute"
+          marginTop={Math.max(0, Math.floor((height - 10) / 2))}
+          width={width}
+          flexDirection="column"
+          borderStyle="single"
+          borderLeft={false}
+          borderRight={false}
+          borderColor="#A371F7"
+          backgroundColor="#0D1117"
+          paddingY={1}
+        >
+          <Box justifyContent="center" marginBottom={1}>
+            <Text bold color="#A371F7">重命名该会话</Text>
+          </Box>
+          <Box justifyContent="center">
+            <Text color="#E6EDF3" wrap="truncate">
+              {renaming.title.length > 24 ? `${renaming.title.slice(0, 24)}...` : renaming.title}
+            </Text>
+          </Box>
+          <Box justifyContent="center" marginBottom={1}>
+            {isFreshPath(renaming.filePath) ? (
+              <Text color="#FF7B72">⚠ 会话最近 {RUNNING_MIN} 分钟内有写入（可能正在运行），不可重命名</Text>
+            ) : (
+              <Text color="#8B949E">同步写入会话文件，Claude Code 列表同样生效</Text>
+            )}
+          </Box>
+          {!isFreshPath(renaming.filePath) && (
+            <Box justifyContent="center" marginBottom={1}>
+              <Text backgroundColor="#21262D">
+                <Text color="#E6EDF3">{` ${renameInput}`}</Text>
+                <Text color="#E3B341">_</Text>
+                <Text>{' '}</Text>
+              </Text>
+            </Box>
+          )}
+          <Box justifyContent="center">
+            {renameError ? (
+              <Text color="#FF7B72">标题不能为空，重试或 esc 取消</Text>
+            ) : isFreshPath(renaming.filePath) ? (
+              <Text color="#8B949E">esc 取消</Text>
             ) : (
               <Text color="#8B949E">enter 确认 · esc 取消</Text>
             )}
