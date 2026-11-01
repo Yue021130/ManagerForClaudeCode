@@ -157,8 +157,65 @@ export function scanSession(filePath: string): SessionMeta {
     }
   }
 
+  // 用户重命名覆盖最后生效（即使之后又出现新的 ai-title 也不顶掉）
+  const ovr = titleOverrides()[filePath];
+  if (ovr) meta.title = ovr;
+
   metaCache.set(filePath, { mtimeMs: st.mtimeMs, meta });
   return meta;
+}
+
+// ── 重命名覆盖（旁挂 JSON + 同步改写会话文件里的 ai-title 行，CC 列表同步生效） ──
+const titlesFile = (): string => path.join(backupRoot('trash'), '..', 'mfcc-titles.json');
+let titlesCache: { mtimeMs: number; map: Record<string, string> } | null = null;
+
+function titleOverrides(): Record<string, string> {
+  try {
+    const st = fs.statSync(titlesFile());
+    if (titlesCache && titlesCache.mtimeMs === st.mtimeMs) return titlesCache.map;
+    const map = JSON.parse(fs.readFileSync(titlesFile(), 'utf8')) as Record<string, string>;
+    titlesCache = { mtimeMs: st.mtimeMs, map };
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+/** 把新标题写回会话 jsonl 的 ai-title 行（没有就追加；有多条全替换，兼容首/末两种读取方） */
+function syncAiTitleIntoJsonl(filePath: string, title: string): void {
+  const sessionId = path.basename(filePath, '.jsonl');
+  const line = JSON.stringify({ type: 'ai-title', aiTitle: title, sessionId });
+  const st = fs.statSync(filePath); // 记录原 mtime，写回后恢复（不重触发运行中锁定、不乱 CC 排序）
+  const lines = fs.readFileSync(filePath, 'utf8').split('\n');
+  let replaced = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('"ai-title"')) {
+      lines[i] = line;
+      replaced = true;
+    }
+  }
+  if (!replaced) {
+    if (lines.length && lines[lines.length - 1] === '') lines[lines.length - 1] = line;
+    else lines.push(line);
+  }
+  let out = lines.join('\n');
+  if (!out.endsWith('\n')) out += '\n';
+  const tmp = filePath + '.mfcc-tmp';
+  fs.writeFileSync(tmp, out, 'utf8');
+  fs.renameSync(tmp, filePath);
+  fs.utimesSync(filePath, st.atime, st.mtime);
+}
+
+/** 重命名会话标题：旁挂 JSON（我们永赢）+ 改写 jsonl 的 ai-title（CC 同步） */
+export function renameSessionTitle(filePath: string, title: string): void {
+  const map = { ...titleOverrides() };
+  map[filePath] = title;
+  const tmp = titlesFile() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(map, null, 2), 'utf8');
+  fs.renameSync(tmp, titlesFile());
+  titlesCache = null;
+  syncAiTitleIntoJsonl(filePath, title);
+  invalidateSession(filePath);
 }
 
 /** 扫描全部项目目录（空目录跳过；项目按最新会话倒序） */
