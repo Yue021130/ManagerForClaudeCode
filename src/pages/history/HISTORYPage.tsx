@@ -1046,14 +1046,19 @@ function BlockWindow({
     return out.join('');
   };
 
-  // 取块的前 n 行（n 含徽章占的行）；截断时末行缩短给徽章让位
+  // 取块的前 n 行（n 含徽章占的行）；截断时末行缩短给徽章让位。
+  // text 和 tool 末行都要让——tool 行（长命令/结果）不让位时徽章会被挤出面板右缘
   const headLines = (b: Block, n: number): { body: BlockLine[]; truncated: boolean } => {
     if (b.lines.length <= n) return { body: b.lines.slice(), truncated: false };
     const body = b.lines.slice(0, Math.max(0, n - 1));
     const lastLn = body[body.length - 1];
-    if (lastLn && lastLn.kind === 'text') {
+    if (lastLn && (lastLn.kind === 'text' || lastLn.kind === 'tool')) {
       const budget = Math.max(0, contentW - badgeW - 2); // -2 = 行首缩进
-      body[body.length - 1] = { kind: 'text', text: fitWidth(lastLn.text, budget) };
+      const shrunk = fitWidth(lastLn.text, budget);
+      body[body.length - 1] =
+        lastLn.kind === 'text'
+          ? { kind: 'text', text: shrunk }
+          : { kind: 'tool', text: shrunk, error: lastLn.error, result: lastLn.result };
     }
     return { body, truncated: true };
   };
