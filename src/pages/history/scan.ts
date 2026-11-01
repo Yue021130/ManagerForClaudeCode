@@ -240,6 +240,17 @@ export function readConversation(filePath: string): ChatEntry[] {
             timestamp: ts,
             toolName: raw.name ?? 'tool'
           };
+          // Edit/Update 带上 old/new：UI 层算红绿 diff（原版 TUI 的颜色对比就是这么来的）
+          if ((raw.name === 'Edit' || raw.name === 'Update') && raw.input && typeof raw.input === 'object') {
+            const inp = raw.input as Record<string, unknown>;
+            const o = typeof inp.old_string === 'string' ? inp.old_string : null;
+            const nw = typeof inp.new_string === 'string' ? inp.new_string : null;
+            // 超限的编辑不做 diff：LCS 成本与渲染量失控，回退普通展示
+            if (o !== null && nw !== null && o.length <= 4000 && nw.length <= 4000) {
+              ent.oldText = o;
+              ent.newText = nw;
+            }
+          }
           entries.push(ent);
           pendingTools.push(ent);
         }

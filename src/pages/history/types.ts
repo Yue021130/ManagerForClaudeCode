@@ -30,7 +30,9 @@ export interface ChatEntry {
   timestamp: string | null;
   toolName?: string;        // role==='tool' 时存在：工具名；孤立结果（无对应调用）为 'result'
   isError?: boolean;        // 孤立结果条目：调用是否出错
-  result?: string;          // role==='tool' 时存在：该调用的返回摘要（首行，截断）
+  result?: string;          // role==='tool' 时存在：该调用的返回摘要（多行结构保留）
   resultError?: boolean;    // result 对应的调用是否出错
+  oldText?: string;         // Edit/Update 调用的 old_string（≤4000 字，用于红绿 diff）
+  newText?: string;         // Edit/Update 调用的 new_string
   model?: string;           // role==='assistant' 时存在：该行 requestedModel
 }
