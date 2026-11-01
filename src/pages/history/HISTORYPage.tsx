@@ -169,7 +169,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
     const base = buildEntryLines(detail.entry, w, expandedPastes).lines;
     // 工具块：完整内容 = 调用 + 结果（结果已在 scan 层挂到调用条目上）
     if (detail.entry.role === 'tool' && detail.entry.result) {
-      const rraw = `${detail.entry.resultError ? '✗' : '⎿'} ${detail.entry.result}`;
+      const rraw = `${detail.entry.resultError ? '✗' : '└'} ${detail.entry.result}`;
       base.push(...wrapToolLines(rraw, w, detail.entry.resultError, true));
     }
     return base;
@@ -770,7 +770,7 @@ type BlockLine =
 /**
  * Block — 预览区的一项 = 一条对话（Q / A / 工具调用·结果），整块选中/高亮
  *
- * 工具调用折叠成 ⚡ 行（工具名 + 命令/路径摘要，错误标红）；结果保留多行结构挂在调用下（⎿ 行）。
+ * 工具调用折叠成 ⚡ 行（工具名 + 命令/路径摘要，错误标红）；结果保留多行结构挂在调用下（└ 行）。
  * <pasted_content> 段默认折叠成一行 chip，space 展开/收起（pasteIds 切换）。
  * 正文按面板宽预折行，默认只露前 MAX_BLOCK_LINES 行（末行拼 ' ...'）；
  * 视口有剩余空间时 BlockWindow 会弹性展开被截断的块（选中块优先）。
@@ -799,6 +799,14 @@ function wrapText(text: string, maxWidth: number): string[] {
   let cur = '';
   let w = 0;
   for (const ch of text) {
+    // tab 必须就地展开成空格：终端把它跳到 8 的倍数列（最多 +7 格），
+    // 而 ink/string-width 按 0~1 算——直接输出 tab 会让实际行宽超出预算物理折行
+    if (ch === '\t') {
+      const pad = 8 - (w % 8);
+      cur += ' '.repeat(pad);
+      w += pad;
+      continue;
+    }
     const cw = charWidth(ch.codePointAt(0) ?? 0);
     if (w + cw > maxWidth) {
       out.push(cur);
@@ -892,15 +900,15 @@ function buildBlocks(entries: ChatEntry[], maxWidth: number, expandedPastes: Rea
   const blocks: Block[] = [];
   for (const e of entries) {
     if (e.role === 'tool') {
-      // 工具块 = ⚡ 调用行 + ⎿ 结果行（结果在 scan 层已挂到对应调用上），按面板宽预折行——
+      // 工具块 = ⚡ 调用行 + └ 结果行（结果在 scan 层已挂到对应调用上），按面板宽预折行——
       // 不折会让正文 Text 超出盒宽被 yoga 二次折行，块高变大顶破窗口预算（溢出即乱排）
       const lines: BlockLine[] = [];
       const raw = e.toolName === 'result'
-        ? `${e.isError ? '✗' : '⎿'} ${e.text}`
+        ? `${e.isError ? '✗' : '└'} ${e.text}`
         : `⚡ ${e.toolName ? `${e.toolName} ` : ''}${e.text}`;
       lines.push(...wrapToolLines(raw, maxWidth, e.isError));
       if (e.result) {
-        const rraw = `${e.resultError ? '✗' : '⎿'} ${e.result}`;
+        const rraw = `${e.resultError ? '✗' : '└'} ${e.result}`;
         lines.push(...wrapToolLines(rraw, maxWidth, e.resultError, true));
       }
       blocks.push({

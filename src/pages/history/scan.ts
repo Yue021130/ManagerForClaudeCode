@@ -278,7 +278,7 @@ export function exportMarkdown(meta: SessionMeta, entries: ChatEntry[]): string 
   for (const e of entries) {
     if (e.role === 'tool') {
       lines.push(`> ⚒ ${e.toolName} ${e.text}`);
-      if (e.result) lines.push(`> ⎿ ${e.result}`);
+      if (e.result) lines.push(`> └ ${e.result}`);
       lines.push('');
     } else {
       lines.push(`## ${e.role === 'user' ? '🧑 用户' : '🤖 Assistant'}`, '', e.text, '');
