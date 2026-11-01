@@ -23,11 +23,12 @@ export interface ProjectInfo {
   sessions: SessionMeta[];  // 按 lastTime 倒序
 }
 
-/** 预览用的一条对话（工具调用折叠为一行） */
+/** 预览用的一条对话（工具调用/结果折叠为一行） */
 export interface ChatEntry {
   role: 'user' | 'assistant' | 'tool';
   text: string;
   timestamp: string | null;
-  toolName?: string;        // role==='tool' 时存在
+  toolName?: string;        // role==='tool' 时存在：'result'=工具返回，其余=工具名
+  isError?: boolean;        // role==='tool' 且为工具返回时存在：调用是否出错
   model?: string;           // role==='assistant' 时存在：该行 requestedModel
 }

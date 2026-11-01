@@ -63,6 +63,37 @@ function isRealUserText(o: RawLine): o is RawLine & { message: { content: string
   );
 }
 
+/** 工具调用单行摘要：优先命令/脚本，其次文件路径/描述等 */
+function toolBrief(name: string | undefined, input: unknown): string {
+  const inp = (input ?? {}) as Record<string, unknown>;
+  for (const k of ['command', 'script', 'file_path', 'description', 'prompt', 'pattern', 'url']) {
+    const v = inp[k];
+    if (typeof v === 'string' && v.trim()) {
+      return v.replace(/\s+/g, ' ').trim().slice(0, 120);
+    }
+  }
+  return '(无参数)';
+}
+
+/** 工具结果单行摘要：取首个非空行，超长截断 */
+function resultBrief(content: unknown, isError: boolean | undefined): { text: string; isError?: boolean } {
+  let s = '';
+  if (typeof content === 'string') {
+    s = content;
+  } else if (Array.isArray(content)) {
+    s = content
+      .map(x =>
+        typeof x === 'object' && x !== null && 'text' in x
+          ? String((x as { text?: unknown }).text ?? '')
+          : String(x ?? '')
+      )
+      .join(' ');
+  }
+  const flat = s.replace(/\s+/g, ' ').trim();
+  const line = flat.slice(0, 120);
+  return { text: (line + (flat.length > 120 ? '…' : '')) || '(空)', isError: !!isError };
+}
+
 /** 扫描单个会话文件 → 元信息（标题/时间/计数/体积） */
 export function scanSession(filePath: string): SessionMeta {
   const st = fs.statSync(filePath);
@@ -157,22 +188,36 @@ export function readConversation(filePath: string): ChatEntry[] {
 
     if (isRealUserText(o)) {
       entries.push({ role: 'user', text: o.message.content, timestamp: ts });
-    } else if (o.type === 'assistant' && Array.isArray(o.message?.content)) {
-      const texts: string[] = [];
-      for (const raw of o.message.content as { type?: string; text?: string; name?: string }[]) {
-        if (raw.type === 'text' && typeof raw.text === 'string') {
-          texts.push(raw.text);
-        } else if (raw.type === 'tool_use') {
-          entries.push({ role: 'tool', text: '', timestamp: ts, toolName: raw.name ?? 'tool' });
-        }
+    } else if (o.type === 'user' && !o.isMeta && Array.isArray(o.message?.content)) {
+      // 工具结果挂在 user 行的 content 数组里（tool_use 的返回），逐块提取
+      for (const raw of o.message.content as {
+        type?: string;
+        content?: unknown;
+        is_error?: boolean;
+      }[]) {
+        if (raw.type !== 'tool_result') continue;
+        const r = resultBrief(raw.content, raw.is_error);
+        entries.push({ role: 'tool', text: r.text, timestamp: ts, toolName: 'result', isError: r.isError });
       }
-      if (texts.length) {
-        entries.push({
-          role: 'assistant',
-          text: texts.join('\n'),
-          timestamp: ts,
-          model: typeof o.requestedModel === 'string' ? o.requestedModel : undefined
-        });
+    } else if (o.type === 'assistant' && Array.isArray(o.message?.content)) {
+      const model = typeof o.requestedModel === 'string' ? o.requestedModel : undefined;
+      // 按 content 块顺序逐条落 entry：text 块与 tool_use 块可能交错，保序才符合时间线
+      for (const raw of o.message.content as {
+        type?: string;
+        text?: string;
+        name?: string;
+        input?: unknown;
+      }[]) {
+        if (raw.type === 'text' && typeof raw.text === 'string' && raw.text.trim()) {
+          entries.push({ role: 'assistant', text: raw.text, timestamp: ts, model });
+        } else if (raw.type === 'tool_use') {
+          entries.push({
+            role: 'tool',
+            text: toolBrief(raw.name, raw.input),
+            timestamp: ts,
+            toolName: raw.name ?? 'tool'
+          });
+        }
       }
     }
   }
@@ -208,7 +253,7 @@ export function exportMarkdown(meta: SessionMeta, entries: ChatEntry[]): string 
   ];
   for (const e of entries) {
     if (e.role === 'tool') {
-      lines.push(`> ⚒ ${e.toolName}`, '');
+      lines.push(`> ⚒ ${e.toolName} ${e.text}`, '');
     } else {
       lines.push(`## ${e.role === 'user' ? '🧑 用户' : '🤖 Assistant'}`, '', e.text, '');
     }
