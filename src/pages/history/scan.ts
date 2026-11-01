@@ -238,7 +238,8 @@ export function readConversation(filePath: string): ChatEntry[] {
             role: 'tool',
             text: toolBrief(raw.name, raw.input),
             timestamp: ts,
-            toolName: raw.name ?? 'tool'
+            toolName: raw.name ?? 'tool',
+            model
           };
           // Edit/Update 带上 old/new：UI 层算红绿 diff（原版 TUI 的颜色对比就是这么来的）
           if ((raw.name === 'Edit' || raw.name === 'Update') && raw.input && typeof raw.input === 'object') {

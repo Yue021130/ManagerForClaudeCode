@@ -1042,7 +1042,7 @@ function buildBlocks(entries: ChatEntry[], maxWidth: number, expandedPastes: Rea
       const lines = buildToolLines(e, maxWidth);
       blocks.push({
         role: 'assistant',
-        label: 'AI',
+        label: `AI${e.model ? ` · ${shortModel(e.model)}` : ''}`,
         time: e.timestamp ? fmtDate(e.timestamp) : null,
         lines,
         pasteIds: [],
