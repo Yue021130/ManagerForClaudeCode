@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { PageMeta, PageProps } from '../../types.js';
 import { useShell } from '../../shell/context.js';
 import ScrollableList from '../../components/ScrollableList.js';
+import { useScrollableList } from '../../hooks/useScrollableList.js';
 import DetailPanel from '../../components/DetailPanel.js';
 import VerticalDivider from '../../components/VerticalDivider.js';
 import {
@@ -60,6 +61,17 @@ const fmtDate = (iso: string | null): string => {
 
 const fmtSize = (b: number): string =>
   b >= 1048576 ? `${(b / 1048576).toFixed(1)}M` : b >= 1024 ? `${Math.round(b / 1024)}K` : `${b}B`;
+
+// 时间范围：同一天显示单个时间点（取最后活跃），跨天显示 起 ~ 止
+const fmtRange = (first: string | null, last: string | null): string => {
+  if (!first || !last) return fmtDate(last ?? first);
+  const a = new Date(first);
+  const b = new Date(last);
+  const sameDay =
+    !Number.isNaN(a.getTime()) && !Number.isNaN(b.getTime()) &&
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return sameDay ? fmtDate(last) : `${fmtDate(first)} ~ ${fmtDate(last)}`;
+};
 
 const projName = (p: ProjectInfo): string => (p.cwd ? path.basename(p.cwd) : p.dirName);
 
@@ -673,56 +685,37 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
       <VerticalDivider />
 
-      {/* ── 中：会话列表（+ 搜索框） ── */}
-      <Box width={sessW} flexDirection="column">
+      {/* ── 中：会话卡片（+ 搜索框） ── */}
+      <Box width={sessW} flexDirection="column" paddingX={1}>
         {searching && (
-          <Box paddingX={1}>
+          <Box>
             <Text color="#E3B341">/{query}</Text>
             <Text color="#E3B341">▌</Text>
           </Box>
         )}
-        <ScrollableList<SessionMeta>
-          title={inSearch ? `搜索 “${query.trim()}”` : 'SESSIONS'}
-          items={sessions}
-          // 自动预览后当前会话永远带标记：焦点在 = 蓝底高亮；焦点不在 = 深底蓝标（正在预览）
+        {/* 标题行 + 计数徽章（同 ScrollableList 标题样式） */}
+        <Box>
+          <Text bold color="#E6EDF3">{inSearch ? `搜索 “${query.trim()}”` : 'SESSIONS'}</Text>
+          <Text color="#1E1E2E" backgroundColor="#6E7681">{` ${sessions.length} `}</Text>
+        </Box>
+        {/* 引导行：当前项目路径 + 会话数（无框；搜索模式下不显示） */}
+        {!inSearch && project && (
+          <Box>
+            <Text color="#8B949E" wrap="truncate">
+              {`📁 ${project.cwd ? shortPath(project.cwd) : project.dirName} · ${sessions.length} 条对话`}
+            </Text>
+          </Box>
+        )}
+        <SessionCards
+          sessions={sessions}
           selectedIndex={sIdx}
-          activeColor={focus === 'session' ? '#79C0FF' : '#21262D'}
-          activeTextColor={focus === 'session' ? '#0D1117' : '#79C0FF'}
-          terminalHeight={height - (searching ? 1 : 0)}
-          width={sessW}
-          headerOffset={5}
-          renderItem={(s, _i, active) => {
-            const hot = active && focus === 'session'; // 蓝底时用深字；深底联动标记保持亮字
-            return (
-              <>
-                {inSearch && (
-                  <Text color={hot ? '#0D1117' : '#8B949E'} wrap="truncate">
-                    {`${s.cwd ? path.basename(s.cwd) : '?'} · `}
-                  </Text>
-                )}
-                {/* 固定 12 格且不许收缩：日期列永远完整对齐，挤压力全给标题 */}
-                <Box width={12} flexShrink={0}>
-                  <Text color={hot ? '#0D1117' : '#A9B4C0'} wrap="truncate">{`${fmtDate(s.lastTime)} `}</Text>
-                </Box>
-                {/* 运行中状态：绿●占 2 格，非运行行用空格占位保持标题对齐 */}
-                <Box width={2} flexShrink={0}>
-                  {isRunning(s) ? (
-                    <Text color={hot ? '#0D1117' : '#3FB950'}>● </Text>
-                  ) : (
-                    <Text>{'  '}</Text>
-                  )}
-                </Box>
-                <Box flexGrow={1}>
-                  <Text bold={active} color={hot ? '#0D1117' : '#E6EDF3'} wrap="truncate">
-                    {s.title}
-                  </Text>
-                </Box>
-              </>
-            );
-          }}
+          inSearch={inSearch}
+          avail={height - (searching ? 1 : 0) - 1 - (inSearch ? 0 : 1)}
+          width={sessW - 2}
+          isRunning={isRunning}
         />
         {!sessions.length && (
-          <Box paddingX={1}>
+          <Box>
             <Text color="#8B949E">{inSearch ? '没有匹配的会话' : '无会话'}</Text>
           </Box>
         )}
@@ -1371,6 +1364,102 @@ function BlockWindow({
       {lastRendered < blocks.length - 1 && (
         <Text color="#8B949E">{`↓ ${blocks.length - 1 - lastRendered}`}</Text>
       )}
+    </Box>
+  );
+}
+
+/**
+ * SessionCards — 中栏会话卡片列（固定行高 5：上框/内容2行/下框/间距1）
+ *
+ * 不复用 ScrollableList（它假设一项一行）；useScrollableList 只按项数切窗口，
+ * 把 floor(可用行/5) 当作 terminalHeight、headerOffset=0 传入即可复用滚动窗口逻辑。
+ *
+ * 卡片：round 边框，选中 = 边框紫 #A371F7 + 浅灰底 #2A2A3E + 左 ▌▌ 竖条（2 列）；
+ * 未选中 = 暗灰框无底、竖条位置空格占位。
+ * 行1：运行中绿● + 标题（(空会话) 灰）+ 右灰最后活跃时间；
+ * 行2：N问 · N答 · 大小（问答主色、大小灰）+ 右灰时间范围（同日单点 / 跨天 起~止）。
+ */
+const CARD_H = 5;
+
+function SessionCards({
+  sessions,
+  selectedIndex,
+  inSearch,
+  avail,
+  width,
+  isRunning
+}: {
+  sessions: SessionMeta[];
+  selectedIndex: number;
+  inSearch: boolean;
+  avail: number;
+  width: number;
+  isRunning: (s: SessionMeta) => boolean;
+}) {
+  const rows = Math.max(1, Math.floor(avail / CARD_H));
+  const { visibleList, hasMoreAbove, hasMoreBelow, aboveCount, belowCount, scrollOffset } =
+    useScrollableList(sessions, selectedIndex, rows, 0, 1);
+
+  const innerW = Math.max(10, width);        // 卡片盒宽（= 栏内容宽）
+  const textW = Math.max(8, innerW - 2);     // 卡内文字区 = 内宽 - 左右边框
+  const timeW = 11;                          // MM-DD HH:mm 固定不收缩
+
+  return (
+    <Box flexDirection="column" width={width}>
+      {hasMoreAbove && <Text color="#8B949E">{`↑ ${aboveCount}`}</Text>}
+      {visibleList.map((s, i) => {
+        const realIdx = scrollOffset + i;
+        const active = realIdx === selectedIndex;
+        const empty = s.title === '(空会话)' || s.title === '(空消息)';
+        return (
+          <Box
+            key={realIdx}
+            width={innerW}
+            marginBottom={1}
+            borderStyle="round"
+            borderColor={active ? '#A371F7' : '#3A3D42'}
+            backgroundColor={active ? '#2A2A3E' : undefined}
+          >
+            {/* 左竖条 2 列：选中亮紫，未选中空格占位（ink 边框四边同色，单边强调靠内嵌字符） */}
+            <Box width={2} flexShrink={0} alignItems="center">
+              {active ? <Text bold color="#A371F7">▌▌</Text> : <Text>{'  '}</Text>}
+            </Box>
+            <Box flexDirection="column" width={textW}>
+              {/* 行1：运行● + 标题 + 右最后活跃（固定 11 格，窄面板挤压力全给标题） */}
+              <Box flexDirection="row">
+                <Box width={2} flexShrink={0}>
+                  {isRunning(s) ? <Text color="#3FB950">●</Text> : <Text>{' '}</Text>}
+                </Box>
+                <Box flexGrow={1}>
+                  <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
+                    {inSearch ? `[${s.cwd ? path.basename(s.cwd) : '?'}] ` : ''}
+                    {s.title}
+                  </Text>
+                </Box>
+                <Box width={timeW} flexShrink={0}>
+                  <Text color="#8B949E">{fmtDate(s.lastTime)}</Text>
+                </Box>
+              </Box>
+              {/* 行2：N问·N答·大小（flexGrow 吃掉中段，内容左对齐）+ 时间范围（窄卡优先收缩截断） */}
+              <Box flexDirection="row">
+                <Box width={2} flexShrink={0}>
+                  <Text>{' '}</Text>
+                </Box>
+                <Box flexGrow={1}>
+                  <Text wrap="truncate">
+                    <Text color="#E6EDF3">{`${s.userCount} 问 · ${s.assistantCount} 答`}</Text>
+                    <Text color="#8B949E">{` · ${fmtSize(s.sizeBytes)}`}</Text>
+                  </Text>
+                </Box>
+                <Box flexShrink={1}>
+                  <Text color="#8B949E" wrap="truncate">{fmtRange(s.firstTime, s.lastTime)}</Text>
+                </Box>
+              </Box>
+            </Box>
+          </Box>
+        );
+      })}
+      {hasMoreBelow && <Text color="#8B949E">{`↓ ${belowCount}`}</Text>}
     </Box>
   );
 }
