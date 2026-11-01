@@ -23,12 +23,14 @@ export interface ProjectInfo {
   sessions: SessionMeta[];  // 按 lastTime 倒序
 }
 
-/** 预览用的一条对话（工具调用/结果折叠为一行） */
+/** 预览用的一条对话（工具调用/结果折叠为一行；结果挂到对应调用上） */
 export interface ChatEntry {
   role: 'user' | 'assistant' | 'tool';
   text: string;
   timestamp: string | null;
-  toolName?: string;        // role==='tool' 时存在：'result'=工具返回，其余=工具名
-  isError?: boolean;        // role==='tool' 且为工具返回时存在：调用是否出错
+  toolName?: string;        // role==='tool' 时存在：工具名；孤立结果（无对应调用）为 'result'
+  isError?: boolean;        // 孤立结果条目：调用是否出错
+  result?: string;          // role==='tool' 时存在：该调用的返回摘要（首行，截断）
+  resultError?: boolean;    // result 对应的调用是否出错
   model?: string;           // role==='assistant' 时存在：该行 requestedModel
 }

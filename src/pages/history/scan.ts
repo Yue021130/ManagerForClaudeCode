@@ -77,7 +77,11 @@ function toolBrief(name: string | undefined, input: unknown): string {
   return '(无参数)';
 }
 
-/** 工具结果单行摘要：取首个非空行，超长截断 */
+/** 工具结果摘要：保留多行结构（对齐原版 ⎿ 展示），最多 8 行、每行 200 字；
+ *  行数超出时末尾标注剩余行数 */
+const RESULT_MAX_LINES = 8;
+const RESULT_LINE_MAX = 200;
+
 function resultBrief(content: unknown, isError: boolean | undefined): { text: string; isError?: boolean } {
   let s = '';
   if (typeof content === 'string') {
@@ -89,11 +93,18 @@ function resultBrief(content: unknown, isError: boolean | undefined): { text: st
           ? String((x as { text?: unknown }).text ?? '')
           : String(x ?? '')
       )
-      .join(' ');
+      .join('\n');
   }
-  const flat = s.replace(/\s+/g, ' ').trim();
-  const line = flat.slice(0, 120);
-  return { text: (line + (flat.length > 120 ? '…' : '')) || '(空)', isError: !!isError };
+  const lines = s
+    .split('\n')
+    .map(l => l.trim().slice(0, RESULT_LINE_MAX))
+    .filter(l => l)
+    .slice(0, RESULT_MAX_LINES);
+  const more = s.split('\n').filter(l => l.trim()).length - lines.length;
+  return {
+    text: (lines.join('\n') + (more > 0 ? `\n… 还有 ${more} 行` : '')) || '(空)',
+    isError: !!isError
+  };
 }
 
 /** 扫描单个会话文件 → 元信息（标题/时间/计数/体积） */
@@ -182,6 +193,8 @@ export function readConversation(filePath: string): ChatEntry[] {
   if (cached && cached.mtimeMs === st.mtimeMs) return cached.entries;
 
   const entries: ChatEntry[] = [];
+  // 等结果的 tool_use 条目（结果按 tool_use 顺序成对到达，弹出最老的匹配）
+  const pendingTools: ChatEntry[] = [];
   for (const line of fs.readFileSync(filePath, 'utf8').split('\n')) {
     if (!line) continue;
     const o = parseLine(line);
@@ -191,7 +204,7 @@ export function readConversation(filePath: string): ChatEntry[] {
     if (isRealUserText(o)) {
       entries.push({ role: 'user', text: o.message.content, timestamp: ts });
     } else if (o.type === 'user' && !o.isMeta && Array.isArray(o.message?.content)) {
-      // 工具结果挂在 user 行的 content 数组里（tool_use 的返回），逐块提取
+      // 工具结果挂在 user 行的 content 数组里（tool_use 的返回），按序挂回调用条目
       for (const raw of o.message.content as {
         type?: string;
         content?: unknown;
@@ -199,7 +212,14 @@ export function readConversation(filePath: string): ChatEntry[] {
       }[]) {
         if (raw.type !== 'tool_result') continue;
         const r = resultBrief(raw.content, raw.is_error);
-        entries.push({ role: 'tool', text: r.text, timestamp: ts, toolName: 'result', isError: r.isError });
+        const call = pendingTools.shift();
+        if (call) {
+          call.result = r.text;
+          call.resultError = r.isError;
+        } else {
+          // 无对应调用（跨会话截断等）：落孤立结果条目
+          entries.push({ role: 'tool', text: r.text, timestamp: ts, toolName: 'result', isError: r.isError });
+        }
       }
     } else if (o.type === 'assistant' && Array.isArray(o.message?.content)) {
       const model = typeof o.requestedModel === 'string' ? o.requestedModel : undefined;
@@ -213,12 +233,14 @@ export function readConversation(filePath: string): ChatEntry[] {
         if (raw.type === 'text' && typeof raw.text === 'string' && raw.text.trim()) {
           entries.push({ role: 'assistant', text: raw.text, timestamp: ts, model });
         } else if (raw.type === 'tool_use') {
-          entries.push({
+          const ent: ChatEntry = {
             role: 'tool',
             text: toolBrief(raw.name, raw.input),
             timestamp: ts,
             toolName: raw.name ?? 'tool'
-          });
+          };
+          entries.push(ent);
+          pendingTools.push(ent);
         }
       }
     }
@@ -255,7 +277,9 @@ export function exportMarkdown(meta: SessionMeta, entries: ChatEntry[]): string 
   ];
   for (const e of entries) {
     if (e.role === 'tool') {
-      lines.push(`> ⚒ ${e.toolName} ${e.text}`, '');
+      lines.push(`> ⚒ ${e.toolName} ${e.text}`);
+      if (e.result) lines.push(`> ⎿ ${e.result}`);
+      lines.push('');
     } else {
       lines.push(`## ${e.role === 'user' ? '🧑 用户' : '🤖 Assistant'}`, '', e.text, '');
     }
