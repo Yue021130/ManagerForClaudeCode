@@ -1060,7 +1060,9 @@ function BlockWindow({
               ln.kind === 'chip' ? (
                 <Text key={i} backgroundColor="#21262D" color="#E3B341">{` 📋 ${ln.preview}… `}</Text>
               ) : ln.kind === 'tool' ? (
-                <Text key={i} dimColor color={ln.error ? '#FF7B72' : '#8B949E'}>{`  ${ln.text}`}</Text>
+                /* 工具行不用 dimColor：暗灰在深色背景上几乎看不见。
+                   调用黄、结果灰、错误红，按块区分（entry.toolName），续行随块色 */
+                <Text key={i} color={ln.error ? '#FF7B72' : b.entry.toolName === 'result' ? '#8B949E' : '#E3B341'}>{`  ${ln.text}`}</Text>
               ) : (
                 <Text key={i} color={isUser ? '#F0A6C9' : '#C9D1D9'}>{`  ${ln.text}`}</Text>
               )
