@@ -1410,22 +1410,25 @@ function SessionCards({
                   </Text>
                 </Box>
                 <Box width={timeW} flexShrink={0}>
-                  <Text color="#8B949E">{fmtDate(s.lastTime)}</Text>
+                  <Text color="#58A6FF">{fmtDate(s.lastTime)}</Text>
                 </Box>
               </Box>
-              {/* 行2：N问·N答·大小（flexGrow 吃掉中段，内容左对齐）+ 时间范围（窄卡优先收缩截断） */}
+              {/* 行2：彩色统计（绿问/黄答/橙大小，照原右栏统计行分工）+ 右侧紫时间范围 */}
               <Box flexDirection="row">
                 <Box width={2} flexShrink={0}>
                   <Text>{' '}</Text>
                 </Box>
                 <Box flexGrow={1}>
                   <Text wrap="truncate">
-                    <Text color="#E6EDF3">{`${s.userCount} 问 · ${s.assistantCount} 答`}</Text>
-                    <Text color="#8B949E">{` · ${fmtSize(s.sizeBytes)}`}</Text>
+                    <Text color="#3FB950">{`${s.userCount} 问`}</Text>
+                    <Text color="#8B949E">{' · '}</Text>
+                    <Text color="#E3B341">{`${s.assistantCount} 答`}</Text>
+                    <Text color="#8B949E">{' · '}</Text>
+                    <Text color="#F0883E">{fmtSize(s.sizeBytes)}</Text>
                   </Text>
                 </Box>
                 <Box flexShrink={1}>
-                  <Text color="#8B949E" wrap="truncate">{fmtRange(s.firstTime, s.lastTime)}</Text>
+                  <Text color="#F85149" wrap="truncate">{fmtRange(s.firstTime, s.lastTime)}</Text>
                 </Box>
               </Box>
             </Box>
