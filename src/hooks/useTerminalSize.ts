@@ -5,6 +5,13 @@ import { useStdout } from 'ink';
 //   AI怎么老是写这种过度考虑优化 的 防御性代码 的代码 Yue0211302026年10月30日19点21分
 const FALLBACK = { width: 120, height: 30 };
 
+// 安全边距：有效宽度 = 物理宽度 - 1。
+// 原因：截断行（meta 行/cwd 行 wrap="truncate"）末尾的「…」等字符顶在终端最右格时，
+// 中文环境的 ConPTY 会把它渲染成 2 格 → 物理溢出硬换行 → ink 光标计数漂移 →
+// 之后每帧错位重画（meta 行被反复重画、时间碎片飞散、徽章背景错位）。
+// 留 1 列后任何行都够不到物理右缘，这类「边界宽字符」一次性兜住。
+const SAFE_MARGIN = 1;
+
 export interface TerminalSize {
   width: number;
   height: number;
@@ -23,7 +30,7 @@ export function useTerminalSize(): TerminalSize {
 
   // 参数是函数形式 () => ...（惰性初始化）：只在首次渲染时执行一次，避免每次渲染都重算
   const [size, setSize] = useState<TerminalSize>(() => ({
-    width: stdout?.columns || FALLBACK.width,
+    width: (stdout?.columns || FALLBACK.width) - SAFE_MARGIN,
     height: stdout?.rows || FALLBACK.height
   }));
 
@@ -39,7 +46,7 @@ export function useTerminalSize(): TerminalSize {
 
     const onResize = () => {
       setSize({
-        width: stdout.columns || FALLBACK.width,
+        width: (stdout.columns || FALLBACK.width) - SAFE_MARGIN,
         height: stdout.rows || FALLBACK.height
       });
     };
