@@ -1021,14 +1021,21 @@ function BlockWindow({
           {active ? '❯ ' : '  '}
         </Text>
         <Box flexGrow={1} flexDirection="column" backgroundColor={active ? '#1F2937' : undefined}>
-          {/* 块头一行：左 头像+名字+模型；右 对话时间右对齐（挤压力给左边，时间永远完整） */}
+          {/* 块头一行：左 头像+名字+模型；右 对话时间右对齐。
+              时间放固定 11 格、禁止收缩的盒子：窄面板时挤压力全给左侧截断，
+              否则时间 Text 会被压窄折成两行碎片（"10-29 "/"09:14" 分家）。
+              面板实在太窄（<20）时宁可不显示时间，也不让它折行 */}
           <Box flexDirection="row">
             <Text bold color={isUser ? '#79C0FF' : '#3FB950'} wrap="truncate">
               <Text backgroundColor={isUser ? '#1F6FEB' : '#238636'}>{` ${isUser ? '😏' : '👾'} `}</Text>
               {` ${b.label}`}
             </Text>
             <Box flexGrow={1} />
-            {b.time && <Text color={isUser ? '#79C0FF' : '#3FB950'}>{b.time}</Text>}
+            {b.time && contentW >= 20 && (
+              <Box width={11} flexShrink={0}>
+                <Text color={isUser ? '#79C0FF' : '#3FB950'}>{b.time}</Text>
+              </Box>
+            )}
           </Box>
           <Text>
             {body.flatMap((ln, i) => [
