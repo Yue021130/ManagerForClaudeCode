@@ -793,31 +793,60 @@ const stripAnsi = (s: string): string => s.replace(ANSI_RE, '');
 
 const charWidth = (code: number): number => (code > 0xFF ? 2 : 1);
 
-/** 按显示宽度硬折行（不拆词，终端就是这么换行的） */
+/** 按显示宽度折行：优先在空格处断（英文单词不劈开），无断点（长单词/纯中文）才硬拆。
+ *  空白与缩进原样保留（Read 结果的代码缩进不能丢），行尾空白丢弃 */
 function wrapText(text: string, maxWidth: number): string[] {
+  const widthOf = (s: string): number => {
+    let n = 0;
+    for (const c of s) n += c === '\t' ? 1 : charWidth(c.codePointAt(0) ?? 0);
+    return n;
+  };
+  const lastBreak = (s: string): number => {
+    // 最后一个空格/tab 展开位之后的下标；无则 -1
+    for (let i = s.length - 1; i >= 0; i--) {
+      if (s[i] === ' ') return i + 1;
+    }
+    return -1;
+  };
   const out: string[] = [];
   let cur = '';
   let w = 0;
+  let brk = -1; // 最后一个可断点之后的字符下标
   for (const ch of text) {
-    // tab 必须就地展开成空格：终端把它跳到 8 的倍数列（最多 +7 格），
+    // tab 就地展开成空格：终端把它跳到 8 的倍数列（最多 +7 格），
     // 而 ink/string-width 按 0~1 算——直接输出 tab 会让实际行宽超出预算物理折行
     if (ch === '\t') {
       const pad = 8 - (w % 8);
       cur += ' '.repeat(pad);
       w += pad;
+      // 不设为断点：行号+内容是一个整体，断在这儿会把行号孤立成行
       continue;
     }
     const cw = charWidth(ch.codePointAt(0) ?? 0);
     if (w + cw > maxWidth) {
-      out.push(cur);
-      cur = '';
-      w = 0;
+      const rest = brk > 0 ? cur.slice(brk) : '';
+      // 断在空格后，需同时满足：断点前至少有 4 个非空白字符（不把行号/缩进孤立成行），且
+      // 余段自身还有断点、或余段+当前字符能在新行单行放下——
+      // 余段是无空格且放不下的超长块（纯中文/长单词）时宁可现在硬拆
+      const preSolid = cur.slice(0, brk).replace(/ /g, '').length >= 4;
+      if (brk > 0 && preSolid && (lastBreak(rest) !== -1 || widthOf(rest) + cw <= maxWidth)) {
+        out.push(cur.slice(0, brk).replace(/\s+$/, ''));
+        cur = rest;
+        w = widthOf(cur);
+        brk = lastBreak(cur);
+      } else {
+        out.push(cur.replace(/\s+$/, ''));
+        cur = '';
+        w = 0;
+        brk = -1;
+      }
     }
     cur += ch;
     w += cw;
+    if (ch === ' ') brk = cur.length;
   }
-  out.push(cur);
-  return out;
+  if (cur) out.push(cur.replace(/\s+$/, ''));
+  return out.length ? out : [''];
 }
 
 /** 工具行折行：剥 ANSI、按 \n 分段、逐段硬折（wrapText 不认换行符），空段跳过 */
