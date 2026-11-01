@@ -523,8 +523,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
     return (
       <Box flexGrow={1} flexDirection="column" overflow="hidden">
         <Box height={1} flexDirection="row" paddingX={1}>
-          <Text bold color={isUser ? '#79C0FF' : '#3FB950'} wrap="truncate">
-            <Text backgroundColor={isUser ? '#1F6FEB' : '#238636'}>{` ${isUser ? '😏' : '👾'} `}</Text>
+          <Text bold color={isUser ? '#79C0FF' : '#A371F7'} wrap="truncate">
+            <Text backgroundColor={isUser ? '#1F6FEB' : '#451256'}>{` ${isUser ? '😏' : '👾'} `}</Text>
             {` ${detail.label}${detail.time ? ` · ${detail.time}` : ''} · 完整内容`}
           </Text>
           <Box flexGrow={1} />
@@ -1181,14 +1181,14 @@ function BlockWindow({
               否则时间 Text 会被压窄折成两行碎片（"10-29 "/"09:14" 分家）。
               面板实在太窄（<20）时宁可不显示时间，也不让它折行 */}
           <Box flexDirection="row">
-            <Text bold color={isUser ? '#79C0FF' : '#3FB950'} wrap="truncate">
-              <Text backgroundColor={isUser ? '#1F6FEB' : '#238636'}>{` ${isUser ? '😏' : '👾'} `}</Text>
+            <Text bold color={isUser ? '#79C0FF' : '#A371F7'} wrap="truncate">
+              <Text backgroundColor={isUser ? '#1F6FEB' : '#451256'}>{` ${isUser ? '😏' : '👾'} `}</Text>
               {` ${b.label}`}
             </Text>
             <Box flexGrow={1} />
             {b.time && contentW >= 20 && (
               <Box width={11} flexShrink={0}>
-                <Text color={isUser ? '#79C0FF' : '#3FB950'}>{b.time}</Text>
+                <Text color={isUser ? '#79C0FF' : '#A371F7'}>{b.time}</Text>
               </Box>
             )}
           </Box>
