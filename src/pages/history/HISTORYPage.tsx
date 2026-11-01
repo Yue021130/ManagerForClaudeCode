@@ -913,55 +913,70 @@ function BlockWindow({
   const cap = (b: Block) => Math.min(b.lines.length, MAX_BLOCK_LINES);
   const minH = (b: Block) => cap(b) + 2; // 标签1 + 正文 + 块间空行1
 
-  // 每块初始只露前 MAX_BLOCK_LINES 行
-  const show = blocks.map(cap);
+  // 纯函数：给定正文预算，计算窗口（每块初始只露前 MAX_BLOCK_LINES 行）
+  const computeWindow = (budget: number) => {
+    const show = blocks.map(cap);
+    let start = sel;
+    let end = sel;
+    let peekTop = 0;
+    let peekBottom = 0;
 
-  let start = sel;
-  let end = sel;
-  let peekTop = 0;
-  let peekBottom = 0;
+    if (minH(blocks[sel]) >= budget) {
+      // 极端小视口：只保证选中块可见
+      show[sel] = Math.max(1, budget - 2);
+    } else {
+      // 整块窗口：从选中块向上累加，再向下补齐
+      let used = minH(blocks[sel]);
+      while (start > 0 && used + minH(blocks[start - 1]) <= budget) {
+        start--;
+        used += minH(blocks[start]);
+      }
+      while (end < blocks.length - 1 && used + minH(blocks[end + 1]) <= budget) {
+        end++;
+        used += minH(blocks[end]);
+      }
 
-  if (minH(blocks[sel]) >= avail) {
-    // 极端小视口：只保证选中块可见
-    show[sel] = Math.max(1, avail - 2);
-  } else {
-    // 整块窗口：从选中块向上累加，再向下补齐
-    let used = minH(blocks[sel]);
-    while (start > 0 && used + minH(blocks[start - 1]) <= avail) {
-      start--;
-      used += minH(blocks[start]);
-    }
-    while (end < blocks.length - 1 && used + minH(blocks[end + 1]) <= avail) {
-      end++;
-      used += minH(blocks[end]);
-    }
+      // 弹性扩展：剩余行先给选中块，再给窗口内其他被截断的块
+      let leftover = budget - used;
+      const expand = (i: number) => {
+        const grow = Math.min(blocks[i].lines.length - show[i], leftover);
+        show[i] += grow;
+        leftover -= grow;
+      };
+      expand(sel);
+      for (let i = start; i <= end && leftover > 0; i++) {
+        if (i !== sel) expand(i);
+      }
 
-    // 弹性扩展：剩余行先给选中块，再给窗口内其他被截断的块
-    let leftover = avail - used;
-    const expand = (i: number) => {
-      const grow = Math.min(blocks[i].lines.length - show[i], leftover);
-      show[i] += grow;
-      leftover -= grow;
-    };
-    expand(sel);
-    for (let i = start; i <= end && leftover > 0; i++) {
-      if (i !== sel) expand(i);
-    }
+      // 仍有余量：底部预窥下一块头部（标签 + 前若干行，成本 = 行数 + 标签1 + 空行1）
+      if (leftover >= 3 && end < blocks.length - 1) {
+        const n = Math.min(blocks[end + 1].lines.length, leftover - 2);
+        if (n > 0) {
+          peekBottom = n;
+          leftover -= n + 2;
+        }
+      }
 
-    // 仍有余量：底部预窥下一块头部（标签 + 前若干行，成本 = 行数 + 标签1 + 空行1）
-    if (leftover >= 3 && end < blocks.length - 1) {
-      const n = Math.min(blocks[end + 1].lines.length, leftover - 2);
-      if (n > 0) {
-        peekBottom = n;
-        leftover -= n + 2;
+      // 仍有余量：顶部预窥上一块尾部（纯行无标签，成本 = 行数 + 空行1）
+      if (leftover >= 2 && start > 0) {
+        peekTop = Math.min(blocks[start - 1].lines.length, leftover - 1);
       }
     }
+    return { show, start, end, peekTop, peekBottom };
+  };
 
-    // 仍有余量：顶部预窥上一块尾部（纯行无标签，成本 = 行数 + 空行1）
-    if (leftover >= 2 && start > 0) {
-      peekTop = Math.min(blocks[start - 1].lines.length, leftover - 1);
-    }
+  // ↑/↓ 指示行在窗口预算之外渲染：若不预留，窗口列会超出固定高度的内容区，
+  // yoga 溢出后子节点全部叠在 top=0（块头被正文覆盖、时间被吃掉）。
+  // 先试满预算，实际会渲染几条指示行就扣掉几条重算（最多 2 条，收敛有保证）。
+  let win = computeWindow(avail);
+  for (let reserve = 0; reserve <= 2; reserve++) {
+    win = computeWindow(Math.max(1, avail - reserve));
+    const first = win.peekTop > 0 ? win.start - 1 : win.start;
+    const last = win.peekBottom > 0 ? win.end + 1 : win.end;
+    const indicators = (first > 0 ? 1 : 0) + (last < blocks.length - 1 ? 1 : 0);
+    if (indicators <= reserve) break;
   }
+  const { show, start, end, peekTop, peekBottom } = win;
 
   const firstRendered = peekTop > 0 ? start - 1 : start;
   const lastRendered = peekBottom > 0 ? end + 1 : end;
