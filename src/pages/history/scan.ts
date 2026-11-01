@@ -63,13 +63,15 @@ function isRealUserText(o: RawLine): o is RawLine & { message: { content: string
   );
 }
 
-/** 工具调用单行摘要：优先命令/脚本，其次文件路径/描述等 */
+/** 工具调用单行摘要：优先命令/脚本，其次文件路径/描述等。
+ *  上限放宽到 1000 字：长脚本（多语句 PowerShell 等）预览/详情都要能看全，
+ *  预览窗口每块最多露 MAX_BLOCK_LINES 行，不会撑爆布局 */
 function toolBrief(name: string | undefined, input: unknown): string {
   const inp = (input ?? {}) as Record<string, unknown>;
   for (const k of ['command', 'script', 'file_path', 'description', 'prompt', 'pattern', 'url']) {
     const v = inp[k];
     if (typeof v === 'string' && v.trim()) {
-      return v.replace(/\s+/g, ' ').trim().slice(0, 120);
+      return v.replace(/\s+/g, ' ').trim().slice(0, 1000);
     }
   }
   return '(无参数)';
