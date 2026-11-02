@@ -94,11 +94,9 @@ const fitPath = (p: string, maxW: number): string => {
   return '…' + tail;
 };
 
-// 模型名展示：去掉供应商前缀，超长截断（ccr 的哈希名能到 40+ 字符）
-const shortModel = (m: string): string => {
-  const tail = m.slice(m.lastIndexOf('/') + 1);
-  return tail.length > 16 ? `${tail.slice(0, 15)}…` : tail;
-};
+// 模型名展示：只去供应商前缀（openai/gpt-x → gpt-x）。不做长度截断——
+// 头部行本身有 wrap="truncate" 兜底，硬砍 16 字符会把 deepseek-flash[...] 这类名字拦腰切断
+const shortModel = (m: string): string => m.slice(m.lastIndexOf('/') + 1);
 
 // 「运行中」判定窗口：N 分钟内有写入视为正在使用（Claude Code 日志句柄不常驻，只能看 mtime）
 const RUNNING_MIN = 3;
