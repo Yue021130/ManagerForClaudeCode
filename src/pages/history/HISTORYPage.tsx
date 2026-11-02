@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useApp } from 'ink';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,6 +17,7 @@ import {
   exportMarkdown,
   renameSessionTitle
 } from './scan.js';
+import { requestResume, spawnResumeNewWindow } from './resume.js';
 import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
 
 /**
@@ -44,7 +45,8 @@ export const meta: PageMeta = {
     ['d', '删除'],
     ['x', '归档'],
     ['e', '导出'],
-    ['r', '重命名']
+    ['r', '重命名'],
+    ['ss', '恢复']
   ]
 };
 
@@ -69,11 +71,34 @@ const shortPath = (p: string): string => {
   return p.toLowerCase().startsWith(home.toLowerCase()) ? '~' + p.slice(home.length) : p;
 };
 
-// 模型名展示：去掉供应商前缀，超长截断（ccr 的哈希名能到 40+ 字符）
-const shortModel = (m: string): string => {
-  const tail = m.slice(m.lastIndexOf('/') + 1);
-  return tail.length > 16 ? `${tail.slice(0, 15)}…` : tail;
+// 显示宽度（CJK/全角 2 列，其余 1 列；… 是歧义宽字符，string-width 与终端都按 1 列）
+const strW = (s: string): number => {
+  let n = 0;
+  for (const c of s) n += c === '…' ? 1 : (c.codePointAt(0) ?? 0) > 0xff ? 2 : 1;
+  return n;
 };
+
+// 路径放不下时中段省略：~\Desktop\…\ManagerForClaudeCode —— 优先保住尾部项目名，
+// 比 wrap="truncate" 直接砍尾巴有用（砍尾巴恰恰把最重要的项目名砍没了）
+const fitPath = (p: string, maxW: number): string => {
+  if (strW(p) <= maxW) return p;
+  const segs = p.split(/[\\/]+/);
+  if (segs.length >= 2) {
+    const last = segs[segs.length - 1];
+    for (let keep = segs.length - 2; keep >= 1; keep--) {
+      const cand = `${segs.slice(0, keep).join('\\')}\\…\\${last}`;
+      if (strW(cand) <= maxW) return cand;
+    }
+    if (strW(`…\\${last}`) <= maxW) return `…\\${last}`;
+  }
+  let tail = p;
+  while (tail && strW('…' + tail) > maxW) tail = tail.slice(1);
+  return '…' + tail;
+};
+
+// 模型名展示：只去供应商前缀（openai/gpt-x → gpt-x）。不做长度截断——
+// 头部行本身有 wrap="truncate" 兜底，硬砍 16 字符会把 deepseek-flash[...] 这类名字拦腰切断
+const shortModel = (m: string): string => m.slice(m.lastIndexOf('/') + 1);
 
 // 「运行中」判定窗口：N 分钟内有写入视为正在使用（Claude Code 日志句柄不常驻，只能看 mtime）
 const RUNNING_MIN = 3;
@@ -119,6 +144,11 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const [renaming, setRenaming] = useState<SessionMeta | null>(null);
   const [renameInput, setRenameInput] = useState('');
   const [renameError, setRenameError] = useState(false); // 标题为空，内联红字提示
+
+  // ── 恢复会话弹窗（ss 双击触发；运行中锁定同删除/重命名标准）──
+  const [resuming, setResuming] = useState<SessionMeta | null>(null);
+  const [resumeChoice, setResumeChoice] = useState<0 | 1>(0); // 0=当前终端 1=新窗口
+  const { exit } = useApp();
 
   // 首次扫描：让出首帧再扫（scan 同步阻塞 <100ms）
   useEffect(() => {
@@ -187,6 +217,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
   previewWRef.current = previewW;
   // gg 双击检测：上次按 g 的时间戳（预览/详情共用，500ms 窗口）
   const lastGRef = useRef(0);
+  // ss 双击检测：恢复选中会话（500ms 窗口）
+  const lastSRef = useRef(0);
   const expandedRef = useRef(expandedPastes);
   expandedRef.current = expandedPastes;
   const blocksLenRef = useRef(blocks.length);
@@ -408,6 +440,36 @@ export default function HISTORYPage({ width, height }: PageProps) {
   useInput((input, key) => {
     if (!projects) return;
 
+    // 恢复会话弹窗：↑↓/1/2 选择，enter 确认，esc 取消；其余键吃掉
+    if (resuming) {
+      if (key.escape) {
+        setResuming(null);
+        setKeysEnabled(true);
+        return;
+      }
+      if (key.upArrow || key.downArrow) return setResumeChoice(c => (c === 0 ? 1 : 0));
+      if (input === '1') return setResumeChoice(0);
+      if (input === '2') return setResumeChoice(1);
+      if (key.return) {
+        const target = resuming;
+        if (resumeChoice === 1) {
+          // 新窗口：拉起即走，管理器不退出
+          spawnResumeNewWindow(target)
+            .then(() => setMessage(`已在新窗口恢复「${target.title.slice(0, 16)}」`))
+            .catch((e) => setError(`恢复失败: ${String(e)}`));
+          setResuming(null);
+          setKeysEnabled(true);
+          return;
+        }
+        // 当前终端：登记请求 → 退出 App，cli.tsx 接力拉起 claude（claude 退出后自动重挂 App）
+        setResuming(null);
+        requestResume(target);
+        setTimeout(() => exit(), 0); // 同 Esc 的延迟一拍：避免在 input 派发栈内同步卸载
+        return;
+      }
+      return;
+    }
+
     // 删除确认弹窗：输入 YUE + enter 才执行；esc 取消；其余键吃掉
     if (confirming) {
       if (key.escape) {
@@ -574,6 +636,28 @@ export default function HISTORYPage({ width, height }: PageProps) {
     }
     if (input === 'x') return removeOrArchive('archive');
     if (input === 'e') return doExport();
+    // ss 双击恢复会话（500ms 窗口，同 gg 手感）；运行中/无路径直接拦截不开弹窗
+    if (input === 's') {
+      const now = Date.now();
+      if (now - lastSRef.current >= 500) {
+        lastSRef.current = now;
+        return;
+      }
+      lastSRef.current = 0;
+      if (!currentSession) return;
+      if (isFreshPath(currentSession.filePath)) {
+        setError('最近三分钟有会话写入，不可恢复');
+        return;
+      }
+      if (!currentSession.cwd) {
+        setError('该会话没有记录项目路径，无法恢复');
+        return;
+      }
+      setResuming(currentSession);
+      setResumeChoice(0);
+      setKeysEnabled(false); // 弹窗接管键盘：数字键不切页、Esc 不退出
+      return;
+    }
     if (input === 'r') {
       if (!currentSession) return;
       setRenaming(currentSession);
@@ -673,56 +757,38 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
       <VerticalDivider />
 
-      {/* ── 中：会话列表（+ 搜索框） ── */}
-      <Box width={sessW} flexDirection="column">
+      {/* ── 中：会话卡片（+ 搜索框） ── */}
+      <Box width={sessW} flexDirection="column" paddingX={1}>
         {searching && (
-          <Box paddingX={1}>
+          <Box>
             <Text color="#E3B341">/{query}</Text>
             <Text color="#E3B341">▌</Text>
           </Box>
         )}
-        <ScrollableList<SessionMeta>
-          title={inSearch ? `搜索 “${query.trim()}”` : 'SESSIONS'}
-          items={sessions}
-          // 自动预览后当前会话永远带标记：焦点在 = 蓝底高亮；焦点不在 = 深底蓝标（正在预览）
+        {/* 标题行：`SESSIONS · N`（不用灰底徽章，丑；计数只在这里出现一次） */}
+        <Box>
+          <Text bold color="#E6EDF3">{inSearch ? `搜索 “${query.trim()}”` : 'SESSIONS'}</Text>
+          <Text color="#8B949E">{` · ${sessions.length}`}</Text>
+        </Box>
+        {/* 引导行：完整项目路径（无框；搜索模式下不显示）。计数已与标题合并，此处不重复。
+            路径独占一整行，~ 开头后 44 列内基本都能全显；极端长路径才中段省略兜底 */}
+        {!inSearch && project && (
+          <Box>
+            <Text color="#A9B4C0" wrap="truncate">
+              {fitPath(project.cwd ? shortPath(project.cwd) : project.dirName, sessW - 2)}
+            </Text>
+          </Box>
+        )}
+        <SessionCards
+          sessions={sessions}
           selectedIndex={sIdx}
-          activeColor={focus === 'session' ? '#79C0FF' : '#21262D'}
-          activeTextColor={focus === 'session' ? '#0D1117' : '#79C0FF'}
-          terminalHeight={height - (searching ? 1 : 0)}
-          width={sessW}
-          headerOffset={5}
-          renderItem={(s, _i, active) => {
-            const hot = active && focus === 'session'; // 蓝底时用深字；深底联动标记保持亮字
-            return (
-              <>
-                {inSearch && (
-                  <Text color={hot ? '#0D1117' : '#8B949E'} wrap="truncate">
-                    {`${s.cwd ? path.basename(s.cwd) : '?'} · `}
-                  </Text>
-                )}
-                {/* 固定 12 格且不许收缩：日期列永远完整对齐，挤压力全给标题 */}
-                <Box width={12} flexShrink={0}>
-                  <Text color={hot ? '#0D1117' : '#A9B4C0'} wrap="truncate">{`${fmtDate(s.lastTime)} `}</Text>
-                </Box>
-                {/* 运行中状态：绿●占 2 格，非运行行用空格占位保持标题对齐 */}
-                <Box width={2} flexShrink={0}>
-                  {isRunning(s) ? (
-                    <Text color={hot ? '#0D1117' : '#3FB950'}>● </Text>
-                  ) : (
-                    <Text>{'  '}</Text>
-                  )}
-                </Box>
-                <Box flexGrow={1}>
-                  <Text bold={active} color={hot ? '#0D1117' : '#E6EDF3'} wrap="truncate">
-                    {s.title}
-                  </Text>
-                </Box>
-              </>
-            );
-          }}
+          inSearch={inSearch}
+          avail={height - (searching ? 1 : 0) - 1 - (inSearch ? 0 : 1)}
+          width={sessW - 2}
+          isRunning={isRunning}
         />
         {!sessions.length && (
-          <Box paddingX={1}>
+          <Box>
             <Text color="#8B949E">{inSearch ? '没有匹配的会话' : '无会话'}</Text>
           </Box>
         )}
@@ -737,44 +803,17 @@ export default function HISTORYPage({ width, height }: PageProps) {
         title=""
         emptyMessage="enter 预览会话"
       >
-        {preview && (
-          <Box>
-            {/* 套一层 truncate 的父 Text：窄面板时整行干净截断，
-                否则各彩色子 Text 按 flexShrink 比例收缩，各自丢字变成乱码 */}
-            <Text wrap="truncate">
-              <Text color="#3FB950">{`${preview.session.userCount}问 `}</Text>
-              <Text color="#E3B341">{`${preview.session.assistantCount}答`}</Text>
-              <Text color="#8B949E">{' · '}</Text>
-              <Text color="#F0883E">{fmtSize(preview.session.sizeBytes)}</Text>
-              <Text color="#8B949E">{' · '}</Text>
-              {/* 时间段：紫 */}
-              <Text color="#D2A8FF">{`${fmtDate(preview.session.firstTime)} ~ ${fmtDate(preview.session.lastTime)}`}</Text>
-              {isRunning(preview.session) && (
-                <>
-                  <Text color="#8B949E">{' · '}</Text>
-                  <Text color="#3FB950">● 运行中</Text>
-                </>
-              )}
-            </Text>
-          </Box>
-        )}
-        {preview?.session.cwd && (
-          <Box>
-            <Text color="#22D3EE" wrap="truncate">
-              {`📁 ${shortPath(preview.session.cwd)}`}
-            </Text>
-          </Box>
-        )}
+        {/* 顶部不再放统计/路径行：消息直接从面板顶部开始（统计挪到中栏会话卡片） */}
         {preview && blocks.length > 0 && (
           <BlockWindow
             blocks={blocks}
             selected={focus === 'preview' ? vIdx : -1}
-            avail={Math.max(4, height - (preview.session.cwd ? 2 : 1))}
+            avail={Math.max(4, height)}
             width={previewW}
           />
         )}
         {preview && blocks.length === 0 && (
-          <Text color="#8B949E">此会话没有可展示的对话（可能是纯命令会话）</Text>
+          <Text color="#8B949E" wrap="truncate">此会话没有可展示的对话（可能是纯命令会话）</Text>
         )}
       </DetailPanel>
 
@@ -885,6 +924,39 @@ export default function HISTORYPage({ width, height }: PageProps) {
             ) : (
               <Text color="#8B949E">enter 确认 · esc 取消</Text>
             )}
+          </Box>
+        </Box>
+      )}
+      {resuming && (
+        <Box
+          position="absolute"
+          marginTop={Math.max(0, Math.floor((height - 10) / 2))}
+          width={width}
+          flexDirection="column"
+          borderStyle="single"
+          borderLeft={false}
+          borderRight={false}
+          borderColor="#3FB950"
+          backgroundColor="#0D1117"
+          paddingY={1}
+        >
+          <Box justifyContent="center" marginBottom={1}>
+            <Text bold color="#3FB950">恢复会话</Text>
+          </Box>
+          <Box justifyContent="center" marginBottom={1}>
+            <Text color="#E6EDF3" wrap="truncate">
+              {resuming.title.length > 24 ? `${resuming.title.slice(0, 24)}...` : resuming.title}
+            </Text>
+          </Box>
+          {(['在当前终端恢复（退出管理器，claude 退出后自动返回）', '新开终端窗口恢复'] as const).map((label, i) => (
+            <Box key={i} justifyContent="center">
+              <Text bold={resumeChoice === i} color={resumeChoice === i ? '#E3B341' : '#A9B4C0'}>
+                {`${resumeChoice === i ? '❯ ' : '  '}${i + 1}. ${label}`}
+              </Text>
+            </Box>
+          ))}
+          <Box justifyContent="center" marginTop={1}>
+            <Text color="#8B949E">↑↓ 选择 · enter 确认 · esc 取消</Text>
           </Box>
         </Box>
       )}
@@ -1371,6 +1443,128 @@ function BlockWindow({
       {lastRendered < blocks.length - 1 && (
         <Text color="#8B949E">{`↓ ${blocks.length - 1 - lastRendered}`}</Text>
       )}
+    </Box>
+  );
+}
+
+/**
+ * SessionCards — 中栏会话卡片列（固定行高 4：上框/内容2行/下框，卡间无空行——
+ * 完整卡片感与信息密度的折中：一屏约 6-7 张）
+ *
+ * 不复用 ScrollableList（它假设一项一行）；窗口切换逻辑内联在下方 windowFor，
+ * 指示行（↑ N / ↓ N）占用通过 reserve 循环从预算里预扣，保证总高永不超父盒。
+ *
+ * 卡片：round 边框，选中 = 边框紫 #A371F7 + 浅灰底 #2A2A3E + 左 🎃 标记（2 列）；
+ * 未选中 = 暗灰框无底、竖条位置空格占位。
+ * 行1：运行中绿● + 标题（(空会话) 灰，搜索模式前缀 [项目名]）；
+ * 行2：彩色统计（问绿/答黄/大小橙）+ 右侧红色最后活跃时间（只显示一个时间）。
+ */
+const CARD_H = 4;
+
+function SessionCards({
+  sessions,
+  selectedIndex,
+  inSearch,
+  avail,
+  width,
+  isRunning
+}: {
+  sessions: SessionMeta[];
+  selectedIndex: number;
+  inSearch: boolean;
+  avail: number;
+  width: number;
+  isRunning: (s: SessionMeta) => boolean;
+}) {
+  // 指示行（↑ N / ↓ N）自身也占行高：先按满预算切窗口，实际要画几条指示就从
+  // 预算里扣几行重切（最多 2 条，收敛有保证——同 BlockWindow 的 reserve 循环）。
+  // 不预留会让内容总高超过父盒 1~2 行：yoga 默认 flexShrink=1 会把超出量按比例
+  // 摊给所有卡片（每张卡 4 行被压成 3.x 行再各自取整）→ 边框行与内容行重叠，
+  // 下边框横线插进统计行（正是"时间压框线/卡片塌陷"乱版的根因）。
+  const windowFor = (rows: number) => {
+    const listVisible = Math.max(1, rows);
+    const maxScroll = Math.max(0, sessions.length - listVisible);
+    const scrollOffset = Math.max(0, Math.min(selectedIndex - Math.floor(listVisible / 2), maxScroll));
+    return {
+      scrollOffset,
+      visibleList: sessions.slice(scrollOffset, scrollOffset + listVisible),
+      hasMoreAbove: scrollOffset > 0,
+      hasMoreBelow: scrollOffset + listVisible < sessions.length,
+      aboveCount: scrollOffset,
+      belowCount: sessions.length - scrollOffset - listVisible
+    };
+  };
+  let win = windowFor(Math.floor(avail / CARD_H));
+  for (let reserve = 0; reserve <= 2; reserve++) {
+    win = windowFor(Math.floor((avail - reserve) / CARD_H));
+    const indicators = (win.hasMoreAbove ? 1 : 0) + (win.hasMoreBelow ? 1 : 0);
+    if (indicators <= reserve) break;
+  }
+  const { visibleList, hasMoreAbove, hasMoreBelow, aboveCount, belowCount, scrollOffset } = win;
+
+  const innerW = Math.max(10, width);        // 卡片盒宽（= 栏内容宽）
+  const textW = Math.max(8, innerW - 4);     // 卡内行区 = 内宽 - 左右边框2 - ▌▌竖条2
+
+  return (
+    <Box flexDirection="column" width={width}>
+      {hasMoreAbove && <Text color="#8B949E">{`↑ ${aboveCount}`}</Text>}
+      {visibleList.map((s, i) => {
+        const realIdx = scrollOffset + i;
+        const active = realIdx === selectedIndex;
+        const empty = s.title === '(空会话)' || s.title === '(空消息)';
+        return (
+          <Box
+            key={realIdx}
+            width={innerW}
+            flexShrink={0}
+            borderStyle="round"
+            borderColor={active ? '#A371F7' : '#3A3D42'}
+            backgroundColor={active ? '#2A2A3E' : undefined}
+          >
+            {/* 左竖条 2 列：选中 = 🎃（emoji 宽 2 列，与未选中的双空格等宽），未选中 = 空格占位。*/}
+            <Box width={2} flexShrink={0}>
+              {active ? <Text>🎃</Text> : <Text>{'  '}</Text>}
+            </Box>
+            <Box flexDirection="column" width={textW}>
+              {/* 行1：运行● + 标题（时间只保留行2一个，避免同日重复/跨天截断的双时间乱象） */}
+              <Box flexDirection="row">
+                <Box width={2} flexShrink={0}>
+                  {isRunning(s) ? <Text color="#3FB950">●</Text> : <Text>{'  '}</Text>}
+                </Box>
+                <Box flexGrow={1}>
+                  <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
+                    {inSearch ? `[${s.cwd ? path.basename(s.cwd) : '?'}] ` : ''}
+                    {s.title}
+                  </Text>
+                </Box>
+              </Box>
+              {/* 行2：彩色统计（绿问/黄答/橙大小，照原右栏统计行分工）+ 右侧紫时间范围 */}
+              <Box flexDirection="row">
+                <Box width={2} flexShrink={0}>
+                  <Text>{'  '}</Text>
+                </Box>
+                <Box flexGrow={1}>
+                  <Text wrap="truncate">
+                    <Text color="#3FB950">{`${s.userCount} 问`}</Text>
+                    <Text color="#8B949E">{' · '}</Text>
+                    <Text color="#E3B341">{`${s.assistantCount} 答`}</Text>
+                    <Text color="#8B949E">{' · '}</Text>
+                    <Text color="#F0883E">{fmtSize(s.sizeBytes)}</Text>
+                  </Text>
+                </Box>
+                <Box flexShrink={1}>
+                  <Text color="#F85149" wrap="truncate">{fmtDate(s.lastTime)}</Text>
+                </Box>
+                {/* 右端 1 列呼吸垫：时间不贴右边框，避免"压线"观感 */}
+                <Box width={1} flexShrink={0}>
+                  <Text>{' '}</Text>
+                </Box>
+              </Box>
+            </Box>
+          </Box>
+        );
+      })}
+      {hasMoreBelow && <Text color="#8B949E">{`↓ ${belowCount}`}</Text>}
     </Box>
   );
 }

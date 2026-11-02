@@ -30,6 +30,7 @@ import { render } from 'ink';
 import App from './App.js';
 import { playSplash } from './shell/splash.js';
 import { playGoodbye } from './shell/goodbye.js';
+import { takePendingResume, runResumeInPlace } from './pages/history/resume.js';
 
 
 
@@ -58,8 +59,22 @@ await playSplash();  // 启动页画面
 
 // render() 挂载 <App/> 到终端,接管 stdout/stdin
 // Ink 自动处理: 只重绘变化行(ANSI 光标控制)、stdin 原始模式捕获按键、
-const { waitUntilExit } = render(<App />);
-await waitUntilExit();
+//
+// 循环而非单程：「当前终端恢复会话」(HISTORY 页 ss 键)需要先卸载 Ink 再把
+// stdio 交给 claude；claude 退出后循环重挂 App（不重播 splash）。
+// node 进程全程活着等 claude，外壳 shell 不会抢回 stdin——这是不打架的关键。
+// 真正 Esc 退出（无 pending 恢复请求）时才走出循环播 goodbye。
+let resume;
+do {
+  const { waitUntilExit } = render(<App />);
+  await waitUntilExit();
+  resume = takePendingResume();
+  if (resume) {
+    process.stdout.write('\x1b[2J\x1b[3J\x1b[H'); // 清屏，把终端完整交给 claude
+    await runResumeInPlace(resume);
+    process.stdout.write('\x1b[2J\x1b[3J\x1b[H'); // claude 退出后清屏再重挂 App
+  }
+} while (resume);
 
 await playGoodbye({ durationMs: Date.now() - startTime }); // 结束页画面
 
