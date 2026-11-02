@@ -1336,7 +1336,7 @@ function BlockWindow({
  * 不复用 ScrollableList（它假设一项一行）；窗口切换逻辑内联在下方 windowFor，
  * 指示行（↑ N / ↓ N）占用通过 reserve 循环从预算里预扣，保证总高永不超父盒。
  *
- * 卡片：round 边框，选中 = 边框紫 #A371F7 + 浅灰底 #2A2A3E + 左紫底双空格竖条（2 列）；
+ * 卡片：round 边框，选中 = 边框紫 #A371F7 + 浅灰底 #2A2A3E + 左 🎃 标记（2 列）；
  * 未选中 = 暗灰框无底、竖条位置空格占位。
  * 行1：运行中绿● + 标题（(空会话) 灰，搜索模式前缀 [项目名]）；
  * 行2：彩色统计（问绿/答黄/大小橙）+ 右侧红色最后活跃时间（只显示一个时间）。
@@ -1403,11 +1403,9 @@ function SessionCards({
             borderColor={active ? '#A371F7' : '#3A3D42'}
             backgroundColor={active ? '#2A2A3E' : undefined}
           >
-            {/* 左竖条 2 列：选中 = 紫底双空格，未选中 = 空格占位。
-                不用 ▌ 半角块字符：部分终端/CJK 字体会把它按全角 2 列渲染，整行右移压破右边框。
-                ASCII 空格 + 背景色的宽度 100% 可靠。 */}
+            {/* 左竖条 2 列：选中 = 🎃（emoji 宽 2 列，与未选中的双空格等宽），未选中 = 空格占位。*/}
             <Box width={2} flexShrink={0}>
-              {active ? <Text backgroundColor="#A371F7">{'  '}</Text> : <Text>{'  '}</Text>}
+              {active ? <Text>🎃</Text> : <Text>{'  '}</Text>}
             </Box>
             <Box flexDirection="column" width={textW}>
               {/* 行1：运行● + 标题（时间只保留行2一个，避免同日重复/跨天截断的双时间乱象） */}
