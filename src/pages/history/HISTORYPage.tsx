@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useApp } from 'ink';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,6 +17,7 @@ import {
   exportMarkdown,
   renameSessionTitle
 } from './scan.js';
+import { requestResume, spawnResumeNewWindow } from './resume.js';
 import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
 
 /**
@@ -44,7 +45,8 @@ export const meta: PageMeta = {
     ['d', '删除'],
     ['x', '归档'],
     ['e', '导出'],
-    ['r', '重命名']
+    ['r', '重命名'],
+    ['ss', '恢复']
   ]
 };
 
@@ -143,6 +145,11 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const [renameInput, setRenameInput] = useState('');
   const [renameError, setRenameError] = useState(false); // 标题为空，内联红字提示
 
+  // ── 恢复会话弹窗（ss 双击触发；运行中锁定同删除/重命名标准）──
+  const [resuming, setResuming] = useState<SessionMeta | null>(null);
+  const [resumeChoice, setResumeChoice] = useState<0 | 1>(0); // 0=当前终端 1=新窗口
+  const { exit } = useApp();
+
   // 首次扫描：让出首帧再扫（scan 同步阻塞 <100ms）
   useEffect(() => {
     const t = setTimeout(() => {
@@ -210,6 +217,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
   previewWRef.current = previewW;
   // gg 双击检测：上次按 g 的时间戳（预览/详情共用，500ms 窗口）
   const lastGRef = useRef(0);
+  // ss 双击检测：恢复选中会话（500ms 窗口）
+  const lastSRef = useRef(0);
   const expandedRef = useRef(expandedPastes);
   expandedRef.current = expandedPastes;
   const blocksLenRef = useRef(blocks.length);
@@ -431,6 +440,36 @@ export default function HISTORYPage({ width, height }: PageProps) {
   useInput((input, key) => {
     if (!projects) return;
 
+    // 恢复会话弹窗：↑↓/1/2 选择，enter 确认，esc 取消；其余键吃掉
+    if (resuming) {
+      if (key.escape) {
+        setResuming(null);
+        setKeysEnabled(true);
+        return;
+      }
+      if (key.upArrow || key.downArrow) return setResumeChoice(c => (c === 0 ? 1 : 0));
+      if (input === '1') return setResumeChoice(0);
+      if (input === '2') return setResumeChoice(1);
+      if (key.return) {
+        const target = resuming;
+        if (resumeChoice === 1) {
+          // 新窗口：拉起即走，管理器不退出
+          spawnResumeNewWindow(target)
+            .then(() => setMessage(`已在新窗口恢复「${target.title.slice(0, 16)}」`))
+            .catch((e) => setError(`恢复失败: ${String(e)}`));
+          setResuming(null);
+          setKeysEnabled(true);
+          return;
+        }
+        // 当前终端：登记请求 → 退出 App，cli.tsx 接力拉起 claude（claude 退出后自动重挂 App）
+        setResuming(null);
+        requestResume(target);
+        setTimeout(() => exit(), 0); // 同 Esc 的延迟一拍：避免在 input 派发栈内同步卸载
+        return;
+      }
+      return;
+    }
+
     // 删除确认弹窗：输入 YUE + enter 才执行；esc 取消；其余键吃掉
     if (confirming) {
       if (key.escape) {
@@ -597,6 +636,28 @@ export default function HISTORYPage({ width, height }: PageProps) {
     }
     if (input === 'x') return removeOrArchive('archive');
     if (input === 'e') return doExport();
+    // ss 双击恢复会话（500ms 窗口，同 gg 手感）；运行中/无路径直接拦截不开弹窗
+    if (input === 's') {
+      const now = Date.now();
+      if (now - lastSRef.current >= 500) {
+        lastSRef.current = now;
+        return;
+      }
+      lastSRef.current = 0;
+      if (!currentSession) return;
+      if (isFreshPath(currentSession.filePath)) {
+        setError('最近三分钟有会话写入，不可恢复');
+        return;
+      }
+      if (!currentSession.cwd) {
+        setError('该会话没有记录项目路径，无法恢复');
+        return;
+      }
+      setResuming(currentSession);
+      setResumeChoice(0);
+      setKeysEnabled(false); // 弹窗接管键盘：数字键不切页、Esc 不退出
+      return;
+    }
     if (input === 'r') {
       if (!currentSession) return;
       setRenaming(currentSession);
@@ -863,6 +924,39 @@ export default function HISTORYPage({ width, height }: PageProps) {
             ) : (
               <Text color="#8B949E">enter 确认 · esc 取消</Text>
             )}
+          </Box>
+        </Box>
+      )}
+      {resuming && (
+        <Box
+          position="absolute"
+          marginTop={Math.max(0, Math.floor((height - 10) / 2))}
+          width={width}
+          flexDirection="column"
+          borderStyle="single"
+          borderLeft={false}
+          borderRight={false}
+          borderColor="#3FB950"
+          backgroundColor="#0D1117"
+          paddingY={1}
+        >
+          <Box justifyContent="center" marginBottom={1}>
+            <Text bold color="#3FB950">恢复会话</Text>
+          </Box>
+          <Box justifyContent="center" marginBottom={1}>
+            <Text color="#E6EDF3" wrap="truncate">
+              {resuming.title.length > 24 ? `${resuming.title.slice(0, 24)}...` : resuming.title}
+            </Text>
+          </Box>
+          {(['在当前终端恢复（退出管理器，claude 退出后自动返回）', '新开终端窗口恢复'] as const).map((label, i) => (
+            <Box key={i} justifyContent="center">
+              <Text bold={resumeChoice === i} color={resumeChoice === i ? '#E3B341' : '#A9B4C0'}>
+                {`${resumeChoice === i ? '❯ ' : '  '}${i + 1}. ${label}`}
+              </Text>
+            </Box>
+          ))}
+          <Box justifyContent="center" marginTop={1}>
+            <Text color="#8B949E">↑↓ 选择 · enter 确认 · esc 取消</Text>
           </Box>
         </Box>
       )}
