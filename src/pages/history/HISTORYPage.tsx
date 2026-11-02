@@ -69,6 +69,31 @@ const shortPath = (p: string): string => {
   return p.toLowerCase().startsWith(home.toLowerCase()) ? '~' + p.slice(home.length) : p;
 };
 
+// 显示宽度（CJK/全角 2 列，其余 1 列；… 是歧义宽字符，string-width 与终端都按 1 列）
+const strW = (s: string): number => {
+  let n = 0;
+  for (const c of s) n += c === '…' ? 1 : (c.codePointAt(0) ?? 0) > 0xff ? 2 : 1;
+  return n;
+};
+
+// 路径放不下时中段省略：~\Desktop\…\ManagerForClaudeCode —— 优先保住尾部项目名，
+// 比 wrap="truncate" 直接砍尾巴有用（砍尾巴恰恰把最重要的项目名砍没了）
+const fitPath = (p: string, maxW: number): string => {
+  if (strW(p) <= maxW) return p;
+  const segs = p.split(/[\\/]+/);
+  if (segs.length >= 2) {
+    const last = segs[segs.length - 1];
+    for (let keep = segs.length - 2; keep >= 1; keep--) {
+      const cand = `${segs.slice(0, keep).join('\\')}\\…\\${last}`;
+      if (strW(cand) <= maxW) return cand;
+    }
+    if (strW(`…\\${last}`) <= maxW) return `…\\${last}`;
+  }
+  let tail = p;
+  while (tail && strW('…' + tail) > maxW) tail = tail.slice(1);
+  return '…' + tail;
+};
+
 // 模型名展示：去掉供应商前缀，超长截断（ccr 的哈希名能到 40+ 字符）
 const shortModel = (m: string): string => {
   const tail = m.slice(m.lastIndexOf('/') + 1);
@@ -681,16 +706,17 @@ export default function HISTORYPage({ width, height }: PageProps) {
             <Text color="#E3B341">▌</Text>
           </Box>
         )}
-        {/* 标题行 + 计数徽章（同 ScrollableList 标题样式） */}
+        {/* 标题行：`SESSIONS · N`（不用灰底徽章，丑；计数只在这里出现一次） */}
         <Box>
           <Text bold color="#E6EDF3">{inSearch ? `搜索 “${query.trim()}”` : 'SESSIONS'}</Text>
-          <Text color="#1E1E2E" backgroundColor="#6E7681">{` ${sessions.length} `}</Text>
+          <Text color="#8B949E">{` · ${sessions.length}`}</Text>
         </Box>
-        {/* 引导行：当前项目路径 + 会话数（无框；搜索模式下不显示） */}
+        {/* 引导行：完整项目路径（无框；搜索模式下不显示）。计数已与标题合并，此处不重复。
+            路径独占一整行，~ 开头后 44 列内基本都能全显；极端长路径才中段省略兜底 */}
         {!inSearch && project && (
           <Box>
-            <Text color="#8B949E" wrap="truncate">
-              {`📁 ${project.cwd ? shortPath(project.cwd) : project.dirName} · ${sessions.length} 条对话`}
+            <Text color="#A9B4C0" wrap="truncate">
+              {fitPath(project.cwd ? shortPath(project.cwd) : project.dirName, sessW - 2)}
             </Text>
           </Box>
         )}
