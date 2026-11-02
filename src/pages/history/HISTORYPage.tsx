@@ -6,7 +6,6 @@ import path from 'node:path';
 import type { PageMeta, PageProps } from '../../types.js';
 import { useShell } from '../../shell/context.js';
 import ScrollableList from '../../components/ScrollableList.js';
-import { useScrollableList } from '../../hooks/useScrollableList.js';
 import DetailPanel from '../../components/DetailPanel.js';
 import VerticalDivider from '../../components/VerticalDivider.js';
 import {
@@ -1334,13 +1333,13 @@ function BlockWindow({
  * SessionCards — 中栏会话卡片列（固定行高 4：上框/内容2行/下框，卡间无空行——
  * 完整卡片感与信息密度的折中：一屏约 6-7 张）
  *
- * 不复用 ScrollableList（它假设一项一行）；useScrollableList 只按项数切窗口，
- * 把 floor(可用行/4) 当作 terminalHeight、headerOffset=0 传入即可复用滚动窗口逻辑。
+ * 不复用 ScrollableList（它假设一项一行）；窗口切换逻辑内联在下方 windowFor，
+ * 指示行（↑ N / ↓ N）占用通过 reserve 循环从预算里预扣，保证总高永不超父盒。
  *
- * 卡片：round 边框，选中 = 边框紫 #A371F7 + 浅灰底 #2A2A3E + 左 ▌▌ 竖条（2 列）；
+ * 卡片：round 边框，选中 = 边框紫 #A371F7 + 浅灰底 #2A2A3E + 左紫底双空格竖条（2 列）；
  * 未选中 = 暗灰框无底、竖条位置空格占位。
- * 行1：运行中绿● + 标题（(空会话) 灰）+ 右灰最后活跃时间；
- * 行2：N问 · N答 · 大小（问答主色、大小灰）+ 右灰时间范围（同日单点 / 跨天 起~止）。
+ * 行1：运行中绿● + 标题（(空会话) 灰，搜索模式前缀 [项目名]）；
+ * 行2：彩色统计（问绿/答黄/大小橙）+ 右侧红色最后活跃时间（只显示一个时间）。
  */
 const CARD_H = 4;
 
@@ -1359,12 +1358,34 @@ function SessionCards({
   width: number;
   isRunning: (s: SessionMeta) => boolean;
 }) {
-  const rows = Math.max(1, Math.floor(avail / CARD_H));
-  const { visibleList, hasMoreAbove, hasMoreBelow, aboveCount, belowCount, scrollOffset } =
-    useScrollableList(sessions, selectedIndex, rows, 0, 1);
+  // 指示行（↑ N / ↓ N）自身也占行高：先按满预算切窗口，实际要画几条指示就从
+  // 预算里扣几行重切（最多 2 条，收敛有保证——同 BlockWindow 的 reserve 循环）。
+  // 不预留会让内容总高超过父盒 1~2 行：yoga 默认 flexShrink=1 会把超出量按比例
+  // 摊给所有卡片（每张卡 4 行被压成 3.x 行再各自取整）→ 边框行与内容行重叠，
+  // 下边框横线插进统计行（正是"时间压框线/卡片塌陷"乱版的根因）。
+  const windowFor = (rows: number) => {
+    const listVisible = Math.max(1, rows);
+    const maxScroll = Math.max(0, sessions.length - listVisible);
+    const scrollOffset = Math.max(0, Math.min(selectedIndex - Math.floor(listVisible / 2), maxScroll));
+    return {
+      scrollOffset,
+      visibleList: sessions.slice(scrollOffset, scrollOffset + listVisible),
+      hasMoreAbove: scrollOffset > 0,
+      hasMoreBelow: scrollOffset + listVisible < sessions.length,
+      aboveCount: scrollOffset,
+      belowCount: sessions.length - scrollOffset - listVisible
+    };
+  };
+  let win = windowFor(Math.floor(avail / CARD_H));
+  for (let reserve = 0; reserve <= 2; reserve++) {
+    win = windowFor(Math.floor((avail - reserve) / CARD_H));
+    const indicators = (win.hasMoreAbove ? 1 : 0) + (win.hasMoreBelow ? 1 : 0);
+    if (indicators <= reserve) break;
+  }
+  const { visibleList, hasMoreAbove, hasMoreBelow, aboveCount, belowCount, scrollOffset } = win;
 
   const innerW = Math.max(10, width);        // 卡片盒宽（= 栏内容宽）
-  const textW = Math.max(8, innerW - 2);     // 卡内文字区 = 内宽 - 左右边框
+  const textW = Math.max(8, innerW - 4);     // 卡内行区 = 内宽 - 左右边框2 - ▌▌竖条2
 
   return (
     <Box flexDirection="column" width={width}>
@@ -1377,19 +1398,22 @@ function SessionCards({
           <Box
             key={realIdx}
             width={innerW}
+            flexShrink={0}
             borderStyle="round"
             borderColor={active ? '#A371F7' : '#3A3D42'}
             backgroundColor={active ? '#2A2A3E' : undefined}
           >
-            {/* 左竖条 2 列：选中亮紫，未选中空格占位（ink 边框四边同色，单边强调靠内嵌字符） */}
-            <Box width={2} flexShrink={0} alignItems="center">
-              {active ? <Text bold color="#A371F7">▌▌</Text> : <Text>{'  '}</Text>}
+            {/* 左竖条 2 列：选中 = 紫底双空格，未选中 = 空格占位。
+                不用 ▌ 半角块字符：部分终端/CJK 字体会把它按全角 2 列渲染，整行右移压破右边框。
+                ASCII 空格 + 背景色的宽度 100% 可靠。 */}
+            <Box width={2} flexShrink={0}>
+              {active ? <Text backgroundColor="#A371F7">{'  '}</Text> : <Text>{'  '}</Text>}
             </Box>
             <Box flexDirection="column" width={textW}>
               {/* 行1：运行● + 标题（时间只保留行2一个，避免同日重复/跨天截断的双时间乱象） */}
               <Box flexDirection="row">
                 <Box width={2} flexShrink={0}>
-                  {isRunning(s) ? <Text color="#3FB950">●</Text> : <Text>{' '}</Text>}
+                  {isRunning(s) ? <Text color="#3FB950">●</Text> : <Text>{'  '}</Text>}
                 </Box>
                 <Box flexGrow={1}>
                   <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
@@ -1401,7 +1425,7 @@ function SessionCards({
               {/* 行2：彩色统计（绿问/黄答/橙大小，照原右栏统计行分工）+ 右侧紫时间范围 */}
               <Box flexDirection="row">
                 <Box width={2} flexShrink={0}>
-                  <Text>{' '}</Text>
+                  <Text>{'  '}</Text>
                 </Box>
                 <Box flexGrow={1}>
                   <Text wrap="truncate">
@@ -1414,6 +1438,10 @@ function SessionCards({
                 </Box>
                 <Box flexShrink={1}>
                   <Text color="#F85149" wrap="truncate">{fmtDate(s.lastTime)}</Text>
+                </Box>
+                {/* 右端 1 列呼吸垫：时间不贴右边框，避免"压线"观感 */}
+                <Box width={1} flexShrink={0}>
+                  <Text>{' '}</Text>
                 </Box>
               </Box>
             </Box>
