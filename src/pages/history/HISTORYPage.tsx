@@ -948,7 +948,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
               {resuming.title.length > 24 ? `${resuming.title.slice(0, 24)}...` : resuming.title}
             </Text>
           </Box>
-          {(['在当前终端恢复（退出管理器，claude 退出后自动返回）', '新开终端窗口恢复'] as const).map((label, i) => (
+          {(['在当前终端恢复', '新开终端窗口恢复'] as const).map((label, i) => (
             <Box key={i} justifyContent="center">
               <Text bold={resumeChoice === i} color={resumeChoice === i ? '#E3B341' : '#A9B4C0'}>
                 {`${resumeChoice === i ? '❯ ' : '  '}${i + 1}. ${label}`}
