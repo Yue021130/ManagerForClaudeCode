@@ -11,6 +11,7 @@ export type MenuEvent =
   | { kind: "start-service" }
   | { kind: "stop-service" }
   | { kind: "toggle-autostart"; enabled: boolean }
+  | { kind: "toggle-errnotify"; enabled: boolean }
   | { kind: "test-port"; which: "management" | "gateway"; port: number }
   | { kind: "save-ports"; managementPort: number; gatewayPort: number }
   | { kind: "settings-tick" }
@@ -53,4 +54,6 @@ export interface SettingsState {
   saveStage?: string;
   /** 端口校验错误（就地红字提示，3 秒后自动清除） */
   portError?: string;
+  /** CCR 请求出错时是否右下角弹窗提醒 */
+  notifyErrorsEnabled: boolean;
 }

@@ -3,6 +3,7 @@ import { startService, stopService, testPort } from "./core/ccr";
 import { checkStatus } from "./core/status";
 import { readManagementUrl } from "./core/service-state";
 import { readSettings, writeSettings } from "./core/settings";
+import { maxRequestLogId, pollRequestErrors } from "./core/request-errors";
 import type { MenuEvent, NotifyKind, PortTestResult, SettingsState, StatusInfo } from "./core/types";
 import { currentExePath, isAutostartEnabled, setAutostartEnabled } from "./core/autostart";
 import { ElectronTrayShell } from "./shell/electron-tray";
@@ -29,6 +30,12 @@ if (!gotLock) {
   let runningSince: number | null = null;
   let prevRunning = false;
   let autostartEnabled = false;
+  /** CCR 请求错误弹窗提醒开关(随 settings.json 持久化,默认开) */
+  let notifyErrorsEnabled = false;
+  /** 请求日志轮询游标:启动时取当前最大 id,历史错误不追诉 */
+  let requestErrSinceId = 0;
+  /** 同型请求错误的弹窗节流记录:签名 -> 上次弹窗时刻(10 分钟内不重复弹) */
+  const errNotifyLast = new Map<string, number>();
   /** 最近一次端口测试结果 / 保存反馈 / 校验错误 / 保存重启阶段（推给设置窗口） */
   let lastPortTest: { which: "management" | "gateway"; result: PortTestResult } | undefined;
   let lastSave: { result: "ok" | "fail"; label: string } | undefined;
@@ -62,6 +69,7 @@ if (!gotLock) {
       uptimeMs: status.state === "running" && runningSince !== null ? Date.now() - runningSince : null,
       avgCpuPercent,
       memRssMb,
+      notifyErrorsEnabled,
       autostartEnabled,
       managementPort: readSettings().managementPort,
       gatewayPort: readSettings().gatewayPort,
@@ -76,6 +84,21 @@ if (!gotLock) {
 
   function pushSettings(): void {
     shell.updateSettings(buildSettingsState());
+  }
+
+  /** 轮询 CCR 请求日志库,把新落库的失败请求弹窗提醒(同型 10 分钟内只弹一次) */
+  function checkRequestErrors(): void {
+    const { events, lastId } = pollRequestErrors(requestErrSinceId);
+    requestErrSinceId = lastId;
+    if (!notifyErrorsEnabled) return;
+    const now = Date.now();
+    for (const e of events) {
+      const sig = `${e.statusCode}|${e.message}`;
+      if (now - (errNotifyLast.get(sig) ?? 0) < 10 * 60 * 1000) continue;
+      errNotifyLast.set(sig, now);
+      const short = e.message.length > 140 ? e.message.slice(0, 140) + "…" : e.message;
+      notify("crash", "CCR 请求失败", `[${e.statusCode} ${e.model}] ${short}`);
+    }
   }
 
   // 保存反馈 / 校验错误 3 秒后自动清除（渲染层每秒重推，清除必须放在主进程做）
@@ -201,6 +224,11 @@ if (!gotLock) {
         shell.refreshMenu({ status, busy });
         pushSettings();
         break;
+      case "toggle-errnotify":
+        writeSettings({ notifyErrors: event.enabled });
+        notifyErrorsEnabled = event.enabled;
+        pushSettings();
+        break;
       case "test-port": {
         portError = undefined;
         lastPortTest = { which: event.which, result: await testPort(event.port) };
@@ -263,6 +291,10 @@ if (!gotLock) {
 
   void app.whenReady().then(async () => {
     autostartEnabled = isAutostartEnabled(autostartTarget());
+    notifyErrorsEnabled = readSettings().notifyErrors;
+    // 游标取当前最大 id:启动前的历史报错不追诉
+    requestErrSinceId = maxRequestLogId();
+    setInterval(checkRequestErrors, 5000);
     shell.onEvent((event) => void handleEvent(event));
     await shell.init();
     await refresh();

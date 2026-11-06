@@ -12,11 +12,14 @@ import { join } from "node:path";
 export interface TraySettings {
   managementPort: number;
   gatewayPort: number;
+  /** CCR 请求出错时右下角弹窗提醒(默认开) */
+  notifyErrors: boolean;
 }
 
 export const DEFAULT_SETTINGS: TraySettings = {
   managementPort: 3458,
   gatewayPort: 40229, // 与改动前 status.ts 的硬编码值一致
+  notifyErrors: true,
 };
 
 function settingsDir(): string {
@@ -37,6 +40,7 @@ function sanitize(raw: unknown): TraySettings {
     const gw = Number(o.gatewayPort);
     if (Number.isInteger(mgmt) && mgmt >= 1 && mgmt <= 65535) result.managementPort = mgmt;
     if (Number.isInteger(gw) && gw >= 1 && gw <= 65535) result.gatewayPort = gw;
+    if (typeof o.notifyErrors === "boolean") result.notifyErrors = o.notifyErrors;
   }
   return result;
 }
@@ -59,6 +63,7 @@ export function writeSettings(update: Partial<TraySettings>): TraySettings {
   const gw = Number(update.gatewayPort);
   if (Number.isInteger(mgmt) && mgmt >= 1 && mgmt <= 65535) next.managementPort = mgmt;
   if (Number.isInteger(gw) && gw >= 1 && gw <= 65535) next.gatewayPort = gw;
+  if (typeof update.notifyErrors === "boolean") next.notifyErrors = update.notifyErrors;
   mkdirSync(settingsDir(), { recursive: true });
   writeFileSync(settingsFile(), JSON.stringify(next, null, 2), "utf8");
   return next;

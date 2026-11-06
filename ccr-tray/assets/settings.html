@@ -278,6 +278,10 @@
           <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>开机自启</span>
           <span class="switch" id="autostartSwitch"></span>
         </div>
+        <div class="row">
+          <span class="label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>请求错误弹窗提醒</span>
+          <span class="switch" id="errNotifySwitch"></span>
+        </div>
       </div>
 
       <div class="card">
@@ -444,6 +448,8 @@
     if ($("memRss").textContent !== memText) $("memRss").textContent = memText;
     // 自启开关
     $("autostartSwitch").className = "switch" + (s.autostartEnabled ? " on" : "");
+    // 请求错误弹窗提醒开关
+    $("errNotifySwitch").className = "switch" + (s.notifyErrorsEnabled ? " on" : "");
     // 端口（用户没动过才同步）
     if (!mgmtTouched) $("mgmtInput").value = s.managementPort;
     if (!gwTouched) $("gatewayInput").value = s.gatewayPort;
@@ -518,6 +524,10 @@
 
   $("autostartSwitch").addEventListener("click", () => {
     window.ccrSettings.send({ kind: "toggle-autostart", enabled: !current.autostartEnabled });
+  });
+
+  $("errNotifySwitch").addEventListener("click", () => {
+    window.ccrSettings.send({ kind: "toggle-errnotify", enabled: !current.notifyErrorsEnabled });
   });
 
   $("closeBtn").addEventListener("click", () => window.ccrSettings.send({ kind: "dismiss" }));
