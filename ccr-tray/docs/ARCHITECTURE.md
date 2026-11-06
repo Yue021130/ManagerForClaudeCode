@@ -22,6 +22,7 @@
 │   settings.ts          托盘自身配置(端口)      │
 │   service-state.ts     读 CCR 的 service.json  │
 │   autostart.ts         注册表 / .desktop       │
+│   request-errors.ts    轮询 CCR 请求日志库      │
 │   types.ts             类型(无运行时代码)       │
 ├─────────────────────────────────────────────┤
 │ src/shell/             平台壳                   │
@@ -145,7 +146,16 @@ export function readManagementUrl(fallbackPort: number): string
 
 ### 3.7 `src/core/types.ts` —— 类型
 
-纯类型,无运行时代码。关键:`ServiceState = "running"|"partial"|"stopped"`、`StatusInfo`(只有 `state` 一个字段,探测细节不进载荷)、`MenuEvent`(11 种事件的判别联合)、`PortTestResult`、`NotifyKind/NotifyInfo`、`SettingsState`。
+纯类型,无运行时代码。关键:`ServiceState = "running"|"partial"|"stopped"`、`StatusInfo`(只有 `state` 一个字段,探测细节不进载荷)、`MenuEvent`(12 种事件的判别联合)、`PortTestResult`、`NotifyKind/NotifyInfo`、`SettingsState`。
+
+### 3.8 `src/core/request-errors.ts` —— CCR 请求错误提醒
+
+fork 版 CCR 把每个请求落库到 `%APPDATA%\claude-code-router\request-logs.sqlite`(WAL 模式)。本模块用 **Node 内置 `node:sqlite` 只读打开**(零额外依赖,Electron 38 的 Node 22 已可用),供 `main.ts` 每 5 秒轮询:
+
+- `maxRequestLogId()`:启动时取当前最大 id 作为游标 —— **历史错误不追诉**,只提醒启用之后新发生的;
+- `pollRequestErrors(sinceId)`:拉 `ok = 0` 且 id 大于游标的新行,从 `response_body_text` 的 `{"error":{"message":...}}` 提取可读消息,退化用 `error` 列/`gateway_error` 列,再退化为 `HTTP <status>`。
+
+弹窗节流在 `main.ts`:**同型错误(状态码+消息)10 分钟内只弹一次**。开关持久化在 settings.json 的 `notifyErrors`(默认开),设置窗"常规"卡片可关。
 
 ## 4. Electron 壳实现细节(`src/shell/electron-tray.ts`)
 
@@ -183,7 +193,7 @@ export function readManagementUrl(fallbackPort: number): string
 - **`dismiss` 是"隐藏"不是"销毁"** —— 渲染进程和它的 1s tick interval 都保留,下次快开;首次 `ready-to-show` 时居中于**托盘图标所在显示器**的 workArea。
 - **窗口高度逐帧跟随内容**:渲染层 `ResizeObserver` 量 `#panel` 逐帧上报 `content-height`,主进程 `applySettingsHeight()` 只动高度(顶边固定向下长),底边夹在工作区内(留 8px),最小 300。CSS 过渡是唯一动画时钟,不起定时器动画。
 - 设置窗只要存在(含隐藏)渲染层**每秒发一次 `settings-tick`**,主进程重推全量状态——运行时长走动、保存重启阶段推进、托盘资源数值实时刷新。
-- 界面分四块:本次启动时长(hero)、托盘资源占用(平均 CPU/内存 RSS)、常规(开机自启)、网络端口(管理口/服务口,含重置/测试/保存重启)。
+- 界面分四块:本次启动时长(hero)、托盘资源占用(平均 CPU/内存 RSS)、常规(开机自启、请求错误弹窗提醒)、网络端口(管理口/服务口,含重置/测试/保存重启)。
 
 ### 4.5 为什么 `quit()` 不能走 `app.quit()`
 
@@ -209,7 +219,7 @@ quit(): void {
 |---|---|---|---|
 | `menu:state` | main → 菜单渲染器 | `MenuOptions { status, busy }` | `ElectronTrayShell.pushState` → `menu-preload.onState` |
 | `menu:event` | 菜单渲染器 → main | `MenuEvent` 或 `{kind:"dismiss"}` | `menu-preload.send` → `ipcMain.on("menu:event")` |
-| `settings:state` | main → 设置渲染器 | `SettingsState { uptimeMs, avgCpuPercent, memRssMb, autostartEnabled, managementPort, gatewayPort, serviceState, busy, portTest?, lastSave?, saveStage?, portError? }` | `ElectronTrayShell.pushSettingsState` → `settings-preload.onState` |
+| `settings:state` | main → 设置渲染器 | `SettingsState { uptimeMs, avgCpuPercent, memRssMb, autostartEnabled, notifyErrorsEnabled, managementPort, gatewayPort, serviceState, busy, portTest?, lastSave?, saveStage?, portError? }` | `ElectronTrayShell.pushSettingsState` → `settings-preload.onState` |
 | `settings:event` | 设置渲染器 → main | `MenuEvent` 或 `{kind:"dismiss"/"content-height"}`(含每秒 `settings-tick`) | `settings-preload.send` → `ipcMain.on("settings:event")` |
 | `notify:state` | main → 通知渲染器 | `NotifyInfo { kind, title, body, action? }` | `ElectronTrayShell.showNextNotify` → `notify-preload.onState` |
 | `notify:event` | 通知渲染器 → main | `{kind:"notify-action", action}` | `notify-preload.send` → `ipcMain.on("notify:event")` |
