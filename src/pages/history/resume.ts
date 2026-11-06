@@ -11,6 +11,7 @@
  */
 import { spawn } from 'node:child_process';
 import type { SessionMeta } from './types.js';
+import { loadConfig } from '../../config.js';
 
 // ── 恢复请求通道：HISTORYPage 设置 → App 退出后 cli.tsx 取走执行 ──
 // （当前终端恢复必须先卸载 Ink 再拉起 claude，只能借 App 退出流程接力）
@@ -44,6 +45,15 @@ const childOk = (resolve: (ok: boolean) => void, p: ReturnType<typeof spawn>): v
 /** 新开终端窗口恢复；拉起失败抛错由调用方提示 */
 export async function spawnResumeNewWindow(s: SessionMeta): Promise<void> {
   if (!s.cwd) throw new Error('该会话没有记录项目路径，无法恢复');
+  // 设置页指定了终端模板就用模板（{cwd}/{cmd} 占位符原样替换，引号由模板自己控制）
+  const tpl = loadConfig().terminalTemplate.trim();
+  if (tpl) {
+    const cmdline = tpl
+      .replaceAll('{cwd}', s.cwd)
+      .replaceAll('{cmd}', `claude --resume ${s.sessionId}`);
+    spawn(cmdline, { shell: true, detached: true, stdio: 'ignore' }).unref();
+    return;
+  }
   const args = ['--resume', s.sessionId];
   if (await hasWt()) {
     // cmd /k：claude 退出后窗口不闪退，留 cmd 提示符
