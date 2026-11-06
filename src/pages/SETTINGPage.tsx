@@ -22,9 +22,9 @@ export const meta: PageMeta = {
 };
 
 const EXAMPLES = [
-  ['Windows Terminal', 'wt -d "{cwd}" cmd /k {cmd}'],
-  ['系统控制台 conhost', 'cmd /c start "" /D "{cwd}" cmd /k {cmd}'],
-  ['PowerShell 7', 'wt -d "{cwd}" pwsh -NoExit -Command {cmd}']
+  ['Windows Terminal', 'wt --title "Claude" -d "{cwd}" cmd /k {cmd}'],
+  ['系统控制台 conhost', 'cmd /c start "Claude" /D "{cwd}" cmd /k {cmd}'],
+  ['PowerShell 7', 'wt --title "Claude" -d "{cwd}" pwsh -NoExit -Command {cmd}']
 ] as const;
 
 export default function SETTINGPage() {

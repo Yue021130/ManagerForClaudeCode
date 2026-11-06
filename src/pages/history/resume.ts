@@ -56,14 +56,14 @@ export async function spawnResumeNewWindow(s: SessionMeta): Promise<void> {
   }
   const args = ['--resume', s.sessionId];
   if (await hasWt()) {
-    // cmd /k：claude 退出后窗口不闪退，留 cmd 提示符
-    spawn('wt', ['-d', s.cwd, 'cmd', '/k', 'claude', ...args], {
+    // cmd /k：claude 退出后窗口不闪退，留 cmd 提示符；--title 固定窗口名（否则显示成 pwsh/cmd）
+    spawn('wt', ['--title', 'Claude', '-d', s.cwd, 'cmd', '/k', 'claude', ...args], {
       detached: true,
       stdio: 'ignore'
     }).unref();
   } else {
-    // start "" /D <cwd>："" 是窗口标题占位（start 把第一个引号参数当标题）
-    spawn('cmd', ['/c', 'start', '""', '/D', s.cwd, 'cmd', '/k', 'claude', ...args], {
+    // start "Claude" /D <cwd>：第一个引号参数是窗口标题
+    spawn('cmd', ['/c', 'start', '"Claude"', '/D', s.cwd, 'cmd', '/k', 'claude', ...args], {
       detached: true,
       stdio: 'ignore'
     }).unref();
