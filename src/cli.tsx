@@ -31,6 +31,7 @@ import App from './App.js';
 import { playSplash } from './shell/splash.js';
 import { playGoodbye } from './shell/goodbye.js';
 import { takePendingResume, runResumeInPlace } from './pages/history/resume.js';
+import { playResuming } from './shell/resuming.js';
 
 
 
@@ -70,7 +71,7 @@ do {
   await waitUntilExit();
   resume = takePendingResume();
   if (resume) {
-    process.stdout.write('\x1b[2J\x1b[3J\x1b[H'); // 清屏，把终端完整交给 claude
+    await playResuming({ title: resume.title }); // 呼吸字符画+转圈过场（收尾自带清屏）
     await runResumeInPlace(resume);
     process.stdout.write('\x1b[2J\x1b[3J\x1b[H'); // claude 退出后清屏再重挂 App
   }

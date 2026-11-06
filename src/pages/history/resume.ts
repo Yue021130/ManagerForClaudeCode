@@ -74,8 +74,10 @@ export async function spawnResumeNewWindow(s: SessionMeta): Promise<void> {
 export async function runResumeInPlace(s: SessionMeta): Promise<void> {
   if (!s.cwd) throw new Error('该会话没有记录项目路径，无法恢复');
   await new Promise<void>((resolve) => {
-    // shell: true——Windows 上 claude 是 claude.cmd，直接 spawn 会 ENOENT
-    const p = spawn('claude', ['--resume', s.sessionId], {
+    // shell: true——Windows 上 claude 是 claude.cmd，直接 spawn 会 ENOENT。
+    // shell:true 时命令和参数必须拼成一条字符串传（分开传会触发 DEP0190 警告，
+    // 且参数不做转义）；sessionId 是 uuid，无注入面
+    const p = spawn(`claude --resume ${s.sessionId}`, {
       cwd: s.cwd as string,
       stdio: 'inherit',
       shell: true
