@@ -968,7 +968,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
 /** 展示行：普通文本行 / 折叠的粘贴段（chip 颜色块）/ 工具调用·结果·diff 行 */
 type BlockLine =
-  | { kind: 'text'; text: string }
+  | { kind: 'text'; text: string; table?: boolean } // table=renderTable 画出的网格行（截断时不能拦腰切）
   | { kind: 'chip'; id: string; preview: string }
   | { kind: 'tool'; text: string; error?: boolean; result?: boolean; tone?: 'add' | 'del' | 'ctx' };
 
@@ -1054,6 +1054,63 @@ function wrapText(text: string, maxWidth: number): string[] {
   if (cur) out.push(cur.replace(/\s+$/, ''));
   return out.length ? out : [''];
 }
+
+// ── markdown 表格渲染（对齐 Claude Code 的 box-drawing 表格）──
+// 检测连续 `|...|` 行 → ┌─┬─┐ 网格；单元格按显示宽截断/补齐，超宽按比例压缩列宽
+const isTableRow = (line: string): boolean => {
+  const t = line.trim();
+  return t.length > 1 && t.startsWith('|') && t.endsWith('|');
+};
+const splitRow = (line: string): string[] => line.trim().slice(1, -1).split('|').map(c => c.trim());
+const isSepRow = (cells: string[]): boolean =>
+  cells.every(c => /^:?-{2,}:?$/.test(c.replace(/\s/g, '')));
+
+const twOf = (s: string): number =>
+  [...s].reduce((w, c) => w + charWidth(c.codePointAt(0) ?? 0), 0);
+
+const padW = (s: string, w: number): string => s + ' '.repeat(Math.max(0, w - twOf(s)));
+
+const truncateW = (s: string, w: number): string => {
+  if (twOf(s) <= w) return s;
+  let out = '';
+  let n = 0;
+  for (const c of s) {
+    const cw = charWidth(c.codePointAt(0) ?? 0);
+    if (n + cw > w - 1) break;
+    out += c;
+    n += cw;
+  }
+  return out + '…';
+};
+
+function renderTable(rows: string[], maxWidth: number): string[] {
+  const parsed = rows.map(splitRow);
+  const header = parsed[0];
+  const body = parsed.slice(1).filter(r => !isSepRow(r));
+  const cols = Math.max(...parsed.map(r => r.length));
+  // 列宽 = 该列最长内容的显示宽（封顶 30），再按面板宽逐列压缩最宽列
+  const colW: number[] = [];
+  for (let c = 0; c < cols; c++) {
+    let w = 3;
+    for (const r of [header, ...body]) w = Math.max(w, twOf(r[c] ?? ''));
+    colW.push(Math.min(w, 30));
+  }
+  const total = () => 1 + colW.reduce((a, b) => a + b + 3, 0); // '│' + ' cell │'×列数
+  while (total() > maxWidth && Math.max(...colW) > 3) {
+    colW[colW.indexOf(Math.max(...colW))]--;
+  }
+  const row = (cells: string[]): string =>
+    '│' + Array.from({ length: cols }, (_, c) => ` ${padW(truncateW(cells[c] ?? '', colW[c]), colW[c])} │`).join('');
+  const border = (l: string, m: string, r: string): string =>
+    l + colW.map(w => '─'.repeat(w + 2)).join(m) + r;
+  const out = [border('┌', '┬', '┐'), row(header), border('├', '┼', '┤')];
+  for (const b of body) out.push(row(b));
+  out.push(border('└', '┴', '┘'));
+  return out;
+}
+
+// 标题行去掉 ### 标记（CC 渲染成加粗标题，我们单色文本只去标记）
+const stripHeading = (line: string): string => line.replace(/^#{1,6}\s+/, '');
 
 /** 工具行折行：剥 ANSI、按 \n 分段、逐段硬折（wrapText 不认换行符），空段跳过 */
 function wrapToolLines(
@@ -1175,8 +1232,17 @@ function buildEntryLines(
   const lines: BlockLine[] = [];
   const pasteIds: string[] = [];
   const wrapSeg = (text: string) => {
-    for (const para of text.split('\n')) {
-      for (const t of wrapText(para, maxWidth)) lines.push({ kind: 'text', text: t });
+    const ls = text.split('\n');
+    for (let i = 0; i < ls.length; i++) {
+      // 连续 ≥2 行 |...| 即 markdown 表格：整段交给 renderTable 画成网格
+      if (isTableRow(ls[i]) && i + 1 < ls.length && isTableRow(ls[i + 1])) {
+        let j = i;
+        while (j < ls.length && isTableRow(ls[j])) j++;
+        for (const t of renderTable(ls.slice(i, j), maxWidth)) lines.push({ kind: 'text', text: t, table: true });
+        i = j - 1;
+        continue;
+      }
+      for (const t of wrapText(stripHeading(ls[i]), maxWidth)) lines.push({ kind: 'text', text: t });
     }
   };
   for (const seg of parseSegments(stripAnsi(entry.text))) {
