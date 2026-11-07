@@ -1057,7 +1057,7 @@ function wrapText(text: string, maxWidth: number): string[] {
 }
 
 // ── markdown 表格渲染（对齐 Claude Code 的 box-drawing 表格）──
-// 检测连续 `|...|` 行 → ┌─┬─┐ 网格；单元格按显示宽截断/补齐，超宽按比例压缩列宽
+// 检测连续 `|...|` 行 → ┌─┬─┐ 网格；超宽按比例压缩列宽，单元格内容折行不截断
 const isTableRow = (line: string): boolean => {
   const t = line.trim();
   return t.length > 1 && t.startsWith('|') && t.endsWith('|');
@@ -1076,17 +1076,23 @@ const twOf = (s: string): number =>
 
 const padW = (s: string, w: number): string => s + ' '.repeat(Math.max(0, w - twOf(s)));
 
-const truncateW = (s: string, w: number): string => {
-  if (twOf(s) <= w) return s;
-  let out = '';
+// 单元格内容按显示宽硬折行（不做词断——列宽可能只有个位数，词断反而浪费行高）
+const wrapCell = (s: string, w: number): string[] => {
+  const out: string[] = [];
+  let cur = '';
   let n = 0;
   for (const c of s) {
     const cw = charWidth(c.codePointAt(0) ?? 0);
-    if (n + cw > w - 1) break;
-    out += c;
+    if (n + cw > w && cur) {
+      out.push(cur);
+      cur = '';
+      n = 0;
+    }
+    cur += c;
     n += cw;
   }
-  return out + '…';
+  out.push(cur);
+  return out;
 };
 
 function renderTable(rows: string[], maxWidth: number): string[] {
@@ -1094,7 +1100,7 @@ function renderTable(rows: string[], maxWidth: number): string[] {
   const header = parsed[0];
   const body = parsed.slice(1).filter(r => !isSepRow(r));
   const cols = Math.max(...parsed.map(r => r.length));
-  // 列宽 = 该列最长内容的显示宽（封顶 30），再按面板宽逐列压缩最宽列
+  // 列宽 = 该列最长内容的显示宽（封顶 30），再按面板宽逐列压缩最宽列（压缩后内容折行不丢失）
   const colW: number[] = [];
   for (let c = 0; c < cols; c++) {
     let w = 3;
@@ -1105,12 +1111,18 @@ function renderTable(rows: string[], maxWidth: number): string[] {
   while (total() > maxWidth && Math.max(...colW) > 3) {
     colW[colW.indexOf(Math.max(...colW))]--;
   }
-  const row = (cells: string[]): string =>
-    '│' + Array.from({ length: cols }, (_, c) => ` ${padW(truncateW(cells[c] ?? '', colW[c]), colW[c])} │`).join('');
+  // 一个逻辑行折成多条物理行：各单元格独立折行，行数取该组最高
+  const row = (cells: string[]): string[] => {
+    const wrapped = Array.from({ length: cols }, (_, c) => wrapCell(cells[c] ?? '', colW[c]));
+    const h = Math.max(...wrapped.map(wc => wc.length));
+    return Array.from({ length: h }, (_, i) =>
+      '│' + wrapped.map((wc, c) => ` ${padW(wc[i] ?? '', colW[c])} │`).join('')
+    );
+  };
   const border = (l: string, m: string, r: string): string =>
     l + colW.map(w => '─'.repeat(w + 2)).join(m) + r;
-  const out = [border('┌', '┬', '┐'), row(header), border('├', '┼', '┤')];
-  for (const b of body) out.push(row(b));
+  const out = [border('┌', '┬', '┐'), ...row(header), border('├', '┼', '┤')];
+  for (const b of body) out.push(...row(b));
   out.push(border('└', '┴', '┘'));
   return out;
 }
@@ -1252,8 +1264,11 @@ function buildEntryLines(
       if (isTableRow(ls[i]) && i + 1 < ls.length && isTableRow(ls[i + 1])) {
         let j = i;
         while (j < ls.length && isTableRow(ls[j])) j++;
-        renderTable(ls.slice(i, j), maxWidth).forEach((t, k) =>
-          lines.push({ kind: 'text', text: t, table: true, bold: k === 1 })
+        // 表头可能折成多行：├ 分隔线之前的内容行都是表头，整行加粗
+        const tbl = renderTable(ls.slice(i, j), maxWidth);
+        const sepIdx = tbl.findIndex(t => t.startsWith('├'));
+        tbl.forEach((t, k) =>
+          lines.push({ kind: 'text', text: t, table: true, bold: k > 0 && (sepIdx === -1 || k < sepIdx) })
         );
         i = j - 1;
         continue;
