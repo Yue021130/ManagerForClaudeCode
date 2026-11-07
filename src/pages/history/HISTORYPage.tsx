@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -713,8 +713,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
                 {ln.text === '' ? ' ' : `  ${ln.text}`}
               </Text>
             ) : (
-              <Text color={active ? '#0D1117' : isUser ? '#F0A6C9' : '#C9D1D9'}>
-                {ln.text === '' ? ' ' : `  ${ln.text}`}
+              <Text bold={ln.bold} color={active ? '#0D1117' : isUser ? '#F0A6C9' : '#C9D1D9'}>
+                {ln.text === '' ? ' ' : <>{'  '}{boldSegs(ln.text)}</>}
               </Text>
             )
           }
@@ -968,7 +968,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
 /** 展示行：普通文本行 / 折叠的粘贴段（chip 颜色块）/ 工具调用·结果·diff 行 */
 type BlockLine =
-  | { kind: 'text'; text: string; table?: boolean } // table=renderTable 画出的网格行（截断时不能拦腰切）
+  // table=renderTable 画出的网格行（截断时不能拦腰切）；bold=整行加粗（标题/表头）
+  | { kind: 'text'; text: string; table?: boolean; bold?: boolean }
   | { kind: 'chip'; id: string; preview: string }
   | { kind: 'tool'; text: string; error?: boolean; result?: boolean; tone?: 'add' | 'del' | 'ctx' };
 
@@ -1061,7 +1062,12 @@ const isTableRow = (line: string): boolean => {
   const t = line.trim();
   return t.length > 1 && t.startsWith('|') && t.endsWith('|');
 };
-const splitRow = (line: string): string[] => line.trim().slice(1, -1).split('|').map(c => c.trim());
+// 单元格里的 **粗体** 标记必须剥掉再排版：标记参与列宽计算会让边框错位；
+// 粗体在表格里不逐格渲染，由表头整行加粗代替
+const splitRow = (line: string): string[] =>
+  line.trim().slice(1, -1).split('|').map(c =>
+    c.trim().replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1')
+  );
 const isSepRow = (cells: string[]): boolean =>
   cells.every(c => /^:?-{2,}:?$/.test(c.replace(/\s/g, '')));
 
@@ -1109,8 +1115,16 @@ function renderTable(rows: string[], maxWidth: number): string[] {
   return out;
 }
 
-// 标题行去掉 ### 标记（CC 渲染成加粗标题，我们单色文本只去标记）
+// 标题行去掉 ### 标记（CC 渲染成加粗标题，我们整行加粗：stripHeading 拿文本，bold 标记由调用方打）
 const stripHeading = (line: string): string => line.replace(/^#{1,6}\s+/, '');
+const isHeading = (line: string): boolean => /^#{1,6}\s+/.test(line);
+
+// 行内 **粗体** 渲染：split 捕获组，奇数段是粗体内容（表格单元格已在 splitRow 剥离标记，不走这里）
+const boldSegs = (text: string): ReactNode[] => {
+  const parts = text.split(/\*\*(.+?)\*\*/g);
+  if (parts.length === 1) return [text];
+  return parts.map((p, i) => (i % 2 === 1 ? <Text key={i} bold>{p}</Text> : p));
+};
 
 /** 工具行折行：剥 ANSI、按 \n 分段、逐段硬折（wrapText 不认换行符），空段跳过 */
 function wrapToolLines(
@@ -1234,15 +1248,20 @@ function buildEntryLines(
   const wrapSeg = (text: string) => {
     const ls = text.split('\n');
     for (let i = 0; i < ls.length; i++) {
-      // 连续 ≥2 行 |...| 即 markdown 表格：整段交给 renderTable 画成网格
+      // 连续 ≥2 行 |...| 即 markdown 表格：整段交给 renderTable 画成网格（表头行加粗）
       if (isTableRow(ls[i]) && i + 1 < ls.length && isTableRow(ls[i + 1])) {
         let j = i;
         while (j < ls.length && isTableRow(ls[j])) j++;
-        for (const t of renderTable(ls.slice(i, j), maxWidth)) lines.push({ kind: 'text', text: t, table: true });
+        renderTable(ls.slice(i, j), maxWidth).forEach((t, k) =>
+          lines.push({ kind: 'text', text: t, table: true, bold: k === 1 })
+        );
         i = j - 1;
         continue;
       }
-      for (const t of wrapText(stripHeading(ls[i]), maxWidth)) lines.push({ kind: 'text', text: t });
+      // markdown 标题：去 # 标记，整行加粗
+      const heading = isHeading(ls[i]);
+      for (const t of wrapText(stripHeading(ls[i]), maxWidth))
+        lines.push({ kind: 'text', text: t, bold: heading || undefined });
     }
   };
   for (const seg of parseSegments(stripAnsi(entry.text))) {
@@ -1498,7 +1517,9 @@ function BlockWindow({
                   : '#E3B341'
                 }>{`  ${ln.text}`}</Text>
               ) : (
-                <Text key={i} color={isUser ? '#F0A6C9' : '#C9D1D9'}>{`  ${ln.text}`}</Text>
+                <Text key={i} bold={ln.kind === 'text' ? ln.bold : undefined} color={isUser ? '#F0A6C9' : '#C9D1D9'}>
+                  {'  '}{boldSegs(ln.text)}
+                </Text>
               )
             ])}
             {/* 截断徽章：普通截断跟在缩短后的末行后面；表格闭合截断时单独占一行（不拼在边框上） */}
@@ -1520,7 +1541,7 @@ function BlockWindow({
           <Box flexGrow={1}>
             <Text color="#8B949E">{`${blocks[start - 1].lines
               .slice(-peekTop)
-              .map(ln => (ln.kind === 'chip' ? `📋 ${ln.preview}…` : ln.text))
+              .map(ln => (ln.kind === 'chip' ? `📋 ${ln.preview}…` : ln.text.replace(/\*\*(.+?)\*\*/g, '$1')))
               .join('\n')}\n`}</Text>
           </Box>
         </Box>
