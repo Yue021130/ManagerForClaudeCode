@@ -1422,25 +1422,45 @@ function BlockWindow({
 
   // 取块的前 n 行（n 含徽章占的行）；截断时末行缩短给徽章让位。
   // text 和 tool 末行都要让——tool 行（长命令/结果）不让位时徽章会被挤出面板右缘
-  const headLines = (b: Block, n: number): { body: BlockLine[]; truncated: boolean } => {
-    if (b.lines.length <= n) return { body: b.lines.slice(), truncated: false };
+  const headLines = (b: Block, n: number): { body: BlockLine[]; truncated: boolean; badgeOwnLine: boolean } => {
+    if (b.lines.length <= n) return { body: b.lines.slice(), truncated: false, badgeOwnLine: false };
     const body = b.lines.slice(0, Math.max(0, n - 1));
-    const lastLn = body[body.length - 1];
+    let lastLn = body[body.length - 1];
+    // 截断点落在表格里：边框行拦腰切断 + 徽章拼在残框上没法看。
+    // 找回这张表的顶边框 ┌，把末行换成等宽底边框 └─┴─┘ 让网格闭合，徽章单独占一行。
+    if (lastLn?.kind === 'text' && lastLn.table) {
+      let topIdx = body.length - 1;
+      while (topIdx >= 0) {
+        const ln = body[topIdx];
+        if (ln.kind === 'text' && ln.table && ln.text.startsWith('┌')) break;
+        topIdx--;
+      }
+      if (topIdx >= 0 && topIdx < body.length - 1) {
+        const top = (body[topIdx] as { text: string }).text;
+        const bottom = top.replaceAll('┌', '└').replaceAll('┬', '┴').replaceAll('┐', '┘');
+        body[body.length - 1] = { kind: 'text', text: bottom, table: true };
+        return { body, truncated: true, badgeOwnLine: true };
+      }
+      // 退化：表格连表头都露不出来 → 整段表格撤下，徽章跟在前面内容后
+      body.splice(topIdx >= 0 ? topIdx : body.length - 1);
+      lastLn = body[body.length - 1];
+      if (!lastLn) return { body, truncated: true, badgeOwnLine: true }; // 块里只有表格：徽章独占一行
+    }
     if (lastLn && (lastLn.kind === 'text' || lastLn.kind === 'tool')) {
       const budget = Math.max(0, contentW - badgeW - 2); // -2 = 行首缩进
       const shrunk = fitWidth(lastLn.text, budget);
       body[body.length - 1] =
         lastLn.kind === 'text'
-          ? { kind: 'text', text: shrunk }
+          ? { kind: 'text', text: shrunk, table: lastLn.table }
           : { kind: 'tool', text: shrunk, error: lastLn.error, result: lastLn.result };
     }
-    return { body, truncated: true };
+    return { body, truncated: true, badgeOwnLine: false };
   };
 
-  const renderBlock = (b: Block, realIdx: number, hl: { body: BlockLine[]; truncated: boolean }) => {
+  const renderBlock = (b: Block, realIdx: number, hl: { body: BlockLine[]; truncated: boolean; badgeOwnLine: boolean }) => {
     const active = realIdx === selected;
     const isUser = b.role === 'user';
-    const { body, truncated } = hl;
+    const { body, truncated, badgeOwnLine } = hl;
     return (
       <Box key={realIdx} flexDirection="row" width={rowW}>
         <Text bold color={active ? '#79C0FF' : '#6E7681'}>
@@ -1481,7 +1501,8 @@ function BlockWindow({
                 <Text key={i} color={isUser ? '#F0A6C9' : '#C9D1D9'}>{`  ${ln.text}`}</Text>
               )
             ])}
-            {/* 截断徽章：跟在末行文字后面（末行已缩短让位），不单独占行 */}
+            {/* 截断徽章：普通截断跟在缩短后的末行后面；表格闭合截断时单独占一行（不拼在边框上） */}
+            {truncated && badgeOwnLine ? '\n' : ''}
             {truncated && <Text backgroundColor="#3A3D42" color="#A371F7">{ELLIPSIS_BADGE}</Text>}
             {'\n'}
           </Text>
