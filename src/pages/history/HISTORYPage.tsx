@@ -1100,12 +1100,12 @@ function renderTable(rows: string[], maxWidth: number): string[] {
   const header = parsed[0];
   const body = parsed.slice(1).filter(r => !isSepRow(r));
   const cols = Math.max(...parsed.map(r => r.length));
-  // 列宽 = 该列最长内容的显示宽（封顶 30），再按面板宽逐列压缩最宽列（压缩后内容折行不丢失）
+  // 列宽 = 该列最长内容的显示宽；总宽超面板时才逐列压缩最宽列（压缩后内容折行不丢失）
   const colW: number[] = [];
   for (let c = 0; c < cols; c++) {
     let w = 3;
     for (const r of [header, ...body]) w = Math.max(w, twOf(r[c] ?? ''));
-    colW.push(Math.min(w, 30));
+    colW.push(w);
   }
   const total = () => 1 + colW.reduce((a, b) => a + b + 3, 0); // '│' + ' cell │'×列数
   while (total() > maxWidth && Math.max(...colW) > 3) {
