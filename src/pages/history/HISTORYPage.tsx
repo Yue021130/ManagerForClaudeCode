@@ -26,11 +26,12 @@ import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
  * 三栏：项目列表 | 会话列表 | 对话预览
  * 数据：~/.claude/projects/<dir>/<sessionId>.jsonl（见 scan.ts）
  *
- * 键位：↑↓ 移动（随焦点）  ←→/tab 切焦点  enter 下钻/进详情  space 粘贴段展开/收起
+ * 键位：↑↓ 移动（随焦点）  ←→/tab 切焦点  enter 下钻/进详情
+ *       space 会话列=全屏预览（esc 退出）  预览列=粘贴段展开/收起
  *       / 搜索（Enter 或删空退出）  d 删除（弹窗输入 YUE 确认）  x 归档  e 导出MD  r 重命名（弹窗，运行中锁定）
  * 会话选中即自动预览（120ms 防抖），enter 在会话行只是把焦点送进预览。
  * 删除/归档 = 移到 ~/.claude/backups/，可恢复。
- * <pasted_content> 段默认折叠成一行颜色块（前 20 字符 + …），space 展开。
+ * <pasted_content> 段默认折叠成一行颜色块（前 20 字符 + …），预览焦点下 space 展开。
  */
 export const meta: PageMeta = {
   num: 1,
@@ -40,7 +41,7 @@ export const meta: PageMeta = {
     ['↑↓', '选择'],
     ['←→', '切换'],
     ['enter', '展开'],
-    ['space', '粘贴'],
+    ['space', '全屏/粘贴'],
     ['/', '搜索'],
     ['d', '删除'],
     ['x', '归档'],
