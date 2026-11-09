@@ -1660,11 +1660,11 @@ function SessionCards({
   const titleSrcOf = (s: SessionMeta) =>
     `${inSearch ? `[${s.cwd ? path.basename(s.cwd) : '?'}] ` : ''}${s.title}`;
   const titleWrapOf = (s: SessionMeta): string[] => {
-    const wrapped = wrapText(titleSrcOf(s), textW - 2);
+    const wrapped = wrapText(titleSrcOf(s), textW - 3); // -2 前缀列 -1 与🎃的间距
     const shown = wrapped.slice(0, 2);
     if (wrapped.length > 2) {
       let last = shown[1] ?? '';
-      while (twOf(last) + 1 > textW - 2 && last.length) last = [...last].slice(0, -1).join('');
+      while (twOf(last) + 1 > textW - 3 && last.length) last = [...last].slice(0, -1).join('');
       shown[1] = last + '…';
     }
     return shown;
@@ -1737,8 +1737,9 @@ function SessionCards({
                   行1 带运行● 前缀，行2 空格对齐 */}
               {titleWrapOf(s).map((t, li) => (
                 <Box flexDirection="row" key={li}>
-                  <Box width={2} flexShrink={0}>
-                    {li === 0 && isRunning(s) ? <Text color="#3FB950">●</Text> : <Text>{'  '}</Text>}
+                  {/* 前缀 3 列：🎃(2列) 之后空 1 列放运行●，标题再往后错开 */}
+                  <Box width={3} flexShrink={0}>
+                    {li === 0 && isRunning(s) ? <Text color="#3FB950">{' ●'}</Text> : <Text>{'   '}</Text>}
                   </Box>
                   <Box flexGrow={1}>
                     <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
