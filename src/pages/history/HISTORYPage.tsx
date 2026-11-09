@@ -828,29 +828,22 @@ export default function HISTORYPage({ width, height }: PageProps) {
         title=""
         emptyMessage="enter 预览会话"
       >
-        {/* 全屏信息头：照搬会话卡片行1（🎃+运行●+标题）/行2（问·答·大小+时间），
-            让用户知道全屏看的是哪条会话 */}
+        {/* 全屏信息头：标题 / 问·答·大小+时间，两行居中 */}
         {fullscreen && preview && (
           <Box flexDirection="column">
-            <Box flexDirection="row">
-              <Text>🎃 </Text>
-              <Text color="#3FB950">{isRunning(preview.session) ? '● ' : '  '}</Text>
+            <Box justifyContent="center">
               <Text bold color="#E6EDF3" wrap="truncate">{preview.session.title}</Text>
             </Box>
-            <Box flexDirection="row">
-              <Text>{'    '}</Text>
-              <Box flexGrow={1}>
-                <Text wrap="truncate">
-                  <Text color="#3FB950">{`${preview.session.userCount} 问`}</Text>
-                  <Text color="#8B949E">{' · '}</Text>
-                  <Text color="#E3B341">{`${preview.session.assistantCount} 答`}</Text>
-                  <Text color="#8B949E">{' · '}</Text>
-                  <Text color="#F0883E">{fmtSize(preview.session.sizeBytes)}</Text>
-                </Text>
-              </Box>
-              <Box flexShrink={1}>
-                <Text color="#F85149" wrap="truncate">{fmtDate(preview.session.lastTime)}</Text>
-              </Box>
+            <Box justifyContent="center">
+              <Text wrap="truncate">
+                <Text color="#3FB950">{`${preview.session.userCount} 问`}</Text>
+                <Text color="#8B949E">{' · '}</Text>
+                <Text color="#E3B341">{`${preview.session.assistantCount} 答`}</Text>
+                <Text color="#8B949E">{' · '}</Text>
+                <Text color="#F0883E">{fmtSize(preview.session.sizeBytes)}</Text>
+                <Text color="#8B949E">{' · '}</Text>
+                <Text color="#F85149">{fmtDate(preview.session.lastTime)}</Text>
+              </Text>
             </Box>
           </Box>
         )}
