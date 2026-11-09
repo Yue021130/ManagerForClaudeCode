@@ -1669,7 +1669,7 @@ function SessionCards({
     }
     return shown;
   };
-  const cardH = (s: SessionMeta) => 2 + titleWrapOf(s).length + 2;
+  const cardH = (s: SessionMeta) => 2 + titleWrapOf(s).length + 1;
 
   // 窗口切换：从选中卡向两端按实际卡高累加，预算耗尽即停。
   // 指示行（↑ N / ↓ N）自身也占行高：先按满预算切窗口，实际要画几条指示就从
@@ -1747,11 +1747,8 @@ function SessionCards({
                   </Box>
                 </Box>
               ))}
-              {/* 统计行：绿问/黄答/橙大小 */}
+              {/* 统计+时间同一行：统计靠左顶格（绿问/黄答/橙大小），时间靠右不缩进 */}
               <Box flexDirection="row">
-                <Box width={2} flexShrink={0}>
-                  <Text>{'  '}</Text>
-                </Box>
                 <Box flexGrow={1}>
                   <Text wrap="truncate">
                     <Text color="#3FB950">{`${s.userCount} 问`}</Text>
@@ -1761,14 +1758,11 @@ function SessionCards({
                     <Text color="#F0883E">{fmtSize(s.sizeBytes)}</Text>
                   </Text>
                 </Box>
-              </Box>
-              {/* 时间行：独占一行不再与统计抢宽度 */}
-              <Box flexDirection="row">
-                <Box width={2} flexShrink={0}>
-                  <Text>{'  '}</Text>
+                <Box flexShrink={0}>
+                  <Text color="#F85149">{fmtDate(s.lastTime)}</Text>
                 </Box>
-                <Box flexGrow={1}>
-                  <Text color="#F85149" wrap="truncate">{fmtDate(s.lastTime)}</Text>
+                <Box width={1} flexShrink={0}>
+                  <Text>{' '}</Text>
                 </Box>
               </Box>
             </Box>
