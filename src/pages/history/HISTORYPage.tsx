@@ -188,13 +188,17 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const sessW = Math.min(46, Math.max(26, Math.floor(width * 0.30)));
   const previewW = Math.max(20, width - projW - sessW - 2); // -2 = 两条竖线
 
+  // ── 全屏预览：session 焦点下 space 进全屏（隐藏左/中栏），esc 退出 ──
+  const [fullscreen, setFullscreen] = useState(false);
+  const effPreviewW = fullscreen ? width - 2 : previewW;
+
   // ── 粘贴段展开状态：默认全部折叠成 chip，space 切换（切换会话时重置） ──
   const [expandedPastes, setExpandedPastes] = useState<ReadonlySet<string>>(new Set());
 
   // ── 预览：块为单位（Q 一块 A 一块；工具行不展示；长块截断 +...） ──
   const blocks = useMemo(
-    () => buildBlocks(entries, Math.max(10, previewW - 6), expandedPastes),
-    [entries, previewW, expandedPastes]
+    () => buildBlocks(entries, Math.max(10, effPreviewW - 6), expandedPastes),
+    [entries, effPreviewW, expandedPastes]
   );
   const vIdx = Math.min(previewIdx, Math.max(0, blocks.length - 1));
 
@@ -213,8 +217,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
   // 轮询里要用最新值（不重建 interval），每渲染同步进 ref
   const previewRef = useRef(preview);
   previewRef.current = preview;
-  const previewWRef = useRef(previewW);
-  previewWRef.current = previewW;
+  const previewWRef = useRef(effPreviewW);
+  previewWRef.current = effPreviewW;
   // gg 双击检测：上次按 g 的时间戳（预览/详情共用，500ms 窗口）
   const lastGRef = useRef(0);
   // ss 双击检测：恢复选中会话（500ms 窗口）
@@ -328,7 +332,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
       const list = readConversation(s.filePath);
       setPreview({ session: s, entries: list });
       setExpandedPastes(new Set());
-      const newBlocks = buildBlocks(list, Math.max(10, previewW - 6), new Set());
+      const newBlocks = buildBlocks(list, Math.max(10, effPreviewW - 6), new Set());
       setPreviewIdx(Math.max(0, newBlocks.length - 1));
     } catch (e) {
       setError(`读取失败: ${String(e)}`);
@@ -586,8 +590,18 @@ export default function HISTORYPage({ width, height }: PageProps) {
       return;
     }
 
+    // 全屏预览：esc 退出（已 setKeysEnabled(false)，不会误退 App）
+    if (fullscreen && key.escape) {
+      setFullscreen(false);
+      setFocus('session');
+      setKeysEnabled(true);
+      return;
+    }
+
     if (key.upArrow) return move(-1);
     if (key.downArrow) return move(1);
+    // 全屏下锁死焦点在预览栏，不允许切走
+    if (fullscreen && (key.leftArrow || key.rightArrow || key.tab || (key.shift && key.tab))) return;
     if (key.leftArrow || (key.shift && key.tab)) return cycleFocus(-1);
     if (key.rightArrow || key.tab) return cycleFocus(1);
 
@@ -605,8 +619,14 @@ export default function HISTORYPage({ width, height }: PageProps) {
       }
     }
 
-    // space：预览焦点下展开/收起选中块里的粘贴段
+    // space：session 焦点 = 进全屏预览；预览焦点 = 展开/收起选中块里的粘贴段
     if (input === ' ') {
+      if (focus === 'session' && currentSession && preview) {
+        setFullscreen(true);
+        setFocus('preview');
+        setKeysEnabled(false); // 全屏接管 Esc：esc 退出全屏而不是 App
+        return;
+      }
       if (focus === 'preview' && blocks[vIdx]) togglePaste(blocks[vIdx].pasteIds);
       return;
     }
@@ -727,7 +747,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
   return (
     <Box flexGrow={1} flexDirection="row" overflow="hidden">
-      {/* ── 左：项目列表 ── */}
+      {/* ── 左：项目列表（全屏预览时隐藏） ── */}
+      {!fullscreen && (
       <Box width={projW} flexDirection="column">
         <ScrollableList<ProjectInfo>
           title="PROJECTS"
@@ -754,10 +775,12 @@ export default function HISTORYPage({ width, height }: PageProps) {
           }}
         />
       </Box>
+      )}
 
-      <VerticalDivider />
+      {!fullscreen && <VerticalDivider />}
 
-      {/* ── 中：会话卡片（+ 搜索框） ── */}
+      {/* ── 中：会话卡片（+ 搜索框）（全屏预览时隐藏） ── */}
+      {!fullscreen && (
       <Box width={sessW} flexDirection="column" paddingX={1}>
         {searching && (
           <Box>
@@ -793,14 +816,15 @@ export default function HISTORYPage({ width, height }: PageProps) {
           </Box>
         )}
       </Box>
+      )}
 
-      <VerticalDivider />
+      {!fullscreen && <VerticalDivider />}
 
-      {/* ── 右：对话预览 ── */}
+      {/* ── 右：对话预览（全屏时独占整行宽度） ── */}
       <DetailPanel
         flexGrow
         isFocused={focus === 'preview'}
-        title=""
+        title={fullscreen ? 'esc 退出全屏' : ''}
         emptyMessage="enter 预览会话"
       >
         {/* 顶部不再放统计/路径行：消息直接从面板顶部开始（统计挪到中栏会话卡片） */}
@@ -809,7 +833,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
             blocks={blocks}
             selected={focus === 'preview' ? vIdx : -1}
             avail={Math.max(4, height)}
-            width={previewW}
+            width={effPreviewW}
           />
         )}
         {preview && blocks.length === 0 && (
