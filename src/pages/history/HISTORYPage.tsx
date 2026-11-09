@@ -99,10 +99,10 @@ const fitPath = (p: string, maxW: number): string => {
 
 // 模型名展示：只去供应商前缀（openai/gpt-x → gpt-x）。不做长度截断——
 // 头部行本身有 wrap="truncate" 兜底，硬砍 16 字符会把 deepseek-flash[...] 这类名字拦腰切断
-// ccr 有时把真实模型名 hex 编码进 id（claude-ccr-h<hex>[1m]），先解码还原再剥供应商前缀；
+// ccr 有时把真实模型名 hex 编码进 id（[anthropic/]claude-ccr-h<hex>[1m]），先解码还原再剥供应商前缀；
 // 不匹配该模式的 id 原样处理
 const shortModel = (m: string): string => {
-  const hm = /^claude-ccr-h((?:[0-9a-fA-F]{2})+)(.*)$/.exec(m);
+  const hm = /claude-ccr-h((?:[0-9a-fA-F]{2})+)(.*)$/.exec(m);
   if (hm) {
     try {
       m = Buffer.from(hm[1], 'hex').toString('utf8') + hm[2];
