@@ -99,7 +99,19 @@ const fitPath = (p: string, maxW: number): string => {
 
 // 模型名展示：只去供应商前缀（openai/gpt-x → gpt-x）。不做长度截断——
 // 头部行本身有 wrap="truncate" 兜底，硬砍 16 字符会把 deepseek-flash[...] 这类名字拦腰切断
-const shortModel = (m: string): string => m.slice(m.lastIndexOf('/') + 1);
+// ccr 有时把真实模型名 hex 编码进 id（claude-ccr-h<hex>[1m]），先解码还原再剥供应商前缀；
+// 不匹配该模式的 id 原样处理
+const shortModel = (m: string): string => {
+  const hm = /^claude-ccr-h((?:[0-9a-fA-F]{2})+)(.*)$/.exec(m);
+  if (hm) {
+    try {
+      m = Buffer.from(hm[1], 'hex').toString('utf8') + hm[2];
+    } catch {
+      /* 解码失败保留原样 */
+    }
+  }
+  return m.slice(m.lastIndexOf('/') + 1);
+};
 
 // 「运行中」判定窗口：N 分钟内有写入视为正在使用（Claude Code 日志句柄不常驻，只能看 mtime）
 const RUNNING_MIN = 3;
