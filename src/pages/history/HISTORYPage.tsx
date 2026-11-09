@@ -1759,7 +1759,10 @@ function SessionCards({
                   </Text>
                 </Box>
                 <Box flexShrink={0}>
-                  <Text color="#F85149">{fmtDate(s.lastTime)}</Text>
+                  <Text>
+                    <Text color="#8B949E">{'| '}</Text>
+                    <Text color="#F85149">{fmtDate(s.lastTime)}</Text>
+                  </Text>
                 </Box>
                 <Box width={1} flexShrink={0}>
                   <Text>{' '}</Text>
