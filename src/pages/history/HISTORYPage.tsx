@@ -1627,20 +1627,17 @@ function BlockWindow({
 }
 
 /**
- * SessionCards — 中栏会话卡片列（固定行高 6：上框/标题2行/统计1行/时间1行/下框，卡间无空行——
- * 完整卡片感与信息密度的折中：一屏约 4-5 张）
+ * SessionCards — 中栏会话卡片列（卡片高度响应式：上框/标题1~2行/统计+时间1行/下框，
+ * 卡间无空行。标题一行能放下就只占一行，长标题才折第二行）
  *
- * 不复用 ScrollableList（它假设一项一行）；窗口切换逻辑内联在下方 windowFor，
+ * 不复用 ScrollableList（它假设一项一行）；窗口按累计卡高切换（同 BlockWindow 的思路），
  * 指示行（↑ N / ↓ N）占用通过 reserve 循环从预算里预扣，保证总高永不超父盒。
  *
  * 卡片：round 边框，选中 = 边框紫 #A371F7 + 浅灰底 #2A2A3E + 左 🎃 标记（2 列）；
  * 未选中 = 暗灰框无底、竖条位置空格占位。
- * 标题区固定 2 行：运行中绿● + 标题折行展示（(空会话) 灰，搜索模式前缀 [项目名]），超 2 行加 …；
- * 统计行：彩色统计（问绿/答黄/大小橙）；时间行：红色最后活跃时间独占一行（不与统计抢宽度）。
+ * 标题区 1~2 行：运行中绿● + 标题（(空会话) 灰，搜索模式前缀 [项目名]），超 2 行加 …；
+ * 统计时间行：彩色统计靠左（问绿/答黄/大小橙），红色最后活跃时间靠右不缩进。
  */
-// 卡片固定 6 行：上框 + 标题2行 + 统计1行 + 时间1行 + 下框
-const CARD_H = 6;
-
 function SessionCards({
   sessions,
   selectedIndex,
@@ -1656,34 +1653,64 @@ function SessionCards({
   width: number;
   isRunning: (s: SessionMeta) => boolean;
 }) {
+  const innerW = Math.max(10, width);        // 卡片盒宽（= 栏内容宽）
+  const textW = Math.max(8, innerW - 4);     // 卡内行区 = 内宽 - 左右边框2 - ▌▌竖条2
+
+  // 每张卡的标题行数（1~2）与卡高（边框2 + 标题 + 统计时间1）
+  const titleSrcOf = (s: SessionMeta) =>
+    `${inSearch ? `[${s.cwd ? path.basename(s.cwd) : '?'}] ` : ''}${s.title}`;
+  const titleWrapOf = (s: SessionMeta): string[] => {
+    const wrapped = wrapText(titleSrcOf(s), textW - 2);
+    const shown = wrapped.slice(0, 2);
+    if (wrapped.length > 2) {
+      let last = shown[1] ?? '';
+      while (twOf(last) + 1 > textW - 2 && last.length) last = [...last].slice(0, -1).join('');
+      shown[1] = last + '…';
+    }
+    return shown;
+  };
+  const cardH = (s: SessionMeta) => 2 + titleWrapOf(s).length + 2;
+
+  // 窗口切换：从选中卡向两端按实际卡高累加，预算耗尽即停。
   // 指示行（↑ N / ↓ N）自身也占行高：先按满预算切窗口，实际要画几条指示就从
   // 预算里扣几行重切（最多 2 条，收敛有保证——同 BlockWindow 的 reserve 循环）。
   // 不预留会让内容总高超过父盒 1~2 行：yoga 默认 flexShrink=1 会把超出量按比例
-  // 摊给所有卡片（每张卡 4 行被压成 3.x 行再各自取整）→ 边框行与内容行重叠，
-  // 下边框横线插进统计行（正是"时间压框线/卡片塌陷"乱版的根因）。
-  const windowFor = (rows: number) => {
-    const listVisible = Math.max(1, rows);
-    const maxScroll = Math.max(0, sessions.length - listVisible);
-    const scrollOffset = Math.max(0, Math.min(selectedIndex - Math.floor(listVisible / 2), maxScroll));
+  // 摊给所有卡片 → 边框行与内容行重叠（"卡片塌陷"乱版的根因）。
+  const windowFor = (budget: number) => {
+    if (!sessions.length) {
+      return { scrollOffset: 0, visibleList: [], hasMoreAbove: false, hasMoreBelow: false, aboveCount: 0, belowCount: 0 };
+    }
+    let top = selectedIndex;
+    let bottom = selectedIndex;
+    let used = cardH(sessions[selectedIndex]);
+    for (;;) {
+      const downH = bottom + 1 < sessions.length ? cardH(sessions[bottom + 1]) : Infinity;
+      const upH = top > 0 ? cardH(sessions[top - 1]) : Infinity;
+      if (Math.min(downH, upH) === Infinity || used + Math.min(downH, upH) > budget) break;
+      if (downH <= upH) {
+        used += downH;
+        bottom++;
+      } else {
+        used += upH;
+        top--;
+      }
+    }
     return {
-      scrollOffset,
-      visibleList: sessions.slice(scrollOffset, scrollOffset + listVisible),
-      hasMoreAbove: scrollOffset > 0,
-      hasMoreBelow: scrollOffset + listVisible < sessions.length,
-      aboveCount: scrollOffset,
-      belowCount: sessions.length - scrollOffset - listVisible
+      scrollOffset: top,
+      visibleList: sessions.slice(top, bottom + 1),
+      hasMoreAbove: top > 0,
+      hasMoreBelow: bottom < sessions.length - 1,
+      aboveCount: top,
+      belowCount: sessions.length - 1 - bottom
     };
   };
-  let win = windowFor(Math.floor(avail / CARD_H));
+  let win = windowFor(avail);
   for (let reserve = 0; reserve <= 2; reserve++) {
-    win = windowFor(Math.floor((avail - reserve) / CARD_H));
+    win = windowFor(avail - reserve);
     const indicators = (win.hasMoreAbove ? 1 : 0) + (win.hasMoreBelow ? 1 : 0);
     if (indicators <= reserve) break;
   }
   const { visibleList, hasMoreAbove, hasMoreBelow, aboveCount, belowCount, scrollOffset } = win;
-
-  const innerW = Math.max(10, width);        // 卡片盒宽（= 栏内容宽）
-  const textW = Math.max(8, innerW - 4);     // 卡内行区 = 内宽 - 左右边框2 - ▌▌竖条2
 
   return (
     <Box flexDirection="column" width={width}>
@@ -1706,31 +1733,20 @@ function SessionCards({
               {active ? <Text>🎃</Text> : <Text>{'  '}</Text>}
             </Box>
             <Box flexDirection="column" width={textW}>
-              {/* 标题区固定 2 行：长标题折行展示，超 2 行在第二行末尾加 …。
+              {/* 标题区 1~2 行：短标题一行放下就不占第二行，长标题折行，超 2 行末尾加 …。
                   行1 带运行● 前缀，行2 空格对齐 */}
-              {(() => {
-                const titleSrc = `${inSearch ? `[${s.cwd ? path.basename(s.cwd) : '?'}] ` : ''}${s.title}`;
-                const wrapped = wrapText(titleSrc, textW - 2);
-                const shown = wrapped.slice(0, 2);
-                if (wrapped.length > 2) {
-                  let last = shown[1] ?? '';
-                  while (twOf(last) + 1 > textW - 2 && last.length) last = [...last].slice(0, -1).join('');
-                  shown[1] = last + '…';
-                }
-                while (shown.length < 2) shown.push('');
-                return shown.map((t, li) => (
-                  <Box flexDirection="row" key={li}>
-                    <Box width={2} flexShrink={0}>
-                      {li === 0 && isRunning(s) ? <Text color="#3FB950">●</Text> : <Text>{'  '}</Text>}
-                    </Box>
-                    <Box flexGrow={1}>
-                      <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
-                        {t}
-                      </Text>
-                    </Box>
+              {titleWrapOf(s).map((t, li) => (
+                <Box flexDirection="row" key={li}>
+                  <Box width={2} flexShrink={0}>
+                    {li === 0 && isRunning(s) ? <Text color="#3FB950">●</Text> : <Text>{'  '}</Text>}
                   </Box>
-                ));
-              })()}
+                  <Box flexGrow={1}>
+                    <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
+                      {t}
+                    </Text>
+                  </Box>
+                </Box>
+              ))}
               {/* 统计行：绿问/黄答/橙大小 */}
               <Box flexDirection="row">
                 <Box width={2} flexShrink={0}>
