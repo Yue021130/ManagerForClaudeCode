@@ -1627,18 +1627,19 @@ function BlockWindow({
 }
 
 /**
- * SessionCards — 中栏会话卡片列（固定行高 4：上框/内容2行/下框，卡间无空行——
- * 完整卡片感与信息密度的折中：一屏约 6-7 张）
+ * SessionCards — 中栏会话卡片列（固定行高 6：上框/标题2行/统计1行/时间1行/下框，卡间无空行——
+ * 完整卡片感与信息密度的折中：一屏约 4-5 张）
  *
  * 不复用 ScrollableList（它假设一项一行）；窗口切换逻辑内联在下方 windowFor，
  * 指示行（↑ N / ↓ N）占用通过 reserve 循环从预算里预扣，保证总高永不超父盒。
  *
  * 卡片：round 边框，选中 = 边框紫 #A371F7 + 浅灰底 #2A2A3E + 左 🎃 标记（2 列）；
  * 未选中 = 暗灰框无底、竖条位置空格占位。
- * 行1：运行中绿● + 标题（(空会话) 灰，搜索模式前缀 [项目名]）；
- * 行2：彩色统计（问绿/答黄/大小橙）+ 右侧红色最后活跃时间（只显示一个时间）。
+ * 标题区固定 2 行：运行中绿● + 标题折行展示（(空会话) 灰，搜索模式前缀 [项目名]），超 2 行加 …；
+ * 统计行：彩色统计（问绿/答黄/大小橙）；时间行：红色最后活跃时间独占一行（不与统计抢宽度）。
  */
-const CARD_H = 4;
+// 卡片固定 6 行：上框 + 标题2行 + 统计1行 + 时间1行 + 下框
+const CARD_H = 6;
 
 function SessionCards({
   sessions,
@@ -1705,19 +1706,32 @@ function SessionCards({
               {active ? <Text>🎃</Text> : <Text>{'  '}</Text>}
             </Box>
             <Box flexDirection="column" width={textW}>
-              {/* 行1：运行● + 标题（时间只保留行2一个，避免同日重复/跨天截断的双时间乱象） */}
-              <Box flexDirection="row">
-                <Box width={2} flexShrink={0}>
-                  {isRunning(s) ? <Text color="#3FB950">●</Text> : <Text>{'  '}</Text>}
-                </Box>
-                <Box flexGrow={1}>
-                  <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
-                    {inSearch ? `[${s.cwd ? path.basename(s.cwd) : '?'}] ` : ''}
-                    {s.title}
-                  </Text>
-                </Box>
-              </Box>
-              {/* 行2：彩色统计（绿问/黄答/橙大小，照原右栏统计行分工）+ 右侧紫时间范围 */}
+              {/* 标题区固定 2 行：长标题折行展示，超 2 行在第二行末尾加 …。
+                  行1 带运行● 前缀，行2 空格对齐 */}
+              {(() => {
+                const titleSrc = `${inSearch ? `[${s.cwd ? path.basename(s.cwd) : '?'}] ` : ''}${s.title}`;
+                const wrapped = wrapText(titleSrc, textW - 2);
+                const shown = wrapped.slice(0, 2);
+                if (wrapped.length > 2) {
+                  let last = shown[1] ?? '';
+                  while (twOf(last) + 1 > textW - 2 && last.length) last = [...last].slice(0, -1).join('');
+                  shown[1] = last + '…';
+                }
+                while (shown.length < 2) shown.push('');
+                return shown.map((t, li) => (
+                  <Box flexDirection="row" key={li}>
+                    <Box width={2} flexShrink={0}>
+                      {li === 0 && isRunning(s) ? <Text color="#3FB950">●</Text> : <Text>{'  '}</Text>}
+                    </Box>
+                    <Box flexGrow={1}>
+                      <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
+                        {t}
+                      </Text>
+                    </Box>
+                  </Box>
+                ));
+              })()}
+              {/* 统计行：绿问/黄答/橙大小 */}
               <Box flexDirection="row">
                 <Box width={2} flexShrink={0}>
                   <Text>{'  '}</Text>
@@ -1731,12 +1745,14 @@ function SessionCards({
                     <Text color="#F0883E">{fmtSize(s.sizeBytes)}</Text>
                   </Text>
                 </Box>
-                <Box flexShrink={1}>
-                  <Text color="#F85149" wrap="truncate">{fmtDate(s.lastTime)}</Text>
+              </Box>
+              {/* 时间行：独占一行不再与统计抢宽度 */}
+              <Box flexDirection="row">
+                <Box width={2} flexShrink={0}>
+                  <Text>{'  '}</Text>
                 </Box>
-                {/* 右端 1 列呼吸垫：时间不贴右边框，避免"压线"观感 */}
-                <Box width={1} flexShrink={0}>
-                  <Text>{' '}</Text>
+                <Box flexGrow={1}>
+                  <Text color="#F85149" wrap="truncate">{fmtDate(s.lastTime)}</Text>
                 </Box>
               </Box>
             </Box>
