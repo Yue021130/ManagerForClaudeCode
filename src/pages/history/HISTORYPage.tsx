@@ -27,7 +27,7 @@ import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
  * 数据：~/.claude/projects/<dir>/<sessionId>.jsonl（见 scan.ts）
  *
  * 键位：↑↓ 移动（随焦点）  ←→/tab 切焦点  enter 下钻/进详情
- *       space 会话列=全屏预览（esc 退出）  预览列=粘贴段展开/收起
+ *       space 会话列=全屏预览（q 退出）  预览列=粘贴段展开/收起
  *       / 搜索（Enter 或删空退出）  d 删除（弹窗输入 YUE 确认）  x 归档  e 导出MD  r 重命名（弹窗，运行中锁定）
  * 会话选中即自动预览（120ms 防抖），enter 在会话行只是把焦点送进预览。
  * 删除/归档 = 移到 ~/.claude/backups/，可恢复。
@@ -201,7 +201,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const sessW = Math.min(46, Math.max(26, Math.floor(width * 0.30)));
   const previewW = Math.max(20, width - projW - sessW - 2); // -2 = 两条竖线
 
-  // ── 全屏预览：session 焦点下 space 进全屏（隐藏左/中栏），esc 退出 ──
+  // ── 全屏预览：session 焦点下 space 进全屏（隐藏左/中栏），q 退出 ──
   const [fullscreen, setFullscreen] = useState(false);
   const effPreviewW = fullscreen ? width - 2 : previewW;
 
@@ -215,7 +215,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
   );
   const vIdx = Math.min(previewIdx, Math.max(0, blocks.length - 1));
 
-  // ── 详情视图（enter 展开整块，esc 返回） ──
+  // ── 详情视图（enter 展开整块，q 返回） ──
   const [detail, setDetail] = useState<Block | null>(null);
   const [detailIdx, setDetailIdx] = useState(0);
   const detailLines = useMemo(() => {
@@ -375,7 +375,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const openDetail = (b: Block) => {
     setDetail(b);
     setDetailIdx(0);
-    setKeysEnabled(false); // 详情模式接管 Esc（App 不退出）
+    setKeysEnabled(false); // 详情模式接管键盘（q 返回；App 的 Esc 退出被屏蔽）
   };
 
   const closeDetail = () => {
@@ -570,9 +570,9 @@ export default function HISTORYPage({ width, height }: PageProps) {
       return;
     }
 
-    // 详情视图：↑↓ 滚动，gg/G 跳顶/底，space 展开/收起粘贴段，Esc 返回，吃掉其余键
+    // 详情视图：↑↓ 滚动，gg/G 跳顶/底，space 展开/收起粘贴段，q 返回，吃掉其余键
     if (detail) {
-      if (key.escape) return closeDetail();
+      if (input === 'q') return closeDetail();
       if (input === ' ') return togglePaste(detail.pasteIds);
       if (key.upArrow) return setDetailIdx(Math.max(0, dIdx - 1));
       if (key.downArrow) return setDetailIdx(Math.min(detailLines.length - 1, dIdx + 1));
@@ -603,8 +603,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
       return;
     }
 
-    // 全屏预览：esc 退出（已 setKeysEnabled(false)，不会误退 App）
-    if (fullscreen && key.escape) {
+    // 全屏预览：q 退出（已 setKeysEnabled(false)，不会误退 App）
+    if (fullscreen && input === 'q') {
       setFullscreen(false);
       setFocus('session');
       setKeysEnabled(true);
@@ -637,7 +637,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
       if (focus === 'session' && currentSession && preview) {
         setFullscreen(true);
         setFocus('preview');
-        setKeysEnabled(false); // 全屏接管 Esc：esc 退出全屏而不是 App
+        setKeysEnabled(false); // 全屏接管键盘：q 退出全屏而不是 App
         return;
       }
       if (focus === 'preview' && blocks[vIdx]) togglePaste(blocks[vIdx].pasteIds);
@@ -729,7 +729,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
             {` ${detail.label}${detail.time ? ` · ${detail.time}` : ''} · 完整内容`}
           </Text>
           <Box flexGrow={1} />
-          <Text color="#8B949E">↑↓ 滚动  space 粘贴  esc 返回</Text>
+          <Text color="#8B949E">↑↓ 滚动  space 粘贴  q 返回</Text>
         </Box>
         <ScrollableList<BlockLine>
           items={detailLines}
