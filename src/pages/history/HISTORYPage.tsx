@@ -13,6 +13,7 @@ import {
   scanSession,
   claudeProjectsRoot,
   readConversation,
+  readConversationAsync,
   moveSession,
   exportMarkdown,
   renameSessionTitle
@@ -199,8 +200,6 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const sIdx = Math.min(sessIdx, Math.max(0, sessions.length - 1));
   const currentSession = sessions[sIdx] ?? null;
 
-  const entries = preview?.entries ?? [];
-
   // ── 布局宽度 ──
   const projW = Math.min(28, Math.max(16, Math.floor(width * 0.18)));
   const sessW = Math.min(46, Math.max(26, Math.floor(width * 0.30)));
@@ -213,11 +212,38 @@ export default function HISTORYPage({ width, height }: PageProps) {
   // ── 粘贴段展开状态：默认全部折叠成 chip，space 切换（切换会话时重置） ──
   const [expandedPastes, setExpandedPastes] = useState<ReadonlySet<string>>(new Set());
 
-  // ── 预览：块为单位（Q 一块 A 一块；工具行不展示；长块截断 +...） ──
-  const blocks = useMemo(
-    () => buildBlocks(entries, Math.max(10, effPreviewW - 6), expandedPastes),
-    [entries, effPreviewW, expandedPastes]
-  );
+  // ── 预览：块列表（异步分片构建，见下方 effect；Q 一块 A 一块；工具行不展示；长块截断 +...） ──
+  //
+  // 这里不能只保存 Block[]，还必须同时保存这批 blocks 是从哪个会话构建出来的。
+  // 原因是读取和构建现在是两个连续的异步阶段：
+  //
+  //   旧会话 A 的 blocks
+  //        ↓ 选中 B
+  //   readConversationAsync(B) 完成，preview 已经变成 B
+  //        ↓ buildBlocksAsync(B) 仍在分片执行
+  //   B 的 blocks 构建完成
+  //
+  // 在中间这段时间里，state 里可能同时存在「preview=B、blocks=A」的组合。
+  // 如果只检查 preview 是否属于当前选中项，就会把 A 的旧消息误画在 B 的面板里。
+  // 因此 filePath 是 blocks 的所有权标记：只有 owner 和当前会话一致时才允许展示。
+  const [built, setBuilt] = useState<{ filePath: string | null; blocks: Block[] }>({ filePath: null, blocks: [] });
+
+  // previewStale 覆盖两个异步阶段：
+  // 1. preview 是否存在、路径是否匹配：文件还没读完，或 preview 仍属于之前的会话；
+  // 2. built.filePath：文件已经读完，但该会话的 blocks 还没有构建完成。
+  //
+  // currentSession 为空时也必须视为 stale。否则搜索无结果、切到空项目时，
+  // React 还没来得及执行清理 effect 的那一帧可能继续显示上一个会话。
+  //
+  // 同一会话轮询刷新、改变窗口宽度或展开粘贴段时，built.filePath 仍然相同，
+  // 所以旧 blocks 可以作为同一会话的稳定画面继续显示，直到新 blocks 原子替换。
+  const previewStale = !currentSession || !preview
+    || preview.session.filePath !== currentSession.filePath
+    || built.filePath !== currentSession.filePath;
+
+  // 跨会话构建期间不要把旧 blocks 传给 BlockWindow；这样输入处理和渲染
+  // 使用的是同一份“当前会话可见 blocks”，不会出现看似加载中却还能操作旧消息的状态。
+  const blocks = previewStale ? [] : built.blocks;
   const vIdx = Math.min(previewIdx, Math.max(0, blocks.length - 1));
 
   // ── 详情视图（enter 展开整块，q 返回） ──
@@ -235,16 +261,52 @@ export default function HISTORYPage({ width, height }: PageProps) {
   // 轮询里要用最新值（不重建 interval），每渲染同步进 ref
   const previewRef = useRef(preview);
   previewRef.current = preview;
-  const previewWRef = useRef(effPreviewW);
-  previewWRef.current = effPreviewW;
   // gg 双击检测：上次按 g 的时间戳（预览/详情共用，500ms 窗口）
   const lastGRef = useRef(0);
   // ss 双击检测：恢复选中会话（500ms 窗口）
   const lastSRef = useRef(0);
-  const expandedRef = useRef(expandedPastes);
-  expandedRef.current = expandedPastes;
-  const blocksLenRef = useRef(blocks.length);
-  blocksLenRef.current = blocks.length;
+  const blocksLenRef = useRef(built.blocks.length);
+  blocksLenRef.current = built.blocks.length;
+  // 异步加载/构建的序号令牌：只认最新一次，旧结果落地前丢弃（防快速翻页串台）
+  const loadSeqRef = useRef(0);
+  const buildSeqRef = useRef(0);
+  // 载入新会话后跳到末尾（轮询刷新则保留原位，原本在末尾才跟随）
+  const jumpToEndRef = useRef(false);
+
+  // blocks 重建：预览内容/宽度/粘贴展开任一变化 → 分片异步重建（大会话全量 ~300ms，不冻结 UI）。
+  // 仅同会话重建期间保留旧 blocks；跨会话等新块就绪后再展示。
+  useEffect(() => {
+    if (!preview) {
+      // 没有 preview 时没有任何合法的 blocks 所属者；同时递增序号，
+      // 让已经在途的旧构建在完成后被识别为过期，不能重新写回旧内容。
+      buildSeqRef.current++;
+      setBuilt({ filePath: null, blocks: [] });
+      return;
+    }
+    const seq = ++buildSeqRef.current;
+    // 必须在本次 effect 启动时捕获路径，而不是在异步回调里读取最新 preview。
+    // 否则 A 的构建可能在 B 已经选中后，把完成结果错误标记成 B。
+    const filePath = preview.session.filePath;
+    const list = preview.entries;
+    const w = Math.max(10, effPreviewW - 6);
+    const pastes = expandedPastes;
+    void buildBlocksAsync(list, w, pastes, () => buildSeqRef.current !== seq).then(b => {
+      if (b === null || buildSeqRef.current !== seq) return;
+      // blocks 和所属路径必须在同一次 state 更新里提交。
+      // 不能在构建开始时提前更新 filePath：那时保存的还是上一会话的 blocks，
+      // 提前标记会再次制造「新 owner + 旧内容」并绕过上面的 stale 判断。
+      // 空数组也同样提交 owner，用来区分“构建完成但没有内容”和“还没构建完”。
+      setBuilt({ filePath, blocks: b });
+      setPreviewIdx(idx => {
+        if (jumpToEndRef.current) {
+          jumpToEndRef.current = false;
+          return Math.max(0, b.length - 1);
+        }
+        // 轮询刷新：原本停在末尾附近则跟随末尾，阅读中途不打扰
+        return idx >= blocksLenRef.current - 2 ? Math.max(0, b.length - 1) : idx;
+      });
+    });
+  }, [preview, effPreviewW, expandedPastes]);
 
   // ── 实时刷新：每 3s stat 全部会话文件，一次扫描喂全部用途 ──
   //  1) mtime < 3min        → 绿点（运行中）
@@ -314,13 +376,18 @@ export default function HISTORYPage({ width, height }: PageProps) {
       const pfp = previewRef.current?.session.filePath;
       if (pfp && changed.includes(pfp)) {
         try {
-          const list = readConversation(pfp);
-          const meta = scanSession(pfp); // meta 一并刷新（问数/答数/大小实时）
-          setPreview((old) => (old ? { session: meta, entries: list } : old));
-          setPreviewIdx((idx) => {
-            const newLen = buildBlocks(list, Math.max(10, previewWRef.current - 6), expandedRef.current).length;
-            return idx >= blocksLenRef.current - 2 ? Math.max(0, newLen - 1) : idx;
-          });
+          const meta = scanSession(pfp); // meta 一并刷新（问数/答数/大小实时）；增量只读新增字节
+          void readConversationAsync(pfp)
+            .then(list => {
+              // 预览已切走就不回填（选中加载有 loadSeq 护着，这里按 filePath 比对）
+              const cur = previewRef.current;
+              if (!cur || cur.session.filePath !== pfp) return;
+              setPreview({ session: meta, entries: list });
+              // previewIdx 跟随末尾的逻辑在 blocks 重建完成的回调里
+            })
+            .catch(() => {
+              /* 读取失败等下一轮 */
+            });
         } catch {
           /* 读取失败等下一轮 */
         }
@@ -344,17 +411,20 @@ export default function HISTORYPage({ width, height }: PageProps) {
     }
   };
 
-  // 读取会话进预览（不切焦点）；换会话时粘贴段回到全折叠、定位到最后一块
+  // 读取会话进预览（不切焦点）；异步分片加载，大会话不冻结 UI。
+  // 换会话时粘贴段回到全折叠、定位到最后一块（jumpToEnd 在 blocks 重建完成时生效）
   const loadPreview = (s: SessionMeta) => {
-    try {
-      const list = readConversation(s.filePath);
-      setPreview({ session: s, entries: list });
-      setExpandedPastes(new Set());
-      const newBlocks = buildBlocks(list, Math.max(10, effPreviewW - 6), new Set());
-      setPreviewIdx(Math.max(0, newBlocks.length - 1));
-    } catch (e) {
-      setError(`读取失败: ${String(e)}`);
-    }
+    const seq = ++loadSeqRef.current;
+    jumpToEndRef.current = true;
+    void readConversationAsync(s.filePath)
+      .then(list => {
+        if (loadSeqRef.current !== seq) return;
+        setPreview({ session: s, entries: list });
+        setExpandedPastes(new Set());
+      })
+      .catch(e => {
+        if (loadSeqRef.current === seq) setError(`读取失败: ${String(e)}`);
+      });
   };
 
   // enter 跳进预览焦点；自动预览已载过就不重复读文件
@@ -639,7 +709,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
     // space：session 焦点 = 进全屏预览；预览焦点 = 展开/收起选中块里的粘贴段
     if (input === ' ') {
-      if (focus === 'session' && currentSession && preview) {
+      if (focus === 'session' && currentSession && !previewStale) {
         setFullscreen(true);
         setFocus('preview');
         setKeysEnabled(false); // 全屏接管键盘：q 退出全屏而不是 App
@@ -846,7 +916,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
         emptyMessage="enter 预览会话"
       >
         {/* 全屏信息头：标题 / 问·答·大小+时间，两行居中 */}
-        {fullscreen && preview && (
+        {fullscreen && preview && !previewStale && (
           <Box flexDirection="column">
             <Box justifyContent="center">
               <Text bold color="#E6EDF3" wrap="truncate">{preview.session.title}</Text>
@@ -865,7 +935,14 @@ export default function HISTORYPage({ width, height }: PageProps) {
           </Box>
         )}
         {/* 顶部不再放统计/路径行：消息直接从面板顶部开始（统计挪到中栏会话卡片） */}
-        {preview && blocks.length > 0 && (
+        {previewStale && currentSession && (
+          /* 异步加载中：与 BlockWindow 同结构（paddingX 1 + 标记列 2） */
+          <Box flexDirection="row" paddingX={1}>
+            <Text color="#6E7681">{'  '}</Text>
+            <Text color="#8B949E">载入中…</Text>
+          </Box>
+        )}
+        {!previewStale && blocks.length > 0 && (
           <BlockWindow
             blocks={blocks}
             selected={focus === 'preview' ? vIdx : -1}
@@ -873,7 +950,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
             width={effPreviewW}
           />
         )}
-        {preview && blocks.length === 0 && (
+        {!previewStale && preview && blocks.length === 0 && (
           /* 与 BlockWindow 同结构（paddingX 1 + 标记列 2），左缘和正常消息块对齐 */
           <Box flexDirection="row" paddingX={1}>
             <Text color="#6E7681">{'  '}</Text>
@@ -1376,15 +1453,22 @@ function buildEntryLines(
   return { lines: collapsed, pasteIds };
 }
 
-/** 对话流 → 块列表（用户/AI 文本按 paste 折叠展开；工具调用·结果各成一块，正文保留完整折行，截断交给视口） */
-function buildBlocks(entries: ChatEntry[], maxWidth: number, expandedPastes: ReadonlySet<string>): Block[] {
-  const blocks: Block[] = [];
-  for (const e of entries) {
+/** 对话流区间 [from, to) → 块列表（推进 out；分片异步构建复用） */
+function buildBlocksRange(
+  entries: ChatEntry[],
+  maxWidth: number,
+  expandedPastes: ReadonlySet<string>,
+  from: number,
+  to: number,
+  out: Block[]
+): void {
+  for (let i = from; i < to; i++) {
+    const e = entries[i];
     if (e.role === 'tool') {
       // 工具块 = ⚡ 调用 +（Edit/Update 的）红绿 diff + └ 结果；行已按面板宽预折——
       // 不折会让正文 Text 超出盒宽被 yoga 二次折行，块高变大顶破窗口预算（溢出即乱排）
       const lines = buildToolLines(e, maxWidth);
-      blocks.push({
+      out.push({
         role: 'assistant',
         label: `AI${e.model ? ` · ${shortModel(e.model)}` : ''}`,
         time: e.timestamp ? fmtDate(e.timestamp) : null,
@@ -1396,7 +1480,7 @@ function buildBlocks(entries: ChatEntry[], maxWidth: number, expandedPastes: Rea
     }
     const isUser = e.role === 'user';
     const { lines, pasteIds } = buildEntryLines(e, maxWidth, expandedPastes);
-    blocks.push({
+    out.push({
       role: e.role,
       label: `${isUser ? '你' : 'AI'}${!isUser && e.model ? ` · ${shortModel(e.model)}` : ''}`,
       time: e.timestamp ? fmtDate(e.timestamp) : null,
@@ -1405,7 +1489,26 @@ function buildBlocks(entries: ChatEntry[], maxWidth: number, expandedPastes: Rea
       entry: e
     });
   }
-  return blocks;
+}
+
+/**
+ * 分片异步构建块列表：大会话全量构建实测 ~300ms（7MB / 3800 块），同步会冻结 UI。
+ * 每 200 条 entry 让出一次主线程；isStale() 为真（更新的构建已开始）即放弃返回 null。
+ */
+async function buildBlocksAsync(
+  entries: ChatEntry[],
+  maxWidth: number,
+  expandedPastes: ReadonlySet<string>,
+  isStale: () => boolean
+): Promise<Block[] | null> {
+  const out: Block[] = [];
+  const CHUNK = 200;
+  for (let from = 0; from < entries.length; from += CHUNK) {
+    if (isStale()) return null;
+    buildBlocksRange(entries, maxWidth, expandedPastes, from, Math.min(entries.length, from + CHUNK), out);
+    if (from + CHUNK < entries.length) await new Promise<void>(r => setImmediate(r));
+  }
+  return isStale() ? null : out;
 }
 
 /**
