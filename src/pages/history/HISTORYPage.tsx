@@ -1730,14 +1730,19 @@ function SessionCards({
             <Box flexDirection="column" width={textW}>
               {/* 标题区：不限行数完整折行；行1 带运行● 前缀，第二行起顶格 */}
               {titleWrapOf(s).map((t, li) => (
-                <Box flexDirection="row" key={li}>
-                  {/* 前缀 3 列（🎃 后空 1 列放运行●）只在第一行；第二行起顶格不缩进 */}
-                  {li === 0 && (
+                <Box flexDirection="row" key={li} {...(timeSplitOf(s) ? { width: '100%', justifyContent: 'center' } : {})}>
+                  {/* 前缀 3 列（🎃 后空 1 列放运行●）只在第一行；第二行起顶格不缩进。
+                      时间分行的卡（统计/时间都居中）标题也居中，前缀跟随文字一起居中 */}
+                  {li === 0 && !timeSplitOf(s) && (
                     <Box width={3} flexShrink={0}>
                       {isRunning(s) ? <Text color="#3FB950">{' ●'}</Text> : <Text>{'   '}</Text>}
                     </Box>
                   )}
-                  <Box flexGrow={1}>
+                  {li === 0 && timeSplitOf(s) && isRunning(s) && (
+                    <Text color="#3FB950">{'● '}</Text>
+                  )}
+                  {/* 居中场景不能 flexGrow：会吃掉剩余空间使 justifyContent 失效 */}
+                  <Box flexGrow={timeSplitOf(s) ? 0 : 1}>
                     <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
                       {t}
                     </Text>
