@@ -1737,10 +1737,12 @@ function SessionCards({
                   行1 带运行● 前缀，行2 空格对齐 */}
               {titleWrapOf(s).map((t, li) => (
                 <Box flexDirection="row" key={li}>
-                  {/* 前缀 3 列：🎃(2列) 之后空 1 列放运行●，标题再往后错开 */}
-                  <Box width={3} flexShrink={0}>
-                    {li === 0 && isRunning(s) ? <Text color="#3FB950">{' ●'}</Text> : <Text>{'   '}</Text>}
-                  </Box>
+                  {/* 前缀 3 列（🎃 后空 1 列放运行●）只在第一行；第二行起顶格不缩进 */}
+                  {li === 0 && (
+                    <Box width={3} flexShrink={0}>
+                      {isRunning(s) ? <Text color="#3FB950">{' ●'}</Text> : <Text>{'   '}</Text>}
+                    </Box>
+                  )}
                   <Box flexGrow={1}>
                     <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
                       {t}
