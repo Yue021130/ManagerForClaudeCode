@@ -1659,12 +1659,18 @@ function SessionCards({
   // 每张卡的标题行数（1~2）与卡高（边框2 + 标题 + 统计时间1）
   const titleSrcOf = (s: SessionMeta) =>
     `${inSearch ? `[${s.cwd ? path.basename(s.cwd) : '?'}] ` : ''}${s.title}`;
+  // 标题前缀宽度：换行（分行居中）模式未选中 = 0（直接居中）；其余 = 运行中 3 列（' ● '）/ 未运行 1 列（空格）
+  const prefixWOf = (s: SessionMeta, active: boolean): number => {
+    if (timeSplitOf(s) && !active) return 0;
+    return isRunning(s) ? 3 : 1;
+  };
   // 标题行数不限：多长都完整折行展示，不加省略号
-  const titleWrapOf = (s: SessionMeta): string[] => wrapText(titleSrcOf(s), textW - 3); // -2 前缀列 -1 与🎃的间距
+  const titleWrapOf = (s: SessionMeta, active: boolean): string[] =>
+    wrapText(titleSrcOf(s), textW - prefixWOf(s, active));
   // 统计行内容：核心统计 + 时间；一行放不下（宽度不够）时时间挪到下一行居中
   const statsTextOf = (s: SessionMeta) => `${s.userCount} 问 · ${s.assistantCount} 答 · ${fmtSize(s.sizeBytes)}`;
   const timeSplitOf = (s: SessionMeta) => twOf(statsTextOf(s)) + 2 + twOf(fmtDate(s.lastTime)) + 1 > textW; // 2 = '| '，1 = 右端呼吸垫
-  const cardH = (s: SessionMeta) => 2 + titleWrapOf(s).length + (timeSplitOf(s) ? 2 : 1);
+  const cardH = (s: SessionMeta, active: boolean) => 2 + titleWrapOf(s, active).length + (timeSplitOf(s) ? 2 : 1);
 
   // 窗口切换：从选中卡向两端按实际卡高累加，预算耗尽即停。
   // 指示行（↑ N / ↓ N）自身也占行高：先按满预算切窗口，实际要画几条指示就从
@@ -1677,10 +1683,10 @@ function SessionCards({
     }
     let top = selectedIndex;
     let bottom = selectedIndex;
-    let used = cardH(sessions[selectedIndex]);
+    let used = cardH(sessions[selectedIndex], true);
     for (;;) {
-      const downH = bottom + 1 < sessions.length ? cardH(sessions[bottom + 1]) : Infinity;
-      const upH = top > 0 ? cardH(sessions[top - 1]) : Infinity;
+      const downH = bottom + 1 < sessions.length ? cardH(sessions[bottom + 1], false) : Infinity;
+      const upH = top > 0 ? cardH(sessions[top - 1], false) : Infinity;
       if (Math.min(downH, upH) === Infinity || used + Math.min(downH, upH) > budget) break;
       if (downH <= upH) {
         used += downH;
@@ -1729,14 +1735,16 @@ function SessionCards({
             </Box>
             <Box flexDirection="column" width={textW}>
               {/* 标题区：不限行数完整折行；行1 带运行● 前缀，第二行起顶格 */}
-              {titleWrapOf(s).map((t, li) => (
+              {titleWrapOf(s, active).map((t, li) => (
                 <Box flexDirection="row" key={li} width="100%">
-                  {/* 前缀 3 列（🎃 后空 1 列放运行●）：绿点位置永远固定，不随居中移动。
-                      非分行卡第二行起顶格；分行卡（内容居中）所有行都留前缀，
-                      让标题在剩余空间里居中、各行中心线对齐 */}
-                  {(li === 0 || timeSplitOf(s)) && (
-                    <Box width={3} flexShrink={0}>
-                      {li === 0 && isRunning(s) ? <Text color="#3FB950">{' ●'}</Text> : <Text>{'   '}</Text>}
+                  {/* 标题前缀：非分行卡行1 画（运行中 3 列 ' ● '，否则 1 列空格）；
+                      分行（居中）卡仅选中时画、且每行都画（各行中心线对齐），
+                      未选中不画前缀、标题直接居中 */}
+                  {((li === 0 && !timeSplitOf(s)) || (timeSplitOf(s) && active)) && (
+                    <Box width={isRunning(s) ? 3 : 1} flexShrink={0}>
+                      {li === 0 && isRunning(s)
+                        ? <Text color="#3FB950">{' ● '}</Text>
+                        : <Text>{' '.repeat(isRunning(s) ? 3 : 1)}</Text>}
                     </Box>
                   )}
                   <Box flexGrow={1} {...(timeSplitOf(s) ? { justifyContent: 'center' } : {})}>
