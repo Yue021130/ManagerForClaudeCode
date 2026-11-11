@@ -1681,7 +1681,9 @@ function SessionCards({
   const timeSplitOf = (s: SessionMeta) => twOf(statsTextOf(s)) + 2 + twOf(fmtDate(s.lastTime)) + 1 > textW; // 2 = '| '，1 = 右端呼吸垫
   const cardH = (s: SessionMeta, active: boolean) => 2 + titleWrapOf(s, active).length + (timeSplitOf(s) ? 2 : 1);
 
-  // 窗口切换：从选中卡向两端按实际卡高累加，预算耗尽即停。
+  // 窗口切换：滚动模型（纯函数，窗口完全由 selectedIndex 决定，无持久偏移、不抖动）——
+  // 选中卡先向下移动到窗口中部；越过中部后窗口才开始滚：每按一次 ↓ 顶部消一张、
+  // 底部出一张，选中钉在中部附近；接近列表末尾后窗口钉死，选中沉到底部边缘。↑ 对称。
   // 指示行（↑ N / ↓ N）自身也占行高：先按满预算切窗口，实际要画几条指示就从
   // 预算里扣几行重切（最多 2 条，收敛有保证——同 BlockWindow 的 reserve 循环）。
   // 不预留会让内容总高超过父盒 1~2 行：yoga 默认 flexShrink=1 会把超出量按比例
@@ -1693,17 +1695,29 @@ function SessionCards({
     let top = selectedIndex;
     let bottom = selectedIndex;
     let used = cardH(sessions[selectedIndex], true);
-    for (;;) {
-      const downH = bottom + 1 < sessions.length ? cardH(sessions[bottom + 1], false) : Infinity;
-      const upH = top > 0 ? cardH(sessions[top - 1], false) : Infinity;
-      if (Math.min(downH, upH) === Infinity || used + Math.min(downH, upH) > budget) break;
-      if (downH <= upH) {
-        used += downH;
-        bottom++;
-      } else {
-        used += upH;
-        top--;
-      }
+    // 1) 向上铺：选中卡上方至少留一张（不贴顶），再补到约半个预算（= 选中落在中部）
+    if (top > 0) {
+      top--;
+      used += cardH(sessions[top], false);
+    }
+    const half = Math.floor(budget / 2);
+    while (top > 0 && used + cardH(sessions[top - 1], false) <= half) {
+      top--;
+      used += cardH(sessions[top], false);
+    }
+    // 2) 向下铺：选中卡下方至少留一张（不贴底），再填满剩余预算
+    if (bottom < sessions.length - 1) {
+      bottom++;
+      used += cardH(sessions[bottom], false);
+    }
+    while (bottom < sessions.length - 1 && used + cardH(sessions[bottom + 1], false) <= budget) {
+      bottom++;
+      used += cardH(sessions[bottom], false);
+    }
+    // 3) 已到列表末尾还有余量：向上补满（窗口钉在末尾，选中沉底）
+    while (top > 0 && bottom === sessions.length - 1 && used + cardH(sessions[top - 1], false) <= budget) {
+      top--;
+      used += cardH(sessions[top], false);
     }
     return {
       scrollOffset: top,
