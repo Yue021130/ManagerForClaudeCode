@@ -29,6 +29,7 @@ import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
  * 键位：↑↓ 移动（随焦点）  ←→/tab 切焦点  enter 下钻/进详情
  *       space 会话列=全屏预览（q 退出）  预览列=粘贴段展开/收起
  *       / 搜索（Enter 或删空退出）  d 删除（弹窗输入 YUE 确认）  x 归档  e 导出MD  r 重命名（弹窗，运行中锁定）
+ * 空会话（无问无答，多为反复开关产生的壳）不展示。
  * 会话选中即自动预览（120ms 防抖），enter 在会话行只是把焦点送进预览。
  * 删除/归档 = 移到 ~/.claude/backups/，可恢复。
  * <pasted_content> 段默认折叠成一行颜色块（前 20 字符 + …），预览焦点下 space 展开。
@@ -183,12 +184,16 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const pIdx = projects ? Math.min(projIdx, projects.length - 1) : 0;
   const project = projects?.[pIdx] ?? null;
 
+  // 空会话（无问无答）直接滤掉不展示：纯命令/hook 壳，没有可看的内容
+  const isEmptySess = (s: SessionMeta) => s.userCount === 0 && s.assistantCount === 0;
   const sessions = useMemo<SessionMeta[]>(() => {
     if (!projects) return [];
     const q = query.trim().toLowerCase();
-    if (!q) return project?.sessions ?? [];
     // 搜索模式：跨项目扁平过滤，行首标注项目名
-    return projects.flatMap(p => p.sessions).filter(s => s.title.toLowerCase().includes(q));
+    const base = q
+      ? projects.flatMap(p => p.sessions).filter(s => s.title.toLowerCase().includes(q))
+      : (project?.sessions ?? []);
+    return base.filter(s => !isEmptySess(s));
   }, [projects, project, query]);
 
   const sIdx = Math.min(sessIdx, Math.max(0, sessions.length - 1));
@@ -869,7 +874,11 @@ export default function HISTORYPage({ width, height }: PageProps) {
           />
         )}
         {preview && blocks.length === 0 && (
-          <Text color="#8B949E" wrap="truncate">此会话没有可展示的对话（可能是纯命令会话）</Text>
+          /* 与 BlockWindow 同结构（paddingX 1 + 标记列 2），左缘和正常消息块对齐 */
+          <Box flexDirection="row" paddingX={1}>
+            <Text color="#6E7681">{'  '}</Text>
+            <Text color="#8B949E" wrap="truncate">此会话没有可展示的对话（可能是纯命令会话）</Text>
+          </Box>
         )}
       </DetailPanel>
 
