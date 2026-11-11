@@ -1661,7 +1661,10 @@ function SessionCards({
     `${inSearch ? `[${s.cwd ? path.basename(s.cwd) : '?'}] ` : ''}${s.title}`;
   // 标题行数不限：多长都完整折行展示，不加省略号
   const titleWrapOf = (s: SessionMeta): string[] => wrapText(titleSrcOf(s), textW - 3); // -2 前缀列 -1 与🎃的间距
-  const cardH = (s: SessionMeta) => 2 + titleWrapOf(s).length + 1;
+  // 统计行内容：核心统计 + 时间；一行放不下（宽度不够）时时间挪到下一行居中
+  const statsTextOf = (s: SessionMeta) => `${s.userCount} 问 · ${s.assistantCount} 答 · ${fmtSize(s.sizeBytes)}`;
+  const timeSplitOf = (s: SessionMeta) => twOf(statsTextOf(s)) + 2 + twOf(fmtDate(s.lastTime)) > textW; // 2 = '| '
+  const cardH = (s: SessionMeta) => 2 + titleWrapOf(s).length + (timeSplitOf(s) ? 2 : 1);
 
   // 窗口切换：从选中卡向两端按实际卡高累加，预算耗尽即停。
   // 指示行（↑ N / ↓ N）自身也占行高：先按满预算切窗口，实际要画几条指示就从
@@ -1741,27 +1744,45 @@ function SessionCards({
                   </Box>
                 </Box>
               ))}
-              {/* 统计+时间同一行：统计靠左顶格（绿问/黄答/橙大小），时间靠右不缩进 */}
-              <Box flexDirection="row">
-                <Box flexGrow={1}>
-                  <Text wrap="truncate">
-                    <Text color="#3FB950">{`${s.userCount} 问`}</Text>
-                    <Text color="#8B949E">{' · '}</Text>
-                    <Text color="#E3B341">{`${s.assistantCount} 答`}</Text>
-                    <Text color="#8B949E">{' · '}</Text>
-                    <Text color="#F0883E">{fmtSize(s.sizeBytes)}</Text>
-                  </Text>
-                </Box>
-                <Box flexShrink={0}>
-                  <Text>
-                    <Text color="#8B949E">{'| '}</Text>
+              {/* 统计+时间：一行放得下就同行（统计靠左顶格、时间靠右），
+                  放不下时间挪到下一行居中——不用省略号截断 */}
+              {timeSplitOf(s) ? (
+                <>
+                  <Box flexDirection="row">
+                    <Text wrap="truncate">
+                      <Text color="#3FB950">{`${s.userCount} 问`}</Text>
+                      <Text color="#8B949E">{' · '}</Text>
+                      <Text color="#E3B341">{`${s.assistantCount} 答`}</Text>
+                      <Text color="#8B949E">{' · '}</Text>
+                      <Text color="#F0883E">{fmtSize(s.sizeBytes)}</Text>
+                    </Text>
+                  </Box>
+                  <Box flexDirection="row" width="100%" justifyContent="center">
                     <Text color="#F85149">{fmtDate(s.lastTime)}</Text>
-                  </Text>
+                  </Box>
+                </>
+              ) : (
+                <Box flexDirection="row">
+                  <Box flexGrow={1}>
+                    <Text wrap="truncate">
+                      <Text color="#3FB950">{`${s.userCount} 问`}</Text>
+                      <Text color="#8B949E">{' · '}</Text>
+                      <Text color="#E3B341">{`${s.assistantCount} 答`}</Text>
+                      <Text color="#8B949E">{' · '}</Text>
+                      <Text color="#F0883E">{fmtSize(s.sizeBytes)}</Text>
+                    </Text>
+                  </Box>
+                  <Box flexShrink={0}>
+                    <Text>
+                      <Text color="#8B949E">{'| '}</Text>
+                      <Text color="#F85149">{fmtDate(s.lastTime)}</Text>
+                    </Text>
+                  </Box>
+                  <Box width={1} flexShrink={0}>
+                    <Text>{' '}</Text>
+                  </Box>
                 </Box>
-                <Box width={1} flexShrink={0}>
-                  <Text>{' '}</Text>
-                </Box>
-              </Box>
+              )}
             </Box>
           </Box>
         );
