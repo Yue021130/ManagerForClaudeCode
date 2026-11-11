@@ -1748,7 +1748,8 @@ function SessionCards({
                   放不下时间挪到下一行居中——不用省略号截断 */}
               {timeSplitOf(s) ? (
                 <>
-                  <Box flexDirection="row">
+                  {/* 时间分行的场景两行都居中，视觉才平衡 */}
+                  <Box flexDirection="row" width="100%" justifyContent="center">
                     <Text wrap="truncate">
                       <Text color="#3FB950">{`${s.userCount} 问`}</Text>
                       <Text color="#8B949E">{' · '}</Text>
