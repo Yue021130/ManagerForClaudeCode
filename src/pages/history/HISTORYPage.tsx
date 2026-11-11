@@ -1663,7 +1663,7 @@ function SessionCards({
   const titleWrapOf = (s: SessionMeta): string[] => wrapText(titleSrcOf(s), textW - 3); // -2 前缀列 -1 与🎃的间距
   // 统计行内容：核心统计 + 时间；一行放不下（宽度不够）时时间挪到下一行居中
   const statsTextOf = (s: SessionMeta) => `${s.userCount} 问 · ${s.assistantCount} 答 · ${fmtSize(s.sizeBytes)}`;
-  const timeSplitOf = (s: SessionMeta) => twOf(statsTextOf(s)) + 2 + twOf(fmtDate(s.lastTime)) > textW; // 2 = '| '
+  const timeSplitOf = (s: SessionMeta) => twOf(statsTextOf(s)) + 2 + twOf(fmtDate(s.lastTime)) + 1 > textW; // 2 = '| '，1 = 右端呼吸垫
   const cardH = (s: SessionMeta) => 2 + titleWrapOf(s).length + (timeSplitOf(s) ? 2 : 1);
 
   // 窗口切换：从选中卡向两端按实际卡高累加，预算耗尽即停。
