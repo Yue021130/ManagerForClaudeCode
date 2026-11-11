@@ -1635,7 +1635,7 @@ function BlockWindow({
  *
  * 卡片：round 边框，选中 = 边框紫 #A371F7 + 浅灰底 #2A2A3E + 左 🎃 标记（2 列）；
  * 未选中 = 暗灰框无底、竖条位置空格占位。
- * 标题区 1~2 行：运行中绿● + 标题（(空会话) 灰，搜索模式前缀 [项目名]），超 2 行加 …；
+ * 标题区不限行数：运行中绿● + 标题（(空会话) 灰，搜索模式前缀 [项目名]），完整折行不加省略号；
  * 统计时间行：彩色统计靠左（问绿/答黄/大小橙），红色最后活跃时间靠右不缩进。
  */
 function SessionCards({
@@ -1659,16 +1659,8 @@ function SessionCards({
   // 每张卡的标题行数（1~2）与卡高（边框2 + 标题 + 统计时间1）
   const titleSrcOf = (s: SessionMeta) =>
     `${inSearch ? `[${s.cwd ? path.basename(s.cwd) : '?'}] ` : ''}${s.title}`;
-  const titleWrapOf = (s: SessionMeta): string[] => {
-    const wrapped = wrapText(titleSrcOf(s), textW - 3); // -2 前缀列 -1 与🎃的间距
-    const shown = wrapped.slice(0, 2);
-    if (wrapped.length > 2) {
-      let last = shown[1] ?? '';
-      while (twOf(last) + 1 > textW - 3 && last.length) last = [...last].slice(0, -1).join('');
-      shown[1] = last + '…';
-    }
-    return shown;
-  };
+  // 标题行数不限：多长都完整折行展示，不加省略号
+  const titleWrapOf = (s: SessionMeta): string[] => wrapText(titleSrcOf(s), textW - 3); // -2 前缀列 -1 与🎃的间距
   const cardH = (s: SessionMeta) => 2 + titleWrapOf(s).length + 1;
 
   // 窗口切换：从选中卡向两端按实际卡高累加，预算耗尽即停。
@@ -1733,8 +1725,7 @@ function SessionCards({
               {active ? <Text>🎃</Text> : <Text>{'  '}</Text>}
             </Box>
             <Box flexDirection="column" width={textW}>
-              {/* 标题区 1~2 行：短标题一行放下就不占第二行，长标题折行，超 2 行末尾加 …。
-                  行1 带运行● 前缀，行2 空格对齐 */}
+              {/* 标题区：不限行数完整折行；行1 带运行● 前缀，第二行起顶格 */}
               {titleWrapOf(s).map((t, li) => (
                 <Box flexDirection="row" key={li}>
                   {/* 前缀 3 列（🎃 后空 1 列放运行●）只在第一行；第二行起顶格不缩进 */}
