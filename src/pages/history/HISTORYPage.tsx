@@ -135,12 +135,16 @@ const FOCUS_ORDER: Focus[] = ['project', 'session', 'preview'];
 /** 「载入中…」转圈动画：⠋⠙⠹… 每 120ms 一帧（沿用 shell/resuming 的 braille 帧）。
  *  与 BlockWindow 同结构（paddingX 1 + 标记列 2），左缘和正常消息块对齐 */
 const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-function LoadingHint() {
+function useSpinFrame(): number {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setFrame(f => f + 1), 120);
     return () => clearInterval(t);
   }, []);
+  return frame;
+}
+function LoadingHint() {
+  const frame = useSpinFrame();
   // 省略号也动：每 3 帧（360ms）多一个点，1~3 循环
   const dots = '.'.repeat((Math.floor(frame / 3) % 3) + 1);
   return (
@@ -148,6 +152,20 @@ function LoadingHint() {
       <Text color="#6E7681">{'  '}</Text>
       <Text color="#A371F7">{SPIN[frame % SPIN.length]}</Text>
       <Text color="#8B949E">{` 载入中${dots}`}</Text>
+    </Box>
+  );
+}
+
+/** 首次扫描的整页等待屏：转圈 + 逐点省略号，文本红色 */
+function ScanningHint() {
+  const frame = useSpinFrame();
+  const dots = '.'.repeat((Math.floor(frame / 3) % 3) + 1);
+  return (
+    <Box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
+      <Text>
+        <Text color="#A371F7">{SPIN[frame % SPIN.length]}</Text>
+        <Text color="#F85149">{` 🚀 正在扫描 ~/.claude/projects ${dots}`}</Text>
+      </Text>
     </Box>
   );
 }
@@ -798,11 +816,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
   // ── 渲染 ──
   if (!projects) {
-    return (
-      <Box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
-        <Text color="#A9B4C0">正在扫描 ~/.claude/projects …</Text>
-      </Box>
-    );
+    return <ScanningHint />;
   }
 
   if (!projects.length) {
