@@ -132,6 +132,26 @@ type Focus = 'project' | 'session' | 'preview';
 
 const FOCUS_ORDER: Focus[] = ['project', 'session', 'preview'];
 
+/** 「载入中…」转圈动画：⠋⠙⠹… 每 120ms 一帧（沿用 shell/resuming 的 braille 帧）。
+ *  与 BlockWindow 同结构（paddingX 1 + 标记列 2），左缘和正常消息块对齐 */
+const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+function LoadingHint() {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setFrame(f => f + 1), 120);
+    return () => clearInterval(t);
+  }, []);
+  // 省略号也动：每 3 帧（360ms）多一个点，1~3 循环
+  const dots = '.'.repeat((Math.floor(frame / 3) % 3) + 1);
+  return (
+    <Box flexDirection="row" paddingX={1}>
+      <Text color="#6E7681">{'  '}</Text>
+      <Text color="#A371F7">{SPIN[frame % SPIN.length]}</Text>
+      <Text color="#8B949E">{` 载入中${dots}`}</Text>
+    </Box>
+  );
+}
+
 export default function HISTORYPage({ width, height }: PageProps) {
   const { setMessage, setError, setKeysEnabled } = useShell();
 
@@ -935,13 +955,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           </Box>
         )}
         {/* 顶部不再放统计/路径行：消息直接从面板顶部开始（统计挪到中栏会话卡片） */}
-        {previewStale && currentSession && (
-          /* 异步加载中：与 BlockWindow 同结构（paddingX 1 + 标记列 2） */
-          <Box flexDirection="row" paddingX={1}>
-            <Text color="#6E7681">{'  '}</Text>
-            <Text color="#8B949E">载入中…</Text>
-          </Box>
-        )}
+        {previewStale && currentSession && <LoadingHint />}
         {!previewStale && blocks.length > 0 && (
           <BlockWindow
             blocks={blocks}
