@@ -20,15 +20,17 @@ import {
 } from './scan.js';
 import { requestResume, spawnResumeNewWindow } from './resume.js';
 import LandingView, { type LandingTarget } from './LandingView.js';
+import { fmtDate, fmtSize, strW } from './fmt.js';
 import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
 
 /**
  * HISTORY 页 — Claude Code 历史对话管理
  *
- * 视图分两层：先进落地页（LandingView：四区块菜单），
- * 仅「历史总览」进入下方三栏管理页（Esc 返回落地页），其余区块占位「开发中」。
- * 扫描/轮询只在总览视图跑（落地页秒开）；总览视图 keysEnabled=false（接管 Esc），
- * 落地页 keysEnabled=true（Esc 退出程序、数字切页归外壳）。
+ * 视图分两层：先进落地页（LandingView 数据看板：统计/近 30 天贡献热力图/最近活跃，
+ * 卡片 enter 拉起恢复弹窗，右侧功能条进各功能），仅「历史总览」进入下方三栏管理页
+ * （Esc 返回落地页），其余功能占位「开发中」。
+ * 扫描两个视图都要（看板也要数据）；3s 轮询只在总览视图跑。
+ * 总览视图 keysEnabled=false（接管 Esc），落地页 keysEnabled=true（Esc 退出、数字切页归外壳）。
  *
  * 三栏：项目列表 | 会话列表 | 对话预览
  * 数据：~/.claude/projects/<dir>/<sessionId>.jsonl（见 scan.ts）
@@ -59,18 +61,7 @@ export const meta: PageMeta = {
   ]
 };
 
-// ── 展示格式化 ──
-// 注意：jsonl 时间戳是 UTC ISO 串，必须转本地时区再切分，直接 slice 会差 8 小时（UTC+8）
-const fmtDate = (iso: string | null): string => {
-  if (!iso) return '--     --:--';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '--     --:--';
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-};
-
-const fmtSize = (b: number): string =>
-  b >= 1048576 ? `${(b / 1048576).toFixed(1)}M` : b >= 1024 ? `${Math.round(b / 1024)}K` : `${b}B`;
+// ── 展示格式化已抽到 ./fmt.js（LandingView 看板共用）──
 
 const projName = (p: ProjectInfo): string => (p.cwd ? path.basename(p.cwd) : p.dirName);
 
@@ -78,13 +69,6 @@ const projName = (p: ProjectInfo): string => (p.cwd ? path.basename(p.cwd) : p.d
 const shortPath = (p: string): string => {
   const home = os.homedir();
   return p.toLowerCase().startsWith(home.toLowerCase()) ? '~' + p.slice(home.length) : p;
-};
-
-// 显示宽度（CJK/全角 2 列，其余 1 列；… 是歧义宽字符，string-width 与终端都按 1 列）
-const strW = (s: string): number => {
-  let n = 0;
-  for (const c of s) n += c === '…' ? 1 : (c.codePointAt(0) ?? 0) > 0xff ? 2 : 1;
-  return n;
 };
 
 // 路径放不下时中段省略：~\Desktop\…\ManagerForClaudeCode —— 优先保住尾部项目名，
@@ -176,10 +160,19 @@ function ScanningHint() {
   );
 }
 
-export default function HISTORYPage({ width, height }: PageProps) {
-  const { setMessage, setError, setKeysEnabled } = useShell();
+// 落地页底栏键位（overview 用 meta.hints；按视图切换见下方 effect）
+const LANDING_HINTS: [string, string][] = [
+  ['↑↓', '选择'],
+  ['←→', '切换区域'],
+  ['enter', '进入'],
+  ['/', '搜索'],
+  ['q', '退出']
+];
 
-  // ── 视图：landing = 落地页（首页菜单）；overview = 三栏管理页 ──
+export default function HISTORYPage({ width, height }: PageProps) {
+  const { setMessage, setError, setKeysEnabled, setHints } = useShell();
+
+  // ── 视图：landing = 落地页（数据看板）；overview = 三栏管理页 ──
   // App 切页会卸载重挂载本组件，所以每次按 1 回 HISTORY 都落在 landing
   const [view, setView] = useState<'landing' | 'overview'>('landing');
 
@@ -188,6 +181,11 @@ export default function HISTORYPage({ width, height }: PageProps) {
   useEffect(() => {
     setKeysEnabled(view === 'landing');
   }, [view, setKeysEnabled]);
+
+  // 底栏键位随视图换一套（切走页面时外壳自动重置回 meta.hints）
+  useEffect(() => {
+    setHints(view === 'landing' ? LANDING_HINTS : meta.hints);
+  }, [view, setHints]);
 
   // ── 数据 ──
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null); // null = 扫描中
@@ -219,9 +217,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const [resumeChoice, setResumeChoice] = useState<0 | 1>(0); // 0=当前终端 1=新窗口
   const { exit } = useApp();
 
-  // 首次扫描：仅总览视图执行（落地页不扫，按 1 秒开）；让出首帧再扫（scan 同步阻塞 <100ms）
+  // 首次扫描：落地页看板也要数据，两个视图都扫；让出首帧再扫（增量缓存下同步阻塞 <100ms）
   useEffect(() => {
-    if (view !== 'overview') return;
     const t = setTimeout(() => {
       try {
         setProjects(scanAllProjects());
@@ -231,7 +228,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
       }
     }, 10);
     return () => clearTimeout(t);
-  }, [setError, view]);
+  }, [setError]);
 
   // 页面卸载时恢复外壳全局键（防止在搜索中途切走页面后数字键一直失灵）
   useEffect(() => () => setKeysEnabled(true), [setKeysEnabled]);
@@ -566,6 +563,36 @@ export default function HISTORYPage({ width, height }: PageProps) {
     }
   };
 
+  // ── 落地页回调 ──
+  // 功能条 enter：历史总览进三栏；迁移管理/删除记录本次占位
+  const landingSelect = (t: LandingTarget) => {
+    if (t === 'overview') setView('overview');
+    else setMessage('开发中');
+  };
+
+  // 看板卡片 enter → 恢复弹窗（拦截标准与 ss 双击一致：运行中/无路径不开窗）
+  const landingResume = (s: SessionMeta) => {
+    if (isFreshPath(s.filePath)) {
+      setError('最近三分钟有会话写入，不可恢复');
+      return;
+    }
+    if (!s.cwd) {
+      setError('该会话没有记录项目路径，无法恢复');
+      return;
+    }
+    setResuming(s);
+    setResumeChoice(0);
+    setKeysEnabled(false); // 弹窗接管键盘：数字键不切页、Esc 不退出
+  };
+
+  // '/' → 直接进总览并打开搜索框
+  const landingSearch = () => {
+    setView('overview');
+    setSearching(true);
+    setQuery('');
+    setSessIdx(0);
+  };
+
   // ── 键盘 ──
   const move = (dir: -1 | 1) => {
     if (focus === 'project' && projects?.length) {
@@ -585,14 +612,12 @@ export default function HISTORYPage({ width, height }: PageProps) {
   };
 
   useInput((input, key) => {
-    if (view !== 'overview') return; // 落地页：键盘归 LandingView（方向/回车）与外壳（Esc/数字）
-    if (!projects) return;
-
-    // 恢复会话弹窗：↑↓/1/2 选择，enter 确认，esc 取消；其余键吃掉
+    // 恢复会话弹窗：landing（看板卡片 enter）/overview（ss 双击）都可能开着，最先拦截；
+    // ↑↓/1/2 选择，enter 确认，esc 取消；其余键吃掉
     if (resuming) {
       if (key.escape) {
         setResuming(null);
-        setKeysEnabled(false);
+        setKeysEnabled(view === 'landing'); // 恢复所在视图的键盘基线
         return;
       }
       if (key.upArrow || key.downArrow) return setResumeChoice(c => (c === 0 ? 1 : 0));
@@ -606,7 +631,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
             .then(() => setMessage(`已在新窗口恢复「${target.title.slice(0, 16)}」`))
             .catch((e) => setError(`恢复失败: ${String(e)}`));
           setResuming(null);
-          setKeysEnabled(false);
+          setKeysEnabled(view === 'landing');
           return;
         }
         // 当前终端：登记请求 → 退出 App，cli.tsx 接力拉起 claude（claude 退出后自动重挂 App）
@@ -617,6 +642,9 @@ export default function HISTORYPage({ width, height }: PageProps) {
       }
       return;
     }
+
+    if (view !== 'overview') return; // 落地页：键盘归 LandingView（←→/↑↓/enter/q//）与外壳（Esc/数字）
+    if (!projects) return;
 
     // 删除确认弹窗：输入 YUE + enter 才执行；esc 取消；其余键吃掉
     if (confirming) {
@@ -835,19 +863,59 @@ export default function HISTORYPage({ width, height }: PageProps) {
     }
   });
 
+  // ── 恢复会话弹窗：landing（看板卡片 enter）/overview（ss 双击）共用 ──
+  // absolute 满宽横带，挂在哪个视图的渲染树下就浮在哪个视图上
+  const resumeModal = resuming ? (
+    <Box
+      position="absolute"
+      marginTop={Math.max(0, Math.floor((height - 10) / 2))}
+      width={width}
+      flexDirection="column"
+      borderStyle="single"
+      borderLeft={false}
+      borderRight={false}
+      borderColor="#3FB950"
+      backgroundColor="#0D1117"
+      paddingY={1}
+    >
+      <Box justifyContent="center" marginBottom={1}>
+        <Text bold color="#3FB950">恢复会话</Text>
+      </Box>
+      <Box justifyContent="center" marginBottom={1}>
+        <Text color="#E6EDF3" wrap="truncate">
+          {resuming.title.length > 24 ? `${resuming.title.slice(0, 24)}...` : resuming.title}
+        </Text>
+      </Box>
+      {(['在当前终端恢复', '新开终端窗口恢复'] as const).map((label, i) => (
+        <Box key={i} justifyContent="center">
+          <Text bold={resumeChoice === i} color={resumeChoice === i ? '#E3B341' : '#A9B4C0'}>
+            {`${resumeChoice === i ? '❯ ' : '  '}${i + 1}. ${label}`}
+          </Text>
+        </Box>
+      ))}
+      <Box justifyContent="center" marginTop={1}>
+        <Text color="#8B949E">↑↓ 选择 · enter 确认 · esc 取消</Text>
+      </Box>
+    </Box>
+  ) : null;
+
   // ── 渲染 ──
-  // 落地页：扫描/轮询都被 view 门槛拦着，此分支无任何数据依赖，秒开。
-  // 只有「历史总览」进三栏页；其余区块本次占位，提示「开发中」。
+  // 落地页：数据看板（统计/贡献热力图/最近活跃）+ 右侧功能条；扫描不区分视图，照常进行
   if (view === 'landing') {
+    if (!projects) return <ScanningHint />;
     return (
-      <LandingView
-        width={width}
-        height={height}
-        onSelect={(t: LandingTarget) => {
-          if (t === 'overview') setView('overview');
-          else setMessage('开发中');
-        }}
-      />
+      <Box width={width} height={height}>
+        <LandingView
+          width={width}
+          height={height}
+          projects={projects}
+          locked={resuming !== null}
+          onSelect={landingSelect}
+          onResume={landingResume}
+          onSearch={landingSearch}
+        />
+        {resumeModal}
+      </Box>
     );
   }
 
@@ -1133,39 +1201,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           </Box>
         </Box>
       )}
-      {resuming && (
-        <Box
-          position="absolute"
-          marginTop={Math.max(0, Math.floor((height - 10) / 2))}
-          width={width}
-          flexDirection="column"
-          borderStyle="single"
-          borderLeft={false}
-          borderRight={false}
-          borderColor="#3FB950"
-          backgroundColor="#0D1117"
-          paddingY={1}
-        >
-          <Box justifyContent="center" marginBottom={1}>
-            <Text bold color="#3FB950">恢复会话</Text>
-          </Box>
-          <Box justifyContent="center" marginBottom={1}>
-            <Text color="#E6EDF3" wrap="truncate">
-              {resuming.title.length > 24 ? `${resuming.title.slice(0, 24)}...` : resuming.title}
-            </Text>
-          </Box>
-          {(['在当前终端恢复', '新开终端窗口恢复'] as const).map((label, i) => (
-            <Box key={i} justifyContent="center">
-              <Text bold={resumeChoice === i} color={resumeChoice === i ? '#E3B341' : '#A9B4C0'}>
-                {`${resumeChoice === i ? '❯ ' : '  '}${i + 1}. ${label}`}
-              </Text>
-            </Box>
-          ))}
-          <Box justifyContent="center" marginTop={1}>
-            <Text color="#8B949E">↑↓ 选择 · enter 确认 · esc 取消</Text>
-          </Box>
-        </Box>
-      )}
+      {resumeModal}
     </Box>
   );
 }
