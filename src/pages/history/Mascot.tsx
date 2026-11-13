@@ -12,6 +12,8 @@ import { Box, Text } from 'ink';
  *       run ：快速横移（90ms 一拍，全程约 1.3s），腿帧交替出步态、身后拖 8 列流动风带；
  *             奔跑全程不眨眼
  *       pop ：到端点直接停住、眨一眼（不消失、不闪），然后回 idle 等下一次起跑
+ *       jump：原地跳跃——下蹲蓄力（压扁帧）→ 跳起（叠层 marginTop=-1 上移一行，短暂盖过
+ *             面板上边框，离开后 diff 复原）→ 落地压扁 → 复原；90ms 快拍，全程不眨眼
  * 叠层：position absolute 覆盖在统计块同区（Yoga 绝对定位原点 = 父级内容区 (0,0)，
  *       无需 top/left，marginLeft 控制横移），跑过统计时小人盖在字上，离开后 Ink diff 复原文字。
  */
@@ -19,6 +21,8 @@ import { Box, Text } from 'ink';
 const HEAD = [' ▐▛███▜▌ ', ' ▐█████▌ ']; // 0=睁眼 1=眨眼（眼睛缺象限补齐成实心，头形不变）
 const BODY = '▝▜█████▛▘';
 const LEGS = ['  ▘▘ ▝▝  ', '  ▝▝ ▘▘  '];   // 两帧交替 = 走路/跑步步态
+// 压扁帧（跳跃蓄力/落地）：头压扁、身体摊平、腿收起（第三行空串 = 不画，留白由 diff 复原）
+const SQUASH = [' ▐▄███▄▌ ', '▀▀▀▀▀▀▀▀▀', ''];
 
 const COLOR = '#D97757';
 const WIND_COLOR = '#6E7681';
@@ -30,6 +34,7 @@ const RUN_MS = 90;    // 奔跑拍（快）
 const BLINK_MS = 120; // 闭眼只停 120ms 就睁开（快眨，不拖沓）
 const RUN_STEPS = 14; // 全程约 14 拍 ≈ 1.3s
 const POP_TICKS = 2;  // 到端点停顿 2 拍：首拍闭眼（眨一眼），全程不消失
+const JUMP_TICKS = 4; // 跳跃节拍：下蹲 → 跳起 ×2 → 落地压扁，第 5 拍回 idle
 
 export const MASCOT_W = 9; // 造型列宽（含两侧留白）
 
@@ -43,9 +48,9 @@ const windAt = (row: number, t: number, dir: 1 | -1): string => {
 interface S {
   x: number;                         // 面板内容区内左偏移（列）；0 = 最左端的家
   dir: 1 | -1;                       // 奔跑方向
-  phase: 'idle' | 'run' | 'pop';
-  t: number;                         // 阶段内帧数（步态/冒出节拍用）
-  blink: boolean;                    // 本拍是否闭眼（idle/pop 随机或定时，run 恒 false）
+  phase: 'idle' | 'run' | 'pop' | 'jump';
+  t: number;                         // 阶段内帧数（步态/冒出/跳跃节拍用）
+  blink: boolean;                    // 本拍是否闭眼（idle/pop 随机或定时，run/jump 恒 false）
 }
 
 const advance = (prev: S, maxX: number, step: number): S => {
@@ -60,7 +65,15 @@ const advance = (prev: S, maxX: number, step: number): S => {
     if (nt >= POP_TICKS) return { ...prev, phase: 'idle', t: 0, blink: false };
     return { ...prev, t: nt, blink: false };
   }
-  // idle：随机动作——眨眼 / 起跑（朝对面）
+  if (prev.phase === 'jump') {
+    const nt = prev.t + 1;
+    if (nt >= JUMP_TICKS) return { ...prev, phase: 'idle', t: 0, blink: false };
+    return { ...prev, t: nt, blink: false };
+  }
+  // idle：随机动作——眨眼 / 原地起跳（优先）/ 起跑（朝对面）
+  if (maxX >= 4 && Math.random() < 0.02) {
+    return { ...prev, phase: 'jump', t: 0, blink: false };
+  }
   if (maxX >= 4 && Math.random() < 0.04) {
     return { x: prev.x, dir: prev.x === 0 ? 1 : -1, phase: 'run', t: 0, blink: false };
   }
@@ -72,20 +85,26 @@ export default function Mascot({ width }: { width: number }) {
   const step = Math.max(2, Math.ceil(maxX / RUN_STEPS));
   const [s, setS] = useState<S>({ x: 0, dir: 1, phase: 'idle', t: 0, blink: false });
 
-  // 每拍一个 setTimeout，间隔随状态变（run 快拍；blink 闭眼只停 120ms；其余慢拍）
+  // 每拍一个 setTimeout，间隔随状态变（run/jump 快拍；blink 闭眼只停 120ms；其余慢拍）
   useEffect(() => {
     if (maxX < 4) return; // 太窄：静态 idle
-    const ms = s.phase === 'run' ? RUN_MS : s.blink ? BLINK_MS : IDLE_MS;
+    const ms = s.phase === 'run' || s.phase === 'jump' ? RUN_MS : s.blink ? BLINK_MS : IDLE_MS;
     const timer = setTimeout(() => setS(prev => advance(prev, maxX, step)), ms);
     return () => clearTimeout(timer);
   }, [s, maxX, step]);
 
   if (width < MASCOT_W) return null; // 放不下就不画
 
-  const parts = [HEAD[s.blink ? 1 : 0], BODY, LEGS[s.phase === 'run' ? s.t % 2 : 0]];
+  // 跳跃蓄力/落地用压扁帧；其余时刻正常造型
+  const parts =
+    s.phase === 'jump' && (s.t === 0 || s.t === 3)
+      ? SQUASH
+      : [HEAD[s.blink ? 1 : 0], BODY, LEGS[s.phase === 'run' ? s.t % 2 : 0]];
+  // 跳起两拍上移一行（盖过面板上边框，离开后 diff 复原）
+  const lift = s.phase === 'jump' && (s.t === 1 || s.t === 2) ? -1 : 0;
 
   return (
-    <Box position="absolute" width={width} height={3} flexDirection="column">
+    <Box position="absolute" marginTop={lift} width={width} height={3} flexDirection="column">
       {parts.map((part, row) => {
           // 定位一律用 marginLeft（布局边距不产生字符）；绝不能用空格文本推位——
           // 空格会写进屏幕缓冲区，小人走开后一直盖着统计文字
