@@ -7,8 +7,8 @@ import { fmtDate, fmtSize } from './fmt.js';
 /**
  * LandingView — HISTORY 落地页（数据看板 + 功能菜单）
  *
- * 左栏看板：统计行（总对话/项目/占用）→ 近 30 天贡献热力图（GitHub 绿阶、周一对齐）→
- *           最近活跃会话卡片（标题+时间 / ●+首条提问快照）。
+ * 左栏看板：贡献面板（左 = 近 30 天热力图，星期为行/周为列 + 绿阶图例；
+ *           右 = 统计竖排：总对话/项目/占用）→ 最近活跃会话卡片（标题+时间 / ●+首条提问快照）。
  * 右侧功能条：历史总览 / 迁移管理 / 删除记录（图标 + 分隔线）。
  *
  * 键位：←→ 切换区域（列表/菜单）  ↑↓ 移动  enter（列表=恢复会话弹窗，菜单=进入功能）
@@ -42,9 +42,12 @@ const RUNNING_MS = 3 * 60_000;   // 与 overview 同标准：3 分钟内有写�
 const HEAT = ['#21262D', '#0E4429', '#006D32', '#26A641', '#39D353'];
 const heatLevel = (n: number): number => (n <= 0 ? 0 : n <= 2 ? 1 : n <= 5 ? 2 : n <= 9 ? 3 : 4);
 
-interface DayCell { count: number } // count<0 = 范围外（周一对齐补的头尾），画空白
+// 热力图行标签：星期为行（GitHub 式），周一在上
+const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
 
-/** 近 30 天贡献：按会话 lastTime 的本地日期计数；网格回退对齐到周一，竖向一周一行 */
+interface DayCell { count: number } // count<0 = 窗口外（周一对齐补的头尾），画空白
+
+/** 贡献热力图：按会话 lastTime 的本地日期计数；近 30 天窗口，周一对齐（周为列、星期为行） */
 function buildHeatmap(projects: ProjectInfo[]): { weeks: DayCell[][]; total: number } {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -106,9 +109,9 @@ export default function LandingView({
     };
   }, [projects]);
 
-  // 高度预算：统计 4 行 + 热力图(周数+4) + 分隔行 1 + 间隙 3，余下全给卡片（每张 4 行）
-  const heatH = weeks.length + 4;
-  const cardBudget = Math.max(1, Math.floor((height - 4 - heatH - 1 - 3) / 4));
+  // 高度预算：贡献面板固定 11 行（标题 1 + 星期 7 + 图例 1 + 上下边框 2）+ 分隔行 1 + 间隙 1，
+  // 余下全给卡片（每张 4 行）
+  const cardBudget = Math.max(1, Math.floor((height - 11 - 1 - 1) / 4));
   const shown = recent.slice(0, cardBudget);
   const li = Math.min(listIdx, Math.max(0, shown.length - 1));
 
@@ -147,52 +150,68 @@ export default function LandingView({
   // 左栏内容宽 = 总宽 - 功能条 - 竖线 - 左右 padding
   const innerW = Math.max(10, width - STRIP_W - 1 - 2);
 
-  // 统计格子：上行数字、下行标签，格间一竖线（两行高）
-  const statCell = (value: string, label: string, color: string, i: number) => (
-    <Box key={i} flexDirection="row" flexGrow={1}>
-      {i > 0 && <Text color="#30363D">{'│\n│'}</Text>}
-      <Box flexGrow={1} flexDirection="column" alignItems="center">
-        <Text bold color={color}>
-          {value}
-        </Text>
-        <Text color="#8B949E">{label}</Text>
-      </Box>
-    </Box>
-  );
-
   return (
     <Box width={width} height={height} flexDirection="row">
       {/* ── 左栏：数据看板 ── */}
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
-        {/* 统计行：总对话 / 项目 / 占用 */}
-        <Box borderStyle="round" borderColor="#3A3D42" flexDirection="row">
-          {statCell(String(totalSessions), '总对话', '#79C0FF', 0)}
-          {statCell(String(projects.length), '项目', '#3FB950', 1)}
-          {statCell(fmtSize(totalBytes), '占用', '#E3B341', 2)}
-        </Box>
-        {/* 近 30 天贡献热力图 */}
-        <Box borderStyle="round" borderColor="#3A3D42" flexDirection="column" paddingX={1} marginTop={1}>
+        {/* 贡献面板：左热力图 + 右统计竖排 */}
+        <Box borderStyle="round" borderColor="#3A3D42" flexDirection="column" paddingX={1}>
+          {/* 标题行：左名称右计数 */}
           <Box flexDirection="row">
             <Text color="#8B949E">近 30 天贡献</Text>
             <Box flexGrow={1} />
             <Text color="#E3B341">{`${total30} 次对话`}</Text>
           </Box>
-          {/* 星期表头与格子同距（格 2 列 + 1 空格 = 3 列；汉字标签 2 列 + 1 空格） */}
-          <Text color="#6E7681">一 二 三 四 五 六 日</Text>
-          {weeks.map((week, i) => (
-            <Box key={i} flexDirection="row">
-              {week.map((d, j) =>
-                d.count < 0 ? (
-                  <Text key={j}>{'   '}</Text>
-                ) : (
-                  <Text key={j}>
-                    <Text backgroundColor={HEAT[heatLevel(d.count)]}>{'  '}</Text>
+          <Box flexDirection="row" flexGrow={1}>
+            {/* 热力图：星期为行（左侧一二…日标签）、周为列（旧左新右）；格 2 列 + 1 空格 */}
+            <Box flexDirection="column">
+              {WEEKDAYS.map((wd, d) => (
+                <Box key={d} flexDirection="row">
+                  <Text color="#6E7681">{`${wd} `}</Text>
+                  {weeks.map((week, w) =>
+                    week[d].count < 0 ? (
+                      <Text key={w}>{'   '}</Text>
+                    ) : (
+                      <Text key={w}>
+                        <Text backgroundColor={HEAT[heatLevel(week[d].count)]}>{'  '}</Text>
+                        {' '}
+                      </Text>
+                    )
+                  )}
+                </Box>
+              ))}
+              {/* 绿阶图例：少 → 多（缩进 3 列与格子对齐） */}
+              <Box flexDirection="row">
+                <Text color="#6E7681">{'   少 '}</Text>
+                {HEAT.map((c, i) => (
+                  <Text key={i}>
+                    <Text backgroundColor={c}>{'  '}</Text>
                     {' '}
                   </Text>
-                )
-              )}
+                ))}
+                <Text color="#6E7681">多</Text>
+              </Box>
             </Box>
-          ))}
+            <Box flexGrow={1} />
+            {/* 统计竖排：总对话 / 项目 / 占用（竖线分隔，垂直居中） */}
+            <Box width={1} borderStyle="single" borderTop={false} borderBottom={false} borderRight={false} borderColor="#30363D" />
+            <Box flexDirection="column" justifyContent="center" paddingX={2}>
+              {(
+                [
+                  [String(totalSessions), '总对话', '#79C0FF'],
+                  [String(projects.length), '项目', '#3FB950'],
+                  [fmtSize(totalBytes), '占用', '#E3B341']
+                ] as [string, string, string][]
+              ).map(([v, l, c], i) => (
+                <Box key={i} flexDirection="column" alignItems="center" marginTop={i ? 1 : 0}>
+                  <Text bold color={c}>
+                    {v}
+                  </Text>
+                  <Text color="#8B949E">{l}</Text>
+                </Box>
+              ))}
+            </Box>
+          </Box>
         </Box>
         {/* 最近活跃：分隔标题行 */}
         <Box flexDirection="row" marginTop={1}>
