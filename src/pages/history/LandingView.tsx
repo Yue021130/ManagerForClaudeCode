@@ -12,7 +12,8 @@ import { fmtDate, fmtSize } from './fmt.js';
  * 右侧功能条：历史总览 / 迁移管理 / 删除记录（图标 + 分隔线）。
  *
  * 键位：←→ 切换区域（列表/菜单）  ↑↓ 移动  enter（列表=恢复会话弹窗，菜单=进入功能）
- *       / 进历史总览并开搜索  q 退出程序；Esc/数字键归外壳（Esc 退出、数字切页）。
+ *       space 列表=进总览全屏预览该卡片  / 进历史总览并开搜索  q 退出程序
+ *       Esc/数字键归外壳（Esc 退出、数字切页）。
  * locked=true（恢复弹窗开着）时本组件不吃任何键，键盘归弹窗。
  */
 
@@ -20,10 +21,11 @@ export type LandingTarget = 'overview' | 'migrate' | 'trash';
 
 interface LandingProps extends PageProps {
   projects: ProjectInfo[];
-  locked: boolean;                   // 恢复弹窗打开时锁键盘
-  onSelect: (t: LandingTarget) => void;  // 右侧菜单 enter
-  onResume: (s: SessionMeta) => void;    // 最近活跃卡片 enter → 恢复弹窗
-  onSearch: () => void;                  // '/' → 进总览并开搜索
+  locked: boolean;                        // 恢复弹窗打开时锁键盘
+  onSelect: (t: LandingTarget) => void;   // 右侧菜单 enter
+  onResume: (s: SessionMeta) => void;     // 最近活跃卡片 enter → 恢复弹窗
+  onFullscreen: (s: SessionMeta) => void; // 最近活跃卡片 space → 进总览全屏预览
+  onSearch: () => void;                   // '/' → 进总览并开搜索
 }
 
 // 右侧功能菜单：图标 + 中文标签
@@ -82,6 +84,7 @@ export default function LandingView({
   locked,
   onSelect,
   onResume,
+  onFullscreen,
   onSearch
 }: LandingProps) {
   const { exit } = useApp();
@@ -128,6 +131,12 @@ export default function LandingView({
       } else {
         onSelect(MENU[menuIdx].id);
       }
+      return;
+    }
+    if (input === ' ' && focus === 'list') {
+      // 空格：列表焦点 = 全屏预览选中卡片（菜单焦点无此操作）
+      const s = shown[li];
+      if (s) onFullscreen(s);
       return;
     }
     if (input === '/') return onSearch();

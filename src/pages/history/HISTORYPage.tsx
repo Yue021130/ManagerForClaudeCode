@@ -571,6 +571,27 @@ export default function HISTORYPage({ width, height }: PageProps) {
     setKeysEnabled(false); // 弹窗接管键盘：数字键不切页、Esc 不退出
   };
 
+  // 看板卡片 space → 进总览并直接全屏预览该会话（复用总览的预览/全屏状态机；
+  // 会话切过去后 currentPath 防抖 effect 自动载入预览，载入期间显示「载入中」动画）
+  const landingFullscreen = (s: SessionMeta) => {
+    if (!projects) return;
+    const pi = projects.findIndex(p => p.sessions.some(x => x.filePath === s.filePath));
+    if (pi < 0) return;
+    // 总览会话列滤掉了空会话；空会话没有可预览内容，直接拦截
+    const list = projects[pi].sessions.filter(x => !isEmptySess(x));
+    const si = list.findIndex(x => x.filePath === s.filePath);
+    if (si < 0) {
+      setError('空会话没有可预览内容');
+      return;
+    }
+    setProjIdx(pi);
+    setSessIdx(si);
+    setFocus('preview');
+    setFullscreen(true);
+    setKeysEnabled(false); // 全屏接管键盘：q/Esc 退出全屏而不是 App
+    setView('overview');
+  };
+
   // '/' → 直接进总览并打开搜索框
   const landingSearch = () => {
     setView('overview');
@@ -898,6 +919,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           locked={resuming !== null}
           onSelect={landingSelect}
           onResume={landingResume}
+          onFullscreen={landingFullscreen}
           onSearch={landingSearch}
         />
         {resumeModal}
