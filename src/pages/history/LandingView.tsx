@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import type { PageProps } from '../../types.js';
 import type { ProjectInfo, SessionMeta } from './types.js';
-import { dayKey, fmtCount, fmtDate, fmtSize } from './fmt.js';
+import { dayKey, fmtCount, fmtDate, fmtSize, strW } from './fmt.js';
 import Mascot, { MASCOT_W } from './Mascot.js';
 
 /**
@@ -11,7 +11,8 @@ import Mascot, { MASCOT_W } from './Mascot.js';
  * 上部：统计面板（范围页签 + 对话/项目/提问/回答/输入token/输出token/占用 等宽列横排，
  *       口径随 tab 范围；右侧空地是走动吉祥物，见 Mascot.tsx）+ 竖线 + 功能条
  *       （历史总览 / 迁移管理 / 删除记录，图标 + 分隔线）。
- * 下部：🧐 最近对话卡片通栏（标题+时间 / ●+首条提问快照），占满整行宽；空会话不展示（口径同总览）。
+ * 下部：🧐 最近对话通栏 QA 卡（●+标题+时间 / 最后一条 Q / 最后一条 A），最多 3 张、
+ *       卡高 5~8 行随屏高自适应；空会话不展示（口径同总览）。
  *
  * 键位：←→ 切换区域（列表/菜单）  ↑↓ 移动  enter（列表=恢复会话弹窗，菜单=进入功能）
  *       space 列表=全屏预览该卡片（q/Esc 退出回首页）  / 进历史总览并开搜索  q 退出程序
@@ -49,6 +50,36 @@ const RANGES: { label: string; days: number }[] = [
 
 const STRIP_W = 13;              // 右侧功能条宽（图标+空格+4 汉字 = 11 列 + 留白）
 const RUNNING_MS = 3 * 60_000;   // 与 overview 同标准：3 分钟内有写入视为运行中
+
+/** 单行文本按显示宽度贪心硬折出全部行（QA 快照已是折叠空白的单行，无 tab/换行，不需要词断） */
+const wrapAll = (text: string, maxWidth: number): string[] => {
+  const lines: string[] = [];
+  let cur = '';
+  let w = 0;
+  for (const ch of text) {
+    const cw = strW(ch);
+    if (w + cw > maxWidth && cur) {
+      lines.push(cur);
+      cur = '';
+      w = 0;
+    }
+    cur += ch;
+    w += cw;
+  }
+  if (cur || !lines.length) lines.push(cur);
+  return lines;
+};
+
+/** 折行后钳到最多 maxLines 行；放不下时末行截短补 '…'（… 显示宽 1 列） */
+const wrapClamp = (text: string, maxWidth: number, maxLines: number): string[] => {
+  const all = wrapAll(text, maxWidth);
+  if (all.length <= maxLines) return all;
+  const out = all.slice(0, maxLines);
+  let last = out[maxLines - 1];
+  while (last && strW(last + '…') > maxWidth) last = [...last].slice(0, -1).join('');
+  out[maxLines - 1] = last + '…';
+  return out;
+};
 
 export default function LandingView({
   width,
@@ -113,10 +144,17 @@ export default function LandingView({
   // 面板区内容宽 = 总宽 - 功能条 - 竖线 - 左右 padding（下部卡片区为全宽 width-2）
   const innerW = Math.max(10, width - STRIP_W - 1 - 2);
 
-  // 高度预算：上部 5 行（统计面板，功能条同高不超高）+ 分隔行 1 + 间隙 1，余下全给卡片（每张 4 行）
-  const panelH = 5;
-  const cardBudget = Math.max(1, Math.floor((height - panelH - 1 - 1) / 4));
-  const shown = recent.slice(0, cardBudget);
+  // 高度预算：上部 5 行（统计面板，功能条同高不超高）+ 分隔行 1 + 间隙 1，余下给 QA 卡。
+  // 最多 3 张；卡高 = 可用行均分后钳 5~8（边框2 + 标题1 + Q1~2 + A1~3），屏矮自动减张数
+  const MIN_CARD = 5;
+  const MAX_CARD = 8;
+  const avail = height - 5 - 1 - 1;
+  const cardN = Math.min(3, recent.length, Math.max(1, Math.floor(avail / MIN_CARD)));
+  const perCard = Math.min(MAX_CARD, Math.max(MIN_CARD, Math.floor(avail / cardN)));
+  const content = perCard - 3; // 扣边框 2 + 标题 1，余下分给 Q/A
+  const qMax = Math.max(1, Math.min(2, Math.floor(content / 2)));
+  const aMax = content - qMax;
+  const shown = recent.slice(0, cardN);
   const li = Math.min(listIdx, Math.max(0, shown.length - 1));
 
   useInput((input, key) => {
@@ -235,6 +273,10 @@ export default function LandingView({
       {shown.map((s, i) => {
         const active = focus === 'list' && i === li;
         const running = Date.now() - s.mtimeMs < RUNNING_MS;
+        // 卡内文本宽 = 全宽 - 边框2 - paddingX2 - Q/A 标记列2
+        const textW = Math.max(8, width - 8);
+        const qLines = wrapClamp(s.lastQ || s.preview || s.title, textW, qMax);
+        const aLines = s.lastA ? wrapClamp(s.lastA, textW, aMax) : null;
         return (
           <Box
             key={s.sessionId}
@@ -245,6 +287,7 @@ export default function LandingView({
             paddingX={1}
           >
             <Box flexDirection="row">
+              <Text color={running ? '#3FB950' : '#8B949E'}>{'● '}</Text>
               <Box flexGrow={1}>
                 <Text bold={active} color="#E6EDF3" wrap="truncate">
                   {s.title}
@@ -252,14 +295,38 @@ export default function LandingView({
               </Box>
               <Text color="#F85149">{fmtDate(s.lastTime)}</Text>
             </Box>
-            <Box flexDirection="row">
-              <Text color={running ? '#3FB950' : '#8B949E'}>{'● '}</Text>
-              <Box flexGrow={1}>
-                <Text color="#8B949E" wrap="truncate">
-                  {s.preview || s.title}
-                </Text>
+            {/* 最后一条 Q/A：标记列固定 2 列，续行空格缩进对齐；超行末行已带 …（wrapClamp） */}
+            {qLines.map((t, qi) => (
+              <Box key={`q${qi}`} flexDirection="row">
+                <Box width={2} flexShrink={0}>
+                  <Text color="#3FB950">{qi === 0 ? 'Q ' : '  '}</Text>
+                </Box>
+                <Box flexGrow={1}>
+                  <Text color="#F0A6C9" wrap="truncate">{t}</Text>
+                </Box>
               </Box>
-            </Box>
+            ))}
+            {aLines === null ? (
+              <Box flexDirection="row">
+                <Box width={2} flexShrink={0}>
+                  <Text color="#E3B341">A </Text>
+                </Box>
+                <Box flexGrow={1}>
+                  <Text color="#6E7681">（无回答）</Text>
+                </Box>
+              </Box>
+            ) : (
+              aLines.map((t, ai) => (
+                <Box key={`a${ai}`} flexDirection="row">
+                  <Box width={2} flexShrink={0}>
+                    <Text color="#E3B341">{ai === 0 ? 'A ' : '  '}</Text>
+                  </Box>
+                  <Box flexGrow={1}>
+                    <Text color="#C9D1D9" wrap="truncate">{t}</Text>
+                  </Box>
+                </Box>
+              ))
+            )}
           </Box>
         );
       })}
