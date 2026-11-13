@@ -7,6 +7,8 @@ import { Box, Text } from 'ink';
  * 造型：U+2580 块元素一格承载 4 个子像素；眼睛是「缺象限」（▛/▜ 各缺一角）露出终端背景，
  *       闭眼帧在眼睛位画深色下半块（眼睑线），头形不变、仍有五官；品牌橙 #D97757。
  * 动画：终端没有「动画」原语，本质是定时器 + 覆盖重绘；Ink 双缓冲 diff 后每次只重写那几格。
+ * 出场：挂载时初始 x=-9（面板左缘外），150ms 一步一列走入家门，叠层 overflow hidden
+ *       裁掉缘外半身 = 「从边缘后走出来」；到家进 pop 眨一眼，然后进下方随机状态机（只演一次）。
  *       随机状态机十态：
  *       idle：初始家在面板最左端，随机眨眼（每拍 18%），随机起跑（每拍 4%，朝对面跑）
  *       run ：快速横移（90ms 一拍，全程约 1.3s），腿帧交替出步态、身后拖 8 列流动风带；
@@ -97,6 +99,7 @@ const WAVE_TICKS = 6; // 招手 6 拍（≈2.4s）：手左右摆 3 个来回
 const TELE_TICKS = 4; // 闪现 4 拍：淡出 → 消失 → 对面淡入 → 回 idle
 const KICK_TICKS = 5; // 蹬脚 5 拍：外蹬 → 甩左 → 外蹬 → 甩右 → 外蹬
 const KICK_MS = 150;  // 蹬脚拍（快于待机、慢于奔跑，出扑腾感）
+const ENTER_MS = 150; // 出场走入拍
 // t0 头部帧：爱心贴头两侧角（其余拍用 HEAD_HAPPY）
 const HEAD_HAPPY_HEARTS: Seg[] = [
   ['♥', HEART_COLOR],
@@ -120,12 +123,18 @@ const windAt = (row: number, t: number, dir: 1 | -1): string => {
 interface S {
   x: number;                         // 面板内容区内左偏移（列）；0 = 最左端的家
   dir: 1 | -1;                       // 奔跑方向
-  phase: 'idle' | 'run' | 'pop' | 'jump' | 'sleep' | 'happy' | 'look' | 'turn' | 'wave' | 'tele' | 'kick';
+  phase: 'idle' | 'run' | 'pop' | 'jump' | 'sleep' | 'happy' | 'look' | 'turn' | 'wave' | 'tele' | 'kick' | 'enter';
   t: number;                         // 阶段内帧数（步态/冒出/跳跃节拍用；idle 兼作入睡计时）
-  blink: boolean;                    // 本拍是否闭眼（sleep 恒 true，run/jump/happy/look/turn/wave/tele/kick 恒 false）
+  blink: boolean;                    // 本拍是否闭眼（sleep 恒 true，其余大多 false；pop 首拍/idle 随机眨眼）
 }
 
 const advance = (prev: S, maxX: number, step: number): S => {
+  if (prev.phase === 'enter') {
+    // 出场：从面板左缘外（x 负值，被 overflow hidden 裁掉）一步一列走进家，到家眨一眼
+    const nx = prev.x + 1;
+    if (nx >= 0) return { x: 0, dir: 1, phase: 'pop', t: 0, blink: true };
+    return { ...prev, x: nx, t: prev.t + 1, blink: false };
+  }
   if (prev.phase === 'run') {
     const nx = prev.x + step * prev.dir;
     const arrived = prev.dir === 1 ? nx >= maxX : nx <= 0;
@@ -217,19 +226,24 @@ const advance = (prev: S, maxX: number, step: number): S => {
 export default function Mascot({ width }: { width: number }) {
   const maxX = Math.max(0, width - MASCOT_W);
   const step = Math.max(2, Math.ceil(maxX / RUN_STEPS));
-  const [s, setS] = useState<S>({ x: 0, dir: 1, phase: 'idle', t: 0, blink: false });
+  const [s, setS] = useState<S>({ x: -MASCOT_W, dir: 1, phase: 'enter', t: 0, blink: false });
 
-  // 每拍一个 setTimeout，间隔随状态变（run/jump 快拍；idle/pop 闭眼只停 120ms；sleep 慢拍）
+  // 每拍一个 setTimeout，间隔随状态变（run/jump 快拍；enter/kick 150ms；idle/pop 闭眼只停 120ms；sleep 慢拍）
   useEffect(() => {
-    if (maxX < 4) return; // 太窄：静态 idle
+    if (maxX < 4) { // 太窄：不演出场，直接静态 idle
+      setS(prev => (prev.phase === 'enter' ? { ...prev, x: 0, phase: 'idle', t: 0 } : prev));
+      return;
+    }
     const ms =
       s.phase === 'run' || s.phase === 'jump'
         ? RUN_MS
         : s.phase === 'kick'
           ? KICK_MS
-          : (s.phase === 'idle' || s.phase === 'pop') && s.blink
-            ? BLINK_MS
-            : IDLE_MS;
+          : s.phase === 'enter'
+            ? ENTER_MS
+            : (s.phase === 'idle' || s.phase === 'pop') && s.blink
+              ? BLINK_MS
+              : IDLE_MS;
     const timer = setTimeout(() => setS(prev => advance(prev, maxX, step)), ms);
     return () => clearTimeout(timer);
   }, [s, maxX, step]);
@@ -260,7 +274,7 @@ export default function Mascot({ width }: { width: number }) {
                 ? [HEAD_OPEN, BODY, KICK_SEQ[s.t]]
                 : s.phase === 'jump' && (s.t === 0 || s.t === 3)
                 ? SQUASH
-                : [s.blink ? HEAD_CLOSED : HEAD_OPEN, BODY, LEGS[s.phase === 'run' ? s.t % 2 : 0]];
+                : [s.blink ? HEAD_CLOSED : HEAD_OPEN, BODY, LEGS[s.phase === 'run' || s.phase === 'enter' ? s.t % 2 : 0]];
   // 闪现淡出/淡入拍整体压暗
   const teleDim = s.phase === 'tele' && s.t !== 1;
   // 跳起两拍 / 睡眠 / 开心 / 招手（借面板上边框行画气泡）：叠层上移一行，离开后 diff 复原
@@ -287,7 +301,9 @@ export default function Mascot({ width }: { width: number }) {
     );
 
   return (
-    <Box position="absolute" marginTop={lift} width={width} height={floating ? 4 : 3} flexDirection="column">
+    <Box position="absolute" marginTop={lift} width={width} height={floating ? 4 : 3} flexDirection="column"
+      // 出场时裁掉面板左缘外的半身（走出边缘感）；其余时候 visible 放行气泡行（marginTop=-1 借上边框行）
+      overflow={s.phase === 'enter' ? 'hidden' : 'visible'}>
       {sleeping && (
         <Box flexDirection="row" marginLeft={s.x + 2}>
           <Text bold color="#C9D1D9" dimColor={s.t % Z_FRAMES.length >= 2}>{zFrame}</Text>
@@ -318,9 +334,10 @@ export default function Mascot({ width }: { width: number }) {
           // 定位一律用 marginLeft（布局边距不产生字符）；绝不能用空格文本推位——
           // 空格会写进屏幕缓冲区，小人走开后一直盖着统计文字
           if (s.phase !== 'run') {
-            // 东张西望：身体/腿向看的一侧倾一列（头不动，出探身感），贴边时钳住
+            // 东张西望：身体/腿向看的一侧倾一列（头不动，出探身感），贴边时钳住；
+            // 出场：x 可为负（走到面板左缘外，靠叠层 overflow hidden 裁剪），不钳
             const lean = s.phase === 'look' && row > 0 ? s.dir : 0;
-            const mx = Math.min(Math.max(0, s.x + lean), maxX);
+            const mx = s.phase === 'enter' ? s.x : Math.min(Math.max(0, s.x + lean), maxX);
             return (
               <Box key={row} flexDirection="row" marginLeft={mx}>
                 {rowContent(part)}
