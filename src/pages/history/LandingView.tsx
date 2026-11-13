@@ -7,8 +7,8 @@ import { dayKey, fmtCount, fmtDate, fmtSize } from './fmt.js';
 /**
  * LandingView — HISTORY 落地页（数据看板 + 功能菜单）
  *
- * 左栏看板：统计面板（左侧象限块吉祥物，2 FPS 眨眼；右侧范围页签 + 对话/项目/占用/输入token/输出token
- *           横排挤左，口径随 tab 范围）
+ * 左栏看板：统计面板（左侧象限块吉祥物，2 FPS 眨眼；右侧范围页签 + 对话/项目/提问/回答/输入token/
+ *           输出token/占用 等宽列横排，口径随 tab 范围）
  *           → 最近活跃会话卡片（标题+时间 / ●+首条提问快照）。
  * 右侧功能条：历史总览 / 迁移管理 / 删除记录（图标 + 分隔线）。
  *
@@ -101,6 +101,8 @@ export default function LandingView({
     let bytes = 0;
     let input = 0;
     let output = 0;
+    let questions = 0;
+    let answers = 0;
     const dirs = new Set<string>();
     for (const p of projects) {
       for (const s of p.sessions) {
@@ -111,6 +113,8 @@ export default function LandingView({
           bytes += b.bytes;
           input += b.input;
           output += b.output;
+          questions += b.user;
+          answers += b.assistant;
         }
         if (active) {
           sessions++;
@@ -118,7 +122,7 @@ export default function LandingView({
         }
       }
     }
-    return { sessions, bytes, projects: dirs.size, input, output };
+    return { sessions, bytes, projects: dirs.size, input, output, questions, answers };
   }, [projects, rangeIdx]);
 
   // 左栏内容宽 = 总宽 - 功能条 - 竖线 - 左右 padding
@@ -174,7 +178,7 @@ export default function LandingView({
         {/* 统计面板：左吉祥物 + 右（范围页签标题行 + 统计横排） */}
         <Box borderStyle="round" borderColor="#3A3D42" flexDirection="row" paddingX={1}>
           {/* 吉祥物：象限块像素小人，2 FPS 偶尔眨眼；眼睛是缺象限露终端背景 */}
-          <Box flexDirection="column">
+          <Box flexDirection="column" justifyContent="center">
             {MASCOT_POSES[MASCOT_SEQ[mascotTick % MASCOT_SEQ.length]].map((line, i) => (
               <Text key={i} color={MASCOT_COLOR}>{line}</Text>
             ))}
@@ -193,20 +197,23 @@ export default function LandingView({
                 </Text>
               ))}
             </Box>
-            {/* 统计横排：对话 / 项目 / 占用 / 输入 / 输出（口径跟随 tab 范围），竖线分隔、向左挤紧 */}
+            {/* 统计横排：对话/项目/提问/回答/输入/输出/占用（口径跟随 tab 范围），
+                等宽列（8 列）竖线分隔，像表格一样对齐 */}
             <Box flexDirection="row">
               {(
                 [
                   [String(rangeStats.sessions), '对话', '#79C0FF'],
                   [String(rangeStats.projects), '项目', '#3FB950'],
-                  [fmtSize(rangeStats.bytes), '占用', '#E3B341'],
+                  [fmtCount(rangeStats.questions), '提问', '#76E3EA'],
+                  [fmtCount(rangeStats.answers), '回答', '#FFA657'],
                   [fmtCount(rangeStats.input), '输入', '#D2A8FF'],
-                  [fmtCount(rangeStats.output), '输出', '#F778BA']
+                  [fmtCount(rangeStats.output), '输出', '#F778BA'],
+                  [fmtSize(rangeStats.bytes), '占用', '#E3B341']
                 ] as [string, string, string][]
               ).map(([v, l, c], i) => (
                 <Box key={i} flexDirection="row">
                   {i > 0 && <Text color="#30363D">│</Text>}
-                  <Box flexDirection="column" alignItems="center" paddingX={2}>
+                  <Box width={8} flexDirection="column" alignItems="center">
                     <Text bold color={c}>
                       {v}
                     </Text>
