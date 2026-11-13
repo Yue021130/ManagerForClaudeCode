@@ -26,7 +26,7 @@ import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
 /**
  * HISTORY 页 — Claude Code 历史对话管理
  *
- * 视图分两层：先进落地页（LandingView 数据看板：统计/近 30 天贡献热力图/最近活跃，
+ * 视图分两层：先进落地页（LandingView 数据看板：范围统计/最近活跃，
  * 卡片 enter 拉起恢复弹窗，右侧功能条进各功能），仅「历史总览」进入下方三栏管理页
  * （Esc 返回落地页），其余功能占位「开发中」。
  * 扫描两个视图都要（看板也要数据）；3s 轮询只在总览视图跑。
@@ -907,7 +907,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
   ) : null;
 
   // ── 渲染 ──
-  // 落地页：数据看板（统计/贡献热力图/最近活跃）+ 右侧功能条；扫描不区分视图，照常进行
+  // 落地页：数据看板（范围统计/最近活跃）+ 右侧功能条；扫描不区分视图，照常进行
   if (view === 'landing') {
     if (!projects) return <ScanningHint />;
     return (
