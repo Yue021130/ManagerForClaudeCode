@@ -20,6 +20,7 @@ import {
 } from './scan.js';
 import { requestResume, spawnResumeNewWindow } from './resume.js';
 import LandingView, { type LandingTarget } from './LandingView.js';
+import Mascot from './Mascot.js';
 import { fmtDate, fmtSize, strW } from './fmt.js';
 import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
 
@@ -998,7 +999,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           activeTextColor={focus === 'project' ? '#0D1117' : '#79C0FF'}
           terminalHeight={height}
           width={projW}
-          headerOffset={5}
+          headerOffset={9} // 5 + 底部吉祥物条带 4 行
           renderItem={(p, _i, active) => {
             const hot = active && focus === 'project';
             return (
@@ -1013,6 +1014,13 @@ export default function HISTORYPage({ width, height }: PageProps) {
             );
           }}
         />
+        {/* 底部空地：第二只吉祥物（挂载自动播入场动画：从栏左缘外走入，见 Mascot.tsx）。
+            flexGrow 占位把它钉在栏底；paddingTop 预留 1 行给气泡/跳跃借位
+            （叠层 marginTop=-1 落在预留空行，不盖列表末行）；条带宽度与列表一样留 paddingX 1 */}
+        <Box flexGrow={1} />
+        <Box height={4} paddingTop={1} paddingX={1} flexShrink={0}>
+          <Mascot width={Math.max(0, projW - 2)} />
+        </Box>
       </Box>
       )}
 
