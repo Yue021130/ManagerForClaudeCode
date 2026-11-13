@@ -16,8 +16,8 @@ import { Box, Text } from 'ink';
  *             面板上边框，离开后 diff 复原）→ 落地压扁 → 复原；90ms 快拍，全程不眨眼
  *       sleep：待机 30s 无动作入睡——眼闭合上，头顶 z Z 逐个右漂渐隐（叠层 marginTop=-1，
  *             借面板上边框行当气泡行）；睡眠中每拍小概率起跑/起跳「立刻醒」
- *       happy：随机开心（idle 每拍 2%）——笑眼（眼睛位深色上半弧）+ 头顶 ♥ 原地心跳脉冲，
- *             6 拍（≈2.4s）回 idle
+ *       happy：随机开心（idle 每拍 2%）——笑眼（眼睛位深色上半弧）+ 两侧爱心从头角升起、
+ *             到头顶行后空心脉冲渐隐，6 拍（≈2.4s）回 idle
  * 叠层：position absolute 覆盖在统计块同区（Yoga 绝对定位原点 = 父级内容区 (0,0)，
  *       无需 top/left，marginLeft 控制横移），跑过统计时小人盖在字上，离开后 Ink diff 复原文字。
  */
@@ -36,7 +36,7 @@ const HEAD_SLEEP: Seg[] = [
   ['▌ ']
 ];
 const BODY = '▝▜█████▛▘';
-// 笑眼（happy）：眼睛位 ▀ 上下双色反过来——上半深橙笑眼弧、下半主体橙，和瞌睡的下眼睑区分
+// 笑眼（happy）：眼睛位 ▀ 上下双色——上半深橙笑眼弧、下半主体橙，和瞌睡的下眼睑区分
 const HEAD_HAPPY: Seg[] = [
   [' ▐'],
   ['▀', '#9E4A2A', '#D97757'],
@@ -62,10 +62,19 @@ const JUMP_TICKS = 4; // 跳跃节拍：下蹲 → 跳起 ×2 → 落地压扁�
 const SLEEP_TICKS = 75; // idle 连续 75 拍（≈30s）无动作入睡
 // 鼾声气泡帧：右漂 + 小写变大写（升高感），后半程渐隐；叠层借面板上边框行当气泡行
 const Z_FRAMES = ['z', ' z', '  Z', '   Z'];
-// 爱心帧：原地心跳（实心/空心交替脉冲，不漂移），固定在头顶居中
-const HEART_FRAMES = ['♥', '♡'];
+// 开心爱心（🥰 式）：两侧各一颗，t0 贴头两侧角 → t1 升到头顶行 → t2 空心脉冲 → t3 渐隐
 const HEART_COLOR = '#F778BA';
 const HAPPY_TICKS = 6; // 开心 6 拍（≈2.4s）回 idle
+// t0 头部帧：爱心贴头两侧角（其余拍用 HEAD_HAPPY）
+const HEAD_HAPPY_HEARTS: Seg[] = [
+  ['♥', HEART_COLOR],
+  ['▐'],
+  ['▀', '#9E4A2A', '#D97757'],
+  ['███'],
+  ['▀', '#9E4A2A', '#D97757'],
+  ['▌'],
+  ['♥', HEART_COLOR]
+];
 
 export const MASCOT_W = 9; // 造型列宽（含两侧留白）
 
@@ -154,7 +163,7 @@ export default function Mascot({ width }: { width: number }) {
   const parts: (string | Seg[])[] = sleeping
     ? [HEAD_SLEEP, BODY, LEGS[0]]
     : happy
-      ? [HEAD_HAPPY, BODY, LEGS[0]]
+      ? [s.t === 0 ? HEAD_HAPPY_HEARTS : HEAD_HAPPY, BODY, LEGS[0]]
       : s.phase === 'jump' && (s.t === 0 || s.t === 3)
         ? SQUASH
         : [s.blink ? HEAD_CLOSED : HEAD_OPEN, BODY, LEGS[s.phase === 'run' ? s.t % 2 : 0]];
@@ -162,7 +171,8 @@ export default function Mascot({ width }: { width: number }) {
   const floating = sleeping || happy;
   const lift = floating || (s.phase === 'jump' && (s.t === 1 || s.t === 2)) ? -1 : 0;
   const zFrame = Z_FRAMES[s.t % Z_FRAMES.length];
-  const heartFrame = HEART_FRAMES[s.t % HEART_FRAMES.length];
+  // 爱心两侧升起：t1 到顶（实心）→ t2 空心脉冲 → t3 渐隐；t0/t4-5 不画顶行爱心
+  const heartAt = { glyph: s.t === 1 ? '♥' : '♡', dim: s.t === 3 };
 
   // 行内容渲染：字符串单色；Seg[] 分段上色（睡觉眼睑 / 开心笑眼 = ▀ 上下双色）
   const rowContent = (part: string | Seg[]) =>
@@ -188,8 +198,18 @@ export default function Mascot({ width }: { width: number }) {
         </Box>
       )}
       {happy && (
-        <Box flexDirection="row" marginLeft={s.x + 4}>
-          <Text bold color={HEART_COLOR} dimColor={s.t % 2 === 1}>{heartFrame}</Text>
+        // 气泡行常驻占位（height=1 防空 Box 塌陷）：少了它头部帧会整体上移一行错位
+        <Box flexDirection="row" height={1}>
+          {s.t >= 1 && s.t <= 3 && (
+            <>
+              <Box marginLeft={s.x}>
+                <Text bold color={HEART_COLOR} dimColor={heartAt.dim}>{heartAt.glyph}</Text>
+              </Box>
+              <Box marginLeft={MASCOT_W - 2}>
+                <Text bold color={HEART_COLOR} dimColor={heartAt.dim}>{heartAt.glyph}</Text>
+              </Box>
+            </>
+          )}
         </Box>
       )}
       {parts.map((part, row) => {
