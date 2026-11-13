@@ -9,7 +9,7 @@ import { Box, Text } from 'ink';
  * 动画：终端没有「动画」原语，本质是定时器 + 覆盖重绘；Ink 双缓冲 diff 后每次只重写那几格。
  * 出场：挂载时初始 x=-9（面板左缘外），150ms 一步一列走入家门，叠层 overflow hidden
  *       裁掉缘外半身 = 「从边缘后走出来」；到家进 pop 眨一眼，然后进下方随机状态机（只演一次）。
- *       随机状态机十态：
+ *       随机状态机十一态：
  *       idle：初始家在面板最左端，随机眨眼（每拍 18%），随机起跑（每拍 4%，朝对面跑）
  *       run ：快速横移（90ms 一拍，全程约 1.3s），腿帧交替出步态、身后拖 8 列流动风带；
  *             奔跑全程不眨眼
@@ -26,6 +26,9 @@ import { Box, Text } from 'ink';
  *       wave：招手（idle 每拍 3%）——右臂举直贴头侧（右半块细臂+臂尖翘起），手点在上方 ▗/▖ 左右摆 3 个来回
  *       tele：闪现（idle 每拍 2%）——原地淡出 → 消失一拍 → 在对面端点淡入（不换向位移的第二种方式）
  *       kick：四处蹬脚（idle 每拍 3%）——150ms 快拍：外蹬劈叉 → 双腿甩左 → 外蹬 → 甩右 → 外蹬回正
+ *       walk：散步巡逻（idle 每拍 5%，需小人已在右侧空旷区 walkMinX 之右）——400ms 一拍一列
+ *             游荡，方向左右随机，每拍 5% 停下就地待机（停了能接着做别的动作）、6% 掉头；
+ *             不踩统计文字区（过文字区只有跑/闪现）；走过留脚印（腿位 ░ 淡灰小点，≈16s 散尽）
  * 叠层：position absolute 覆盖在统计块同区（Yoga 绝对定位原点 = 父级内容区 (0,0)，
  *       无需 top/left，marginLeft 控制横移），跑过统计时小人盖在字上，离开后 Ink diff 复原文字。
  */
@@ -122,13 +125,17 @@ const windAt = (row: number, t: number, dir: 1 | -1): string => {
 
 interface S {
   x: number;                         // 面板内容区内左偏移（列）；0 = 最左端的家
-  dir: 1 | -1;                       // 奔跑方向
-  phase: 'idle' | 'run' | 'pop' | 'jump' | 'sleep' | 'happy' | 'look' | 'turn' | 'wave' | 'tele' | 'kick' | 'enter';
+  dir: 1 | -1;                       // 奔跑/散步方向
+  phase: 'idle' | 'run' | 'pop' | 'jump' | 'sleep' | 'happy' | 'look' | 'turn' | 'wave' | 'tele' | 'kick' | 'enter' | 'walk';
   t: number;                         // 阶段内帧数（步态/冒出/跳跃节拍用；idle 兼作入睡计时）
   blink: boolean;                    // 本拍是否闭眼（sleep 恒 true，其余大多 false；pop 首拍/idle 随机眨眼）
+  prints?: { x: number; ttl: number }[]; // 脚印：散步时落在身后一列的淡灰小点，逐拍衰减
 }
 
-const advance = (prev: S, maxX: number, step: number): S => {
+const PRINT_TTL = 40;   // 脚印存活拍数（≈16s 散尽）
+const PRINT_MAX = 10;   // 同时最多留 10 个脚印
+
+const advancePhase = (prev: S, maxX: number, step: number, walkMinX: number): S => {
   if (prev.phase === 'enter') {
     // 出场：从面板左缘外（x 负值，被 overflow hidden 裁掉）一步一列走进家，到家眨一眼
     const nx = prev.x + 1;
@@ -194,7 +201,17 @@ const advance = (prev: S, maxX: number, step: number): S => {
     if (nt >= KICK_TICKS) return { ...prev, phase: 'idle', t: 0, blink: false };
     return { ...prev, t: nt, blink: false };
   }
-  // idle：随机动作——眨眼 / 原地起跳 / 开心 / 东张西望 / 原地转身 / 招手 / 闪现 / 蹬脚 / 起跑（朝对面）；连续无动作 30s 入睡
+  if (prev.phase === 'walk') {
+    // 散步：仅限右侧空旷区内游荡——一拍一列；撞区界折返；每拍 5% 停下就地待机、6% 掉头
+    const nx = prev.x + prev.dir;
+    if (nx < walkMinX || nx > maxX) {
+      return { ...prev, dir: (prev.dir * -1) as 1 | -1, t: prev.t + 1, blink: false };
+    }
+    if (Math.random() < 0.05) return { ...prev, x: nx, phase: 'idle', t: 0, blink: false };
+    if (Math.random() < 0.06) return { ...prev, x: nx, dir: (prev.dir * -1) as 1 | -1, t: prev.t + 1, blink: false };
+    return { ...prev, x: nx, t: prev.t + 1, blink: false };
+  }
+  // idle：随机动作——眨眼 / 原地起跳 / 开心 / 东张西望 / 原地转身 / 招手 / 闪现 / 蹬脚 / 散步 / 起跑（朝对面）；连续无动作 30s 入睡
   if (maxX >= 4 && Math.random() < 0.02) {
     return { ...prev, phase: 'jump', t: 0, blink: false };
   }
@@ -216,14 +233,30 @@ const advance = (prev: S, maxX: number, step: number): S => {
   if (maxX >= 4 && Math.random() < 0.03) {
     return { ...prev, phase: 'kick', t: 0, blink: false };
   }
+  // 散步：仅限右侧空旷区（不踩统计文字，过文字区只有跑）；起点已在右区才可触发，方向左右随机
+  if (maxX - walkMinX >= 8 && prev.x >= walkMinX && Math.random() < 0.05) {
+    return { ...prev, phase: 'walk', dir: Math.random() < 0.5 ? -1 : 1, t: 0, blink: false };
+  }
   if (maxX >= 4 && Math.random() < 0.04) {
-    return { x: prev.x, dir: prev.x === 0 ? 1 : -1, phase: 'run', t: 0, blink: false };
+    return { x: prev.x, dir: prev.x < maxX / 2 ? 1 : -1, phase: 'run', t: 0, blink: false }; // 朝较远端跑
   }
   if (prev.t + 1 >= SLEEP_TICKS) return { ...prev, phase: 'sleep', t: 0, blink: true };
   return { ...prev, t: prev.t + 1, blink: prev.blink ? false : Math.random() < 0.18 }; // 闭过眼必睁开，不连眨
 };
 
-export default function Mascot({ width }: { width: number }) {
+/** 每拍入口：先推进状态机，再维护脚印（散步落印、逐拍衰减清零） */
+const advance = (prev: S, maxX: number, step: number, walkMinX: number): S => {
+  const next = advancePhase(prev, maxX, step, walkMinX);
+  let prints = (prev.prints ?? []).map(p => ({ ...p, ttl: p.ttl - 1 })).filter(p => p.ttl > 0);
+  // 散步每走一步，在身后拖边一列落脚印（左右脚交替错一列）：立刻露出，不会被自己身体盖住
+  if (prev.phase === 'walk' && next.x !== prev.x) {
+    const behind = prev.dir === 1 ? prev.x - 1 + (prev.t % 2) : prev.x + MASCOT_W + (prev.t % 2);
+    prints = [...prints.slice(-(PRINT_MAX - 1)), { x: behind, ttl: PRINT_TTL }];
+  }
+  return { ...next, prints };
+};
+
+export default function Mascot({ width, walkMinX = 0 }: { width: number; walkMinX?: number }) {
   const maxX = Math.max(0, width - MASCOT_W);
   const step = Math.max(2, Math.ceil(maxX / RUN_STEPS));
   const [s, setS] = useState<S>({ x: -MASCOT_W, dir: 1, phase: 'enter', t: 0, blink: false });
@@ -244,9 +277,9 @@ export default function Mascot({ width }: { width: number }) {
             : (s.phase === 'idle' || s.phase === 'pop') && s.blink
               ? BLINK_MS
               : IDLE_MS;
-    const timer = setTimeout(() => setS(prev => advance(prev, maxX, step)), ms);
+    const timer = setTimeout(() => setS(prev => advance(prev, maxX, step, walkMinX)), ms);
     return () => clearTimeout(timer);
-  }, [s, maxX, step]);
+  }, [s, maxX, step, walkMinX]);
 
   if (width < MASCOT_W) return null; // 放不下就不画
 
@@ -274,7 +307,7 @@ export default function Mascot({ width }: { width: number }) {
                 ? [HEAD_OPEN, BODY, KICK_SEQ[s.t]]
                 : s.phase === 'jump' && (s.t === 0 || s.t === 3)
                 ? SQUASH
-                : [s.blink ? HEAD_CLOSED : HEAD_OPEN, BODY, LEGS[s.phase === 'run' || s.phase === 'enter' ? s.t % 2 : 0]];
+                : [s.blink ? HEAD_CLOSED : HEAD_OPEN, BODY, LEGS[s.phase === 'run' || s.phase === 'enter' || s.phase === 'walk' ? s.t % 2 : 0]];
   // 闪现淡出/淡入拍整体压暗
   const teleDim = s.phase === 'tele' && s.t !== 1;
   // 跳起两拍 / 睡眠 / 开心 / 招手（借面板上边框行画气泡）：叠层上移一行，离开后 diff 复原
@@ -301,9 +334,16 @@ export default function Mascot({ width }: { width: number }) {
     );
 
   return (
-    <Box position="absolute" marginTop={lift} width={width} height={floating ? 4 : 3} flexDirection="column"
-      // 出场时裁掉面板左缘外的半身（走出边缘感）；其余时候 visible 放行气泡行（marginTop=-1 借上边框行）
-      overflow={s.phase === 'enter' ? 'hidden' : 'visible'}>
+    <>
+      {/* 脚印：散步留在身后腿行（地面）的淡灰小点，画在吉祥物下层，ttl 过半后更暗 */}
+      {(s.prints ?? []).map((p, i) => (
+        <Box key={i} position="absolute" marginTop={2} marginLeft={p.x}>
+          <Text color={WIND_COLOR} dimColor={p.ttl <= PRINT_TTL / 2}>░</Text>
+        </Box>
+      ))}
+      <Box position="absolute" marginTop={lift} width={width} height={floating ? 4 : 3} flexDirection="column"
+        // 出场时裁掉面板左缘外的半身（走出边缘感）；其余时候 visible 放行气泡行（marginTop=-1 借上边框行）
+        overflow={s.phase === 'enter' ? 'hidden' : 'visible'}>
       {sleeping && (
         <Box flexDirection="row" marginLeft={s.x + 2}>
           <Text bold color="#C9D1D9" dimColor={s.t % Z_FRAMES.length >= 2}>{zFrame}</Text>
@@ -373,6 +413,7 @@ export default function Mascot({ width }: { width: number }) {
             </Box>
           );
         })}
-    </Box>
+      </Box>
+    </>
   );
 }

@@ -200,8 +200,9 @@ export default function LandingView({
               ))}
             </Box>
           </Box>
-          {/* 吉祥物叠层：覆盖整个面板内容宽（扣边框 2 + paddingX 2），初始家在最左端 */}
-          <Mascot width={Math.max(0, innerW - 4)} />
+          {/* 吉祥物叠层：覆盖整个面板内容宽（扣边框 2 + paddingX 2），初始家在最左端；
+              walkMinX = 统计块右缘（家 10 + 7 列×8 + 6 分隔线）+ 2 缓冲：散步限定右侧空旷区，不踩统计文字 */}
+          <Mascot width={Math.max(0, innerW - 4)} walkMinX={MASCOT_W + 1 + (7 * 8 + 6) + 2} />
         </Box>
         {/* 最近活跃：分隔标题行（左侧引一段线，标题右移） */}
         <Box flexDirection="row" marginTop={1}>
