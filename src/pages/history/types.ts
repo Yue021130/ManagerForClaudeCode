@@ -18,6 +18,8 @@ export interface SessionMeta {
   cwd: string | null;       // 真实项目路径（取自行内 cwd 字段，目录名编码不可逆，不反推）
   title: string;            // 首个真实用户提问（截断 40 字），无则 '(空会话)'
   preview: string;          // 首条真实用户消息快照（同标题清洗规则，截断 80 字），无则 ''
+  lastQ: string;            // 最后一条真实用户提问快照（同清洗规则，截断 400 字；落地页 QA 卡用），无则 ''
+  lastA: string;            // 最后一条 assistant 文本块拼接快照（折叠空白，截断 400 字），无则 ''
   firstTime: string | null; // 首条事件时间（ISO）
   lastTime: string | null;  // 末条事件时间（ISO）
   userCount: number;        // 真实 user 行数（已排除 meta/命令）

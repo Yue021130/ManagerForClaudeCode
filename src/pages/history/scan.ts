@@ -20,6 +20,7 @@ import { dayKey } from './fmt.js';
 
 const TITLE_MAX = 40;
 const PREVIEW_MAX = 80; // 首条提问快照（落地页卡片预览行）截断长度
+const QA_MAX = 400;     // 最后一条 Q/A 快照（落地页 QA 卡用）截断长度：超宽屏 2~3 行也够
 
 export function claudeProjectsRoot(): string | null {
   const root = path.join(os.homedir(), '.claude', 'projects');
@@ -42,6 +43,8 @@ interface MetaAcc {
   cwd: string | null;
   title: string;
   preview: string; // 首条真实用户消息快照（落地页卡片用），同标题清洗规则、截断 80 字
+  lastQ: string;   // 最后一条真实用户提问快照（落地页 QA 卡用）：每行覆盖，末条胜出
+  lastA: string;   // 最后一条 assistant 文本快照：每行覆盖，末条胜出
   firstTime: string | null;
   lastTime: string | null;
   userCount: number;
@@ -60,7 +63,7 @@ const metaCache = new Map<string, MetaAcc>();
 const convCache = new Map<string, ConvAcc>();
 
 const freshMetaAcc = (): MetaAcc => ({
-  mtimeMs: 0, readBytes: 0, cwd: null, title: '(空会话)', preview: '',
+  mtimeMs: 0, readBytes: 0, cwd: null, title: '(空会话)', preview: '', lastQ: '', lastA: '',
   firstTime: null, lastTime: null, userCount: 0, assistantCount: 0,
   inputTokens: 0, outputTokens: 0, days: {}
 });
@@ -86,10 +89,12 @@ function loadScanCache(): void {
     const map = JSON.parse(fs.readFileSync(scanCacheFile(), 'utf8')) as Record<string, MetaAcc>;
     for (const [k, v] of Object.entries(map)) {
       // 宽松校验：关键字段缺了宁可不要这条缓存（该文件走全量重扫）；
-      // days 必须有——旧版缓存没有日桶，留着会让范围统计丢掉整个会话
+      // days 必须有——旧版缓存没有日桶，留着会让范围统计丢掉整个会话；
+      // lastQ/lastA 必须有——加字段前的旧缓存没有末条 QA 快照，留着卡片会空白
       if (
         v && typeof v.readBytes === 'number' && typeof v.mtimeMs === 'number' &&
-        v.days && typeof v.days === 'object'
+        v.days && typeof v.days === 'object' &&
+        typeof v.lastQ === 'string' && typeof v.lastA === 'string'
       ) metaCache.set(k, v);
     }
   } catch { /* 不存在/损坏：空缓存起步 */ }
@@ -224,11 +229,23 @@ function metaLine(acc: MetaAcc, o: RawLine, lineBytes: number): void {
       .replace(/\s+/g, ' ')
       .trim();
     if (!acc.preview) acc.preview = clean.slice(0, PREVIEW_MAX); // 首条提问快照（落地页卡片用）
+    if (clean) acc.lastQ = clean.slice(0, QA_MAX); // 最后一条提问快照：每行覆盖，末条胜出
     if (acc.title === '(空会话)') {
       acc.title = clean.slice(0, TITLE_MAX) || '(空消息)';
     }
   } else if (o.type === 'assistant') {
     acc.assistantCount++;
+    // 最后一条回答快照：text 块拼接（折叠空白），每行覆盖 = 末条胜出
+    const c = o.message?.content;
+    if (Array.isArray(c)) {
+      const t = (c as { type?: string; text?: unknown }[])
+        .filter(b => b.type === 'text' && typeof b.text === 'string')
+        .map(b => b.text as string)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (t) acc.lastA = t.slice(0, QA_MAX);
+    }
     // token 用量只挂在 assistant 行；累计的是各轮 API 请求值（input 含重复发送的上下文）
     const u = o.message?.usage;
     if (u) {
@@ -286,6 +303,8 @@ export function scanSession(filePath: string): SessionMeta {
     cwd: acc.cwd,
     title: acc.title,
     preview: acc.preview,
+    lastQ: acc.lastQ,
+    lastA: acc.lastA,
     firstTime: acc.firstTime,
     lastTime: acc.lastTime,
     userCount: acc.userCount,
