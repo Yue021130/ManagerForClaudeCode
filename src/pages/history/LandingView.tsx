@@ -11,7 +11,7 @@ import Mascot, { MASCOT_W } from './Mascot.js';
  * 上部：统计面板（范围页签 + 对话/项目/提问/回答/输入token/输出token/占用 等宽列横排，
  *       口径随 tab 范围；右侧空地是走动吉祥物，见 Mascot.tsx）+ 竖线 + 功能条
  *       （历史总览 / 迁移管理 / 删除记录，图标 + 分隔线）。
- * 下部：最近活跃会话卡片通栏（标题+时间 / ●+首条提问快照），占满整行宽。
+ * 下部：🧐 最近对话卡片通栏（标题+时间 / ●+首条提问快照），占满整行宽；空会话不展示（口径同总览）。
  *
  * 键位：←→ 切换区域（列表/菜单）  ↑↓ 移动  enter（列表=恢复会话弹窗，菜单=进入功能）
  *       space 列表=进总览全屏预览该卡片  / 进历史总览并开搜索  q 退出程序
@@ -66,9 +66,11 @@ export default function LandingView({
   const [menuIdx, setMenuIdx] = useState(0);
   const [rangeIdx, setRangeIdx] = useState(0);
 
-  // ── 汇总：全项目会话按 lastTime 倒序（最近活跃列表）──
+  // ── 汇总：全项目会话按 lastTime 倒序（最近对话列表）；空会话（无问无答的壳）不展示，口径同总览 ──
   const recent = useMemo(() => {
-    const all = projects.flatMap(p => p.sessions);
+    const all = projects
+      .flatMap(p => p.sessions)
+      .filter(s => !(s.userCount === 0 && s.assistantCount === 0));
     all.sort((a, b) => (b.lastTime ?? '').localeCompare(a.lastTime ?? '')); // ISO 串可按字典序比
     return all;
   }, [projects]);
@@ -223,16 +225,15 @@ export default function LandingView({
           })}
         </Box>
       </Box>
-      {/* ── 下部：最近活跃通栏（卡片占满整行宽）；分隔标题行（左侧引一段线，标题右移） ── */}
+      {/* ── 下部：最近对话通栏（卡片占满整行宽）；分隔标题行（左侧引一段线，标题右移） ── */}
       <Box flexDirection="row" marginTop={1}>
         <Text color="#30363D">{'─── '}</Text>
-        <Text color="#8B949E">最近活跃 </Text>
-        <Text color="#30363D">{'─'.repeat(Math.max(2, width - 15))}</Text>
+        <Text color="#8B949E">🧐 最近对话 </Text>
+        <Text color="#30363D">{'─'.repeat(Math.max(2, width - 18))}</Text>
       </Box>
       {shown.length === 0 && <Text color="#6E7681">（暂无会话记录）</Text>}
       {shown.map((s, i) => {
         const active = focus === 'list' && i === li;
-        const empty = s.userCount === 0 && s.assistantCount === 0;
         const running = Date.now() - s.mtimeMs < RUNNING_MS;
         return (
           <Box
@@ -245,17 +246,17 @@ export default function LandingView({
           >
             <Box flexDirection="row">
               <Box flexGrow={1}>
-                <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
+                <Text bold={active} color="#E6EDF3" wrap="truncate">
                   {s.title}
                 </Text>
               </Box>
               <Text color="#F85149">{fmtDate(s.lastTime)}</Text>
             </Box>
             <Box flexDirection="row">
-              <Text color={empty ? '#6E7681' : running ? '#3FB950' : '#8B949E'}>{empty ? '○ ' : '● '}</Text>
+              <Text color={running ? '#3FB950' : '#8B949E'}>{'● '}</Text>
               <Box flexGrow={1}>
                 <Text color="#8B949E" wrap="truncate">
-                  {empty ? '无对话内容' : s.preview || s.title}
+                  {s.preview || s.title}
                 </Text>
               </Box>
             </Box>
