@@ -21,8 +21,10 @@ import { Box, Text } from 'ink';
 type Seg = [string, (string | undefined)?, (string | undefined)?]; // [文本, 前景?, 背景?]
 
 const HEAD_OPEN = ' ▐▛███▜▌ '; // 睁眼：眼睛是缺象限（▛/▜ 各缺一角）露终端背景
-// 闭眼：眼睛位用 ▀ 上下双色——上半主体橙（补满头形，不露背景缝）、下半深橙眼睑线
-const HEAD_CLOSED: Seg[] = [
+// 眨眼：整头全橙实心
+const HEAD_CLOSED = ' ▐█████▌ ';
+// 睡觉闭眼：眼睛位 ▀ 上下双色——上半主体橙补头形、下半深橙眼睑线
+const HEAD_SLEEP: Seg[] = [
   [' ▐'],
   ['▀', '#D97757', '#9E4A2A'],
   ['███'],
@@ -122,10 +124,10 @@ export default function Mascot({ width }: { width: number }) {
 
   if (width < MASCOT_W) return null; // 放不下就不画
 
-  // 睡眠：眼闭合上（HEAD_CLOSED）；跳跃蓄力/落地用压扁帧；其余正常造型
+  // 睡眠：闭眼（HEAD_SLEEP）；跳跃蓄力/落地用压扁帧；其余正常造型
   const sleeping = s.phase === 'sleep';
   const parts: (string | Seg[])[] = sleeping
-    ? [HEAD_CLOSED, BODY, LEGS[0]]
+    ? [HEAD_SLEEP, BODY, LEGS[0]]
     : s.phase === 'jump' && (s.t === 0 || s.t === 3)
       ? SQUASH
       : [s.blink ? HEAD_CLOSED : HEAD_OPEN, BODY, LEGS[s.phase === 'run' ? s.t % 2 : 0]];
@@ -133,7 +135,7 @@ export default function Mascot({ width }: { width: number }) {
   const lift = sleeping || (s.phase === 'jump' && (s.t === 1 || s.t === 2)) ? -1 : 0;
   const zFrame = Z_FRAMES[s.t % Z_FRAMES.length];
 
-  // 行内容渲染：字符串单色；Seg[] 分段上色（闭眼帧的眼睑 = ▀ 上下双色）
+  // 行内容渲染：字符串单色；Seg[] 分段上色（睡觉眼睑 = ▀ 上下双色）
   const rowContent = (part: string | Seg[]) =>
     typeof part === 'string' ? (
       <Text color={COLOR}>{part}</Text>
