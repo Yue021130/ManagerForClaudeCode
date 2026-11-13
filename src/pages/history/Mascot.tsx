@@ -7,7 +7,7 @@ import { Box, Text } from 'ink';
  * 造型：U+2580 块元素一格承载 4 个子像素；眼睛是「缺象限」（▛/▜ 各缺一角）露出终端背景，
  *       闭眼帧在眼睛位画深色下半块（眼睑线），头形不变、仍有五官；品牌橙 #D97757。
  * 动画：终端没有「动画」原语，本质是定时器 + 覆盖重绘；Ink 双缓冲 diff 后每次只重写那几格。
- *       随机状态机五态：
+ *       随机状态机六态：
  *       idle：初始家在面板最左端，随机眨眼（每拍 18%），随机起跑（每拍 4%，朝对面跑）
  *       run ：快速横移（90ms 一拍，全程约 1.3s），腿帧交替出步态、身后拖 8 列流动风带；
  *             奔跑全程不眨眼
@@ -18,6 +18,8 @@ import { Box, Text } from 'ink';
  *             借面板上边框行当气泡行）；睡眠中每拍小概率起跑/起跳「立刻醒」
  *       happy：随机开心（idle 每拍 2%）——笑眼（眼睛位深色上半弧）+ 两侧爱心从头角升起、
  *             到头顶行后空心脉冲渐隐，6 拍（≈2.4s）回 idle
+ *       look：东张西望（idle 每拍 3%）——眼睛两洞挪到同侧，身体/腿向该侧倾一列、
+ *             近侧肩膀降半格；看左 2 拍 → 看右 2 拍回正
  * 叠层：position absolute 覆盖在统计块同区（Yoga 绝对定位原点 = 父级内容区 (0,0)，
  *       无需 top/left，marginLeft 控制横移），跑过统计时小人盖在字上，离开后 Ink diff 复原文字。
  */
@@ -45,6 +47,12 @@ const HEAD_HAPPY: Seg[] = [
   ['▌ ']
 ];
 const LEGS = ['  ▘▘ ▝▝  ', '  ▝▝ ▘▘  '];   // 两帧交替 = 走路/跑步步态
+// 东张西望：眼睛两洞（▛/▜ 缺象限）挪到同侧相邻 = 眼珠转向；身体相应侧移一列
+const HEAD_LOOK_L = ' ▐▛▜███▌ ';
+const HEAD_LOOK_R = ' ▐███▛▜▌ ';
+// 东张西望身体：近侧肩膀降半格（▄）出倾斜感；渲染时身体/腿整体再向看的一侧移一列
+const BODY_LOOK_L = '▝▄█████▛▘';
+const BODY_LOOK_R = '▝▜█████▄▘';
 // 压扁帧（跳跃蓄力/落地）：头压扁、身体摊平、腿收起（第三行空串 = 不画，留白由 diff 复原）
 const SQUASH = [' ▐▄███▄▌ ', '▀▀▀▀▀▀▀▀▀', ''];
 
@@ -65,6 +73,7 @@ const Z_FRAMES = ['z', ' z', '  Z', '   Z'];
 // 开心爱心（🥰 式）：两侧各一颗，t0 贴头两侧角 → t1 升到头顶行 → t2 空心脉冲 → t3 渐隐
 const HEART_COLOR = '#F778BA';
 const HAPPY_TICKS = 6; // 开心 6 拍（≈2.4s）回 idle
+const LOOK_TICKS = 4; // 东张西望 4 拍：看左 ×2 → 看右 ×2 → 回 idle
 // t0 头部帧：爱心贴头两侧角（其余拍用 HEAD_HAPPY）
 const HEAD_HAPPY_HEARTS: Seg[] = [
   ['♥', HEART_COLOR],
@@ -88,9 +97,9 @@ const windAt = (row: number, t: number, dir: 1 | -1): string => {
 interface S {
   x: number;                         // 面板内容区内左偏移（列）；0 = 最左端的家
   dir: 1 | -1;                       // 奔跑方向
-  phase: 'idle' | 'run' | 'pop' | 'jump' | 'sleep' | 'happy';
+  phase: 'idle' | 'run' | 'pop' | 'jump' | 'sleep' | 'happy' | 'look';
   t: number;                         // 阶段内帧数（步态/冒出/跳跃节拍用；idle 兼作入睡计时）
-  blink: boolean;                    // 本拍是否闭眼（sleep 恒 true，run/jump/happy 恒 false）
+  blink: boolean;                    // 本拍是否闭眼（sleep 恒 true，run/jump/happy/look 恒 false）
 }
 
 const advance = (prev: S, maxX: number, step: number): S => {
@@ -123,12 +132,20 @@ const advance = (prev: S, maxX: number, step: number): S => {
     if (nt >= HAPPY_TICKS) return { ...prev, phase: 'idle', t: 0, blink: false };
     return { ...prev, t: nt, blink: false };
   }
-  // idle：随机动作——眨眼 / 原地起跳 / 开心 / 起跑（朝对面）；连续无动作 30s 入睡
+  if (prev.phase === 'look') {
+    const nt = prev.t + 1;
+    if (nt >= LOOK_TICKS) return { ...prev, phase: 'idle', t: 0, blink: false };
+    return { ...prev, t: nt, dir: nt < 2 ? -1 : 1, blink: false }; // 前两拍看左，后两拍看右
+  }
+  // idle：随机动作——眨眼 / 原地起跳 / 开心 / 东张西望 / 起跑（朝对面）；连续无动作 30s 入睡
   if (maxX >= 4 && Math.random() < 0.02) {
     return { ...prev, phase: 'jump', t: 0, blink: false };
   }
   if (maxX >= 4 && Math.random() < 0.02) {
     return { ...prev, phase: 'happy', t: 0, blink: false };
+  }
+  if (maxX >= 4 && Math.random() < 0.03) {
+    return { ...prev, phase: 'look', dir: -1, t: 0, blink: false };
   }
   if (maxX >= 4 && Math.random() < 0.04) {
     return { x: prev.x, dir: prev.x === 0 ? 1 : -1, phase: 'run', t: 0, blink: false };
@@ -157,14 +174,16 @@ export default function Mascot({ width }: { width: number }) {
 
   if (width < MASCOT_W) return null; // 放不下就不画
 
-  // 睡眠：闭眼（HEAD_SLEEP）；开心：笑眼（HEAD_HAPPY）；跳跃蓄力/落地用压扁帧；其余正常造型
+  // 睡眠：闭眼（HEAD_SLEEP）；开心：笑眼（HEAD_HAPPY）；东张西望：HEAD_LOOK_L/R；跳跃蓄力/落地用压扁帧；其余正常造型
   const sleeping = s.phase === 'sleep';
   const happy = s.phase === 'happy';
   const parts: (string | Seg[])[] = sleeping
     ? [HEAD_SLEEP, BODY, LEGS[0]]
     : happy
       ? [s.t === 0 ? HEAD_HAPPY_HEARTS : HEAD_HAPPY, BODY, LEGS[0]]
-      : s.phase === 'jump' && (s.t === 0 || s.t === 3)
+      : s.phase === 'look'
+        ? [s.dir === -1 ? HEAD_LOOK_L : HEAD_LOOK_R, s.dir === -1 ? BODY_LOOK_L : BODY_LOOK_R, LEGS[0]]
+        : s.phase === 'jump' && (s.t === 0 || s.t === 3)
         ? SQUASH
         : [s.blink ? HEAD_CLOSED : HEAD_OPEN, BODY, LEGS[s.phase === 'run' ? s.t % 2 : 0]];
   // 跳起两拍 / 睡眠 / 开心（借面板上边框行画气泡）：叠层上移一行，离开后 diff 复原
@@ -216,8 +235,11 @@ export default function Mascot({ width }: { width: number }) {
           // 定位一律用 marginLeft（布局边距不产生字符）；绝不能用空格文本推位——
           // 空格会写进屏幕缓冲区，小人走开后一直盖着统计文字
           if (s.phase !== 'run') {
+            // 东张西望：身体/腿向看的一侧倾一列（头不动，出探身感），贴边时钳住
+            const lean = s.phase === 'look' && row > 0 ? s.dir : 0;
+            const mx = Math.min(Math.max(0, s.x + lean), maxX);
             return (
-              <Box key={row} flexDirection="row" marginLeft={s.x}>
+              <Box key={row} flexDirection="row" marginLeft={mx}>
                 {rowContent(part)}
               </Box>
             );
