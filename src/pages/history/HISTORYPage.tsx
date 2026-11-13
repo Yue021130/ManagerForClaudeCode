@@ -19,10 +19,16 @@ import {
   renameSessionTitle
 } from './scan.js';
 import { requestResume, spawnResumeNewWindow } from './resume.js';
+import LandingView, { type LandingTarget } from './LandingView.js';
 import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
 
 /**
  * HISTORY 页 — Claude Code 历史对话管理
+ *
+ * 视图分两层：先进落地页（LandingView：MFCC logo + 四区块菜单），
+ * 仅「历史总览」进入下方三栏管理页（Esc 返回落地页），其余区块占位「开发中」。
+ * 扫描/轮询只在总览视图跑（落地页秒开）；总览视图 keysEnabled=false（接管 Esc），
+ * 落地页 keysEnabled=true（Esc 退出程序、数字切页归外壳）。
  *
  * 三栏：项目列表 | 会话列表 | 对话预览
  * 数据：~/.claude/projects/<dir>/<sessionId>.jsonl（见 scan.ts）
@@ -173,6 +179,16 @@ function ScanningHint() {
 export default function HISTORYPage({ width, height }: PageProps) {
   const { setMessage, setError, setKeysEnabled } = useShell();
 
+  // ── 视图：landing = 落地页（首页菜单）；overview = 三栏管理页 ──
+  // App 切页会卸载重挂载本组件，所以每次按 1 回 HISTORY 都落在 landing
+  const [view, setView] = useState<'landing' | 'overview'>('landing');
+
+  // 键盘基线随视图切换：landing 归外壳（Esc 退出 / 数字切页）；
+  // overview 接管键盘（Esc 返回落地页，数字切页失效，要切页先 Esc 回落地页）
+  useEffect(() => {
+    setKeysEnabled(view === 'landing');
+  }, [view, setKeysEnabled]);
+
   // ── 数据 ──
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null); // null = 扫描中
   const [projIdx, setProjIdx] = useState(0);
@@ -203,8 +219,9 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const [resumeChoice, setResumeChoice] = useState<0 | 1>(0); // 0=当前终端 1=新窗口
   const { exit } = useApp();
 
-  // 首次扫描：让出首帧再扫（scan 同步阻塞 <100ms）
+  // 首次扫描：仅总览视图执行（落地页不扫，按 1 秒开）；让出首帧再扫（scan 同步阻塞 <100ms）
   useEffect(() => {
+    if (view !== 'overview') return;
     const t = setTimeout(() => {
       try {
         setProjects(scanAllProjects());
@@ -214,7 +231,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
       }
     }, 10);
     return () => clearTimeout(t);
-  }, [setError]);
+  }, [setError, view]);
 
   // 页面卸载时恢复外壳全局键（防止在搜索中途切走页面后数字键一直失灵）
   useEffect(() => () => setKeysEnabled(true), [setKeysEnabled]);
@@ -354,7 +371,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
   const [runningSet, setRunningSet] = useState<Set<string>>(new Set());
   const mtimesRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
-    if (!projects) return;
+    if (view !== 'overview' || !projects) return; // 落地页不轮询
     const root = claudeProjectsRoot();
     if (!root) return;
     let alive = true;
@@ -437,7 +454,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
       alive = false;
       clearInterval(timer);
     };
-  }, [projects]);
+  }, [projects, view]);
   const isRunning = (s: SessionMeta): boolean => runningSet.has(s.filePath);
 
   // ── 操作 ──
@@ -493,7 +510,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
   const closeDetail = () => {
     setDetail(null);
-    setKeysEnabled(true);
+    setKeysEnabled(false);
   };
 
   // 切换一组粘贴段的展开状态（块内多个时同开同关）
@@ -568,13 +585,14 @@ export default function HISTORYPage({ width, height }: PageProps) {
   };
 
   useInput((input, key) => {
+    if (view !== 'overview') return; // 落地页：键盘归 LandingView（方向/回车）与外壳（Esc/数字）
     if (!projects) return;
 
     // 恢复会话弹窗：↑↓/1/2 选择，enter 确认，esc 取消；其余键吃掉
     if (resuming) {
       if (key.escape) {
         setResuming(null);
-        setKeysEnabled(true);
+        setKeysEnabled(false);
         return;
       }
       if (key.upArrow || key.downArrow) return setResumeChoice(c => (c === 0 ? 1 : 0));
@@ -588,7 +606,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
             .then(() => setMessage(`已在新窗口恢复「${target.title.slice(0, 16)}」`))
             .catch((e) => setError(`恢复失败: ${String(e)}`));
           setResuming(null);
-          setKeysEnabled(true);
+          setKeysEnabled(false);
           return;
         }
         // 当前终端：登记请求 → 退出 App，cli.tsx 接力拉起 claude（claude 退出后自动重挂 App）
@@ -607,7 +625,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
         setConfirmInput('');
         setConfirmError(false);
         setConfirmLocked(false);
-        setKeysEnabled(true);
+        setKeysEnabled(false);
         return;
       }
       if (key.return) {
@@ -621,7 +639,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           setConfirmInput('');
           setConfirmError(false);
           setConfirmLocked(false);
-          setKeysEnabled(true);
+          setKeysEnabled(false);
           removeOrArchive('trash', target); // 执行前还会再复查一次
         } else {
           setConfirmInput('');
@@ -646,7 +664,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
         setRenaming(null);
         setRenameInput('');
         setRenameError(false);
-        setKeysEnabled(true);
+        setKeysEnabled(false);
         return;
       }
       if (key.return) {
@@ -662,7 +680,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           setRenaming(null);
           setRenameInput('');
           setRenameError(false);
-          setKeysEnabled(true);
+          setKeysEnabled(false);
           setMessage(`已重命名为「${title.slice(0, 16)}」`);
           rescan();
         } catch (e) {
@@ -683,9 +701,9 @@ export default function HISTORYPage({ width, height }: PageProps) {
       return;
     }
 
-    // 详情视图：↑↓ 滚动，gg/G 跳顶/底，space 展开/收起粘贴段，q 返回，吃掉其余键
+    // 详情视图：↑↓ 滚动，gg/G 跳顶/底，space 展开/收起粘贴段，q/Esc 返回，吃掉其余键
     if (detail) {
-      if (input === 'q') return closeDetail();
+      if (input === 'q' || key.escape) return closeDetail();
       if (input === ' ') return togglePaste(detail.pasteIds);
       if (key.upArrow) return setDetailIdx(Math.max(0, dIdx - 1));
       if (key.downArrow) return setDetailIdx(Math.min(detailLines.length - 1, dIdx + 1));
@@ -706,7 +724,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
     if (searching) {
       if (key.escape || key.return || ((key.backspace || key.delete) && !query)) {
         setSearching(false);
-        setKeysEnabled(true);
+        setKeysEnabled(false);
         if (key.backspace || key.delete) setQuery('');
         setSessIdx(0);
         return;
@@ -716,13 +734,16 @@ export default function HISTORYPage({ width, height }: PageProps) {
       return;
     }
 
-    // 全屏预览：q 退出（已 setKeysEnabled(false)，不会误退 App）
-    if (fullscreen && input === 'q') {
+    // 全屏预览：q/Esc 退出（已 setKeysEnabled(false)，不会误退 App）
+    if (fullscreen && (input === 'q' || key.escape)) {
       setFullscreen(false);
       setFocus('session');
-      setKeysEnabled(true);
+      setKeysEnabled(false);
       return;
     }
+
+    // 顶层（无弹窗/详情/搜索/全屏）：Esc 返回落地页
+    if (key.escape) return setView('landing');
 
     if (key.upArrow) return move(-1);
     if (key.downArrow) return move(1);
@@ -815,6 +836,21 @@ export default function HISTORYPage({ width, height }: PageProps) {
   });
 
   // ── 渲染 ──
+  // 落地页：扫描/轮询都被 view 门槛拦着，此分支无任何数据依赖，秒开。
+  // 只有「历史总览」进三栏页；其余区块本次占位，提示「开发中」。
+  if (view === 'landing') {
+    return (
+      <LandingView
+        width={width}
+        height={height}
+        onSelect={(t: LandingTarget) => {
+          if (t === 'overview') setView('overview');
+          else setMessage('开发中');
+        }}
+      />
+    );
+  }
+
   if (!projects) {
     return <ScanningHint />;
   }
