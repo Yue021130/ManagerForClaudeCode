@@ -29,9 +29,9 @@ import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
  *
  * 视图分两层：先进落地页（LandingView 数据看板：范围统计/最近活跃，
  * 卡片 enter 拉起恢复弹窗，右侧功能条进各功能），仅「历史总览」进入下方三栏管理页
- * （Esc 返回落地页），其余功能占位「开发中」。
+ * （q 返回落地页），其余功能占位「开发中」。
  * 扫描两个视图都要（看板也要数据）；3s 轮询只在总览视图跑。
- * 总览视图 keysEnabled=false（接管 Esc），落地页 keysEnabled=true（Esc 退出、数字切页归外壳）。
+ * 总览视图 keysEnabled=false（接管键盘：q 返回落地页，Esc 不退出），落地页 keysEnabled=true（Esc 退出、数字切页归外壳）。
  *
  * 三栏：项目列表 | 会话列表 | 对话预览
  * 数据：~/.claude/projects/<dir>/<sessionId>.jsonl（见 scan.ts）
@@ -174,9 +174,10 @@ export default function HISTORYPage({ width, height }: PageProps) {
     setKeysEnabled(view === 'landing');
   }, [view, setKeysEnabled]);
 
-  // 底栏键帽随视图换：落地页多一个 tab 切范围（总览的 tab 是切焦点，不能共用同一条说明）
+  // 底栏键帽随视图换：落地页多一个 tab 切范围（总览的 tab 是切焦点，不能共用同一条说明）；
+  // 总览多一个 q 返回（Esc 在总览不退出，只在首页退程序）
   useEffect(() => {
-    setHints(view === 'landing' ? [...meta.hints, ['tab', '切换范围']] : meta.hints);
+    setHints(view === 'landing' ? [...meta.hints, ['tab', '切换范围']] : [...meta.hints, ['q', '返回']]);
   }, [view, setHints]);
 
   // ── 数据 ──
@@ -791,8 +792,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
       return;
     }
 
-    // 顶层（无弹窗/详情/搜索/全屏）：Esc 返回落地页
-    if (key.escape) return setView('landing');
+    // 顶层（无弹窗/详情/搜索/全屏）：q 返回落地页；Esc 在总览不做退出（只有首页 Esc 才退出程序）
+    if (input === 'q') return setView('landing');
 
     if (key.upArrow) return move(-1);
     if (key.downArrow) return move(1);
