@@ -1,15 +1,12 @@
 import { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { PageProps } from '../../types.js';
-import { GOODBYE_ART } from '../../shell/goodbye.js';
-import { SPLASH_SUBTITLE, SPLASH_HINT } from '../../shell/splash.js';
 
 /**
  * LandingView — HISTORY 落地页（首页菜单）
  *
- * 布局（对照 mockup）：左侧一大块「最近对话」，右侧三块等高竖排
- * （历史总览 / 迁移管理 / 删除记录）；MFCC 字符画组用 absolute 浮在区块层上、
- * 整屏居中（同确认弹窗的摆法：absolute + marginTop + 满宽 alignItems center）。
+ * 布局：左侧一大块「最近对话」，右侧三块等高竖排
+ * （历史总览 / 迁移管理 / 删除记录），无其他装饰。
  *
  * 方向键按邻接表移动，Enter 触发 onSelect；Esc/数字键不处理
  * （landing 期间 keysEnabled=true，归外壳：Esc 退出程序、数字切页）。
@@ -25,8 +22,6 @@ const NAV: Record<LandingTarget, Partial<Record<'up' | 'down' | 'left' | 'right'
   migrate: { left: 'recent', up: 'overview', down: 'trash' },
   trash: { left: 'recent', up: 'migrate', down: 'overview' }
 };
-
-const ART_COLOR = '#22D3EE'; // 与 splash 字符画亮档同色
 
 export default function LandingView({
   width,
@@ -53,10 +48,6 @@ export default function LandingView({
     if (key.return) onSelect(sel);
   });
 
-  // logo 组高度：字符画 + 空行 + 副标题 + 空行 + 提示行
-  const logoLines = GOODBYE_ART.length + 1 + 1 + 1 + 1;
-  const logoTop = Math.max(0, Math.floor((height - logoLines) / 2));
-
   // 左块占约 2/3 宽（数字定宽比百分比 + margin 好预测）；右列 flexGrow 占满剩余
   const leftW = Math.max(20, Math.floor(width * 0.64) - 2);
 
@@ -74,35 +65,20 @@ export default function LandingView({
   );
 
   return (
-    <Box width={width} height={height} flexDirection="column">
-      {/* 区块层：左一大块 + 右侧三块等高竖排 */}
-      <Box flexDirection="row" flexGrow={1}>
-        <Box width={leftW} margin={1} borderStyle="round" {...zoneStyle('recent')}>
-          {zoneLabel('recent', '最近对话')}
-        </Box>
-        <Box flexDirection="column" flexGrow={1} marginTop={1} marginBottom={1} marginRight={1}>
-          <Box flexGrow={1} borderStyle="round" {...zoneStyle('overview')}>
-            {zoneLabel('overview', '历史总览')}
-          </Box>
-          <Box flexGrow={1} marginTop={1} borderStyle="round" {...zoneStyle('migrate')}>
-            {zoneLabel('migrate', '迁移管理')}
-          </Box>
-          <Box flexGrow={1} marginTop={1} borderStyle="round" {...zoneStyle('trash')}>
-            {zoneLabel('trash', '删除记录')}
-          </Box>
-        </Box>
+    <Box width={width} height={height} flexDirection="row">
+      <Box width={leftW} margin={1} borderStyle="round" {...zoneStyle('recent')}>
+        {zoneLabel('recent', '最近对话')}
       </Box>
-      {/* logo 浮层：整屏居中，后渲染浮在区块层之上 */}
-      <Box position="absolute" marginTop={logoTop} width={width} flexDirection="column" alignItems="center">
-        {GOODBYE_ART.map((line, i) => (
-          <Text key={i} color={ART_COLOR}>
-            {line}
-          </Text>
-        ))}
-        <Box height={1} />
-        <Text color="#9CA3AF">{SPLASH_SUBTITLE}</Text>
-        <Box height={1} />
-        <Text color="#E5E7EB">{SPLASH_HINT}</Text>
+      <Box flexDirection="column" flexGrow={1} marginTop={1} marginBottom={1} marginRight={1}>
+        <Box flexGrow={1} borderStyle="round" {...zoneStyle('overview')}>
+          {zoneLabel('overview', '历史总览')}
+        </Box>
+        <Box flexGrow={1} marginTop={1} borderStyle="round" {...zoneStyle('migrate')}>
+          {zoneLabel('migrate', '迁移管理')}
+        </Box>
+        <Box flexGrow={1} marginTop={1} borderStyle="round" {...zoneStyle('trash')}>
+          {zoneLabel('trash', '删除记录')}
+        </Box>
       </Box>
     </Box>
   );

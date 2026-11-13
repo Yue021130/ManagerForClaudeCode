@@ -25,7 +25,7 @@ import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
 /**
  * HISTORY 页 — Claude Code 历史对话管理
  *
- * 视图分两层：先进落地页（LandingView：MFCC logo + 四区块菜单），
+ * 视图分两层：先进落地页（LandingView：四区块菜单），
  * 仅「历史总览」进入下方三栏管理页（Esc 返回落地页），其余区块占位「开发中」。
  * 扫描/轮询只在总览视图跑（落地页秒开）；总览视图 keysEnabled=false（接管 Esc），
  * 落地页 keysEnabled=true（Esc 退出程序、数字切页归外壳）。
