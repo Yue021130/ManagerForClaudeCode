@@ -5,7 +5,7 @@ import { Box, Text } from 'ink';
  * Mascot — 统计面板上的象限块像素小人（Clawd 风格）
  *
  * 造型：U+2580 块元素一格承载 4 个子像素；眼睛是「缺象限」（▛/▜ 各缺一角）露出终端背景，
- *       眨眼帧换成 ▀（上下半块）即闭眼；品牌橙 #D97757。
+ *       眨眼帧把缺象限补齐成实心块（▛▜→██）＝眼睛合上，头形不变；品牌橙 #D97757。
  * 动画：终端没有「动画」原语，本质是定时器 + 覆盖重绘；Ink 双缓冲 diff 后每次只重写那几格。
  *       随机状态机三态：
  *       idle：初始家在面板最左端，随机眨眼（每拍 18%），随机起跑（每拍 4%，朝对面跑）
@@ -16,7 +16,7 @@ import { Box, Text } from 'ink';
  *       无需 top/left，marginLeft 控制横移），跑过统计时小人盖在字上，离开后 Ink diff 复原文字。
  */
 
-const HEAD = [' ▐▛███▜▌ ', ' ▐▀███▀▌ ']; // 0=睁眼 1=眨眼
+const HEAD = [' ▐▛███▜▌ ', ' ▐█████▌ ']; // 0=睁眼 1=眨眼（眼睛缺象限补齐成实心，头形不变）
 const BODY = '▝▜█████▛▘';
 const LEGS = ['  ▘▘ ▝▝  ', '  ▝▝ ▘▘  '];   // 两帧交替 = 走路/跑步步态
 
@@ -27,6 +27,7 @@ const WIND_BASE = '─╌╌ ─╌ ╌'; // 风带：逐帧滚动 + 行间错�
 
 const IDLE_MS = 400;  // 待机/冒出拍
 const RUN_MS = 90;    // 奔跑拍（快）
+const BLINK_MS = 120; // 闭眼只停 120ms 就睁开（快眨，不拖沓）
 const RUN_STEPS = 14; // 全程约 14 拍 ≈ 1.3s
 const POP_TICKS = 2;  // 到端点停顿 2 拍：首拍闭眼（眨一眼），全程不消失
 
@@ -63,7 +64,7 @@ const advance = (prev: S, maxX: number, step: number): S => {
   if (maxX >= 4 && Math.random() < 0.04) {
     return { x: prev.x, dir: prev.x === 0 ? 1 : -1, phase: 'run', t: 0, blink: false };
   }
-  return { ...prev, t: prev.t + 1, blink: Math.random() < 0.18 };
+  return { ...prev, t: prev.t + 1, blink: prev.blink ? false : Math.random() < 0.18 }; // 闭过眼必睁开，不连眨
 };
 
 export default function Mascot({ width }: { width: number }) {
@@ -71,10 +72,11 @@ export default function Mascot({ width }: { width: number }) {
   const step = Math.max(2, Math.ceil(maxX / RUN_STEPS));
   const [s, setS] = useState<S>({ x: 0, dir: 1, phase: 'idle', t: 0, blink: false });
 
-  // 每拍一个 setTimeout，间隔随 phase 变（run 快、idle/pop 慢）
+  // 每拍一个 setTimeout，间隔随状态变（run 快拍；blink 闭眼只停 120ms；其余慢拍）
   useEffect(() => {
     if (maxX < 4) return; // 太窄：静态 idle
-    const timer = setTimeout(() => setS(prev => advance(prev, maxX, step)), s.phase === 'run' ? RUN_MS : IDLE_MS);
+    const ms = s.phase === 'run' ? RUN_MS : s.blink ? BLINK_MS : IDLE_MS;
+    const timer = setTimeout(() => setS(prev => advance(prev, maxX, step)), ms);
     return () => clearTimeout(timer);
   }, [s, maxX, step]);
 
