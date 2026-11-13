@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import type { ShellValue } from './types.js';
 import { useTerminalSize } from './hooks/useTerminalSize.js';
@@ -37,6 +37,12 @@ export default function App() {
   // ── 当前页 ──
   const current = PAGE_REGISTRY.find(p => p.key === pageKey) || PAGE_REGISTRY[0];
 
+  // ── 底栏键位：默认当前页 meta.hints；页面可按视图临时换（HISTORY 落地页/总览各一套），切页重置 ──
+  const [hints, setHints] = useState<[string, string][]>(current.meta.hints);
+  useEffect(() => {
+    setHints(current.meta.hints);
+  }, [current.meta.hints]);
+
   // ── 全局键盘：只处理退出与切页，其余按键留给页面自己 ──
   useInput((input, key) => {
     // 按任意键清除上次的反馈消息
@@ -70,7 +76,8 @@ export default function App() {
   const shell = useMemo<ShellValue>(() => ({
     setMessage,
     setError,
-    setKeysEnabled
+    setKeysEnabled,
+    setHints
   }), []);
 
   const ActiveComponent = current.Component;
@@ -118,8 +125,8 @@ export default function App() {
       </Box>
       {/* ── 底栏：左侧键位 / 右侧反馈消息 ── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
-        {/*  左侧键位 */}
-        {current.meta.hints.map(([k, label]) => (
+        {/*  左侧键位（页面可用 setHints 按视图换一套） */}
+        {hints.map(([k, label]) => (
           <Box key={k} flexDirection="row" marginRight={2}>
             <Text bold color="#E6EDF3">{k}</Text>
             <Text color="#8B949E">{` ${label}`}</Text>

@@ -34,4 +34,6 @@ export interface ShellValue {
   setError: (e: string | null) => void;     // 底栏右侧红色 ✗
   /** 页面进入输入模式（如搜索框）时调 false，外壳数字切页让位；退出时调 true */
   setKeysEnabled: (enabled: boolean) => void;
+  /** 底栏键位临时换一套（默认当前页 meta.hints；切页时外壳自动重置） */
+  setHints: (h: [string, string][]) => void;
 }
