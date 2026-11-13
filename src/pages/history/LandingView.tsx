@@ -8,10 +8,10 @@ import Mascot, { MASCOT_W } from './Mascot.js';
 /**
  * LandingView — HISTORY 落地页（数据看板 + 功能菜单）
  *
- * 左栏看板：统计面板（范围页签 + 对话/项目/提问/回答/输入token/输出token/占用 等宽列横排，
- *           口径随 tab 范围；右侧空地是走动吉祥物，见 Mascot.tsx）
- *           → 最近活跃会话卡片（标题+时间 / ●+首条提问快照）。
- * 右侧功能条：历史总览 / 迁移管理 / 删除记录（图标 + 分隔线）。
+ * 上部：统计面板（范围页签 + 对话/项目/提问/回答/输入token/输出token/占用 等宽列横排，
+ *       口径随 tab 范围；右侧空地是走动吉祥物，见 Mascot.tsx）+ 竖线 + 功能条
+ *       （历史总览 / 迁移管理 / 删除记录，图标 + 分隔线）。
+ * 下部：最近活跃会话卡片通栏（标题+时间 / ●+首条提问快照），占满整行宽。
  *
  * 键位：←→ 切换区域（列表/菜单）  ↑↓ 移动  enter（列表=恢复会话弹窗，菜单=进入功能）
  *       space 列表=进总览全屏预览该卡片  / 进历史总览并开搜索  q 退出程序
@@ -108,10 +108,10 @@ export default function LandingView({
     return { sessions, bytes, projects: dirs.size, input, output, questions, answers };
   }, [projects, rangeIdx]);
 
-  // 左栏内容宽 = 总宽 - 功能条 - 竖线 - 左右 padding
+  // 面板区内容宽 = 总宽 - 功能条 - 竖线 - 左右 padding（下部卡片区为全宽 width-2）
   const innerW = Math.max(10, width - STRIP_W - 1 - 2);
 
-  // 高度预算：统计面板（标题 1 + 统计 2 + 上下边框 2）+ 分隔行 1 + 间隙 1，余下全给卡片（每张 4 行）
+  // 高度预算：上部 5 行（统计面板，功能条同高不超高）+ 分隔行 1 + 间隙 1，余下全给卡片（每张 4 行）
   const panelH = 5;
   const cardBudget = Math.max(1, Math.floor((height - panelH - 1 - 1) / 4));
   const shown = recent.slice(0, cardBudget);
@@ -155,11 +155,11 @@ export default function LandingView({
   });
 
   return (
-    <Box width={width} height={height} flexDirection="row">
-      {/* ── 左栏：数据看板 ── */}
-      <Box flexDirection="column" flexGrow={1} paddingX={1}>
+    <Box width={width} height={height} flexDirection="column" paddingX={1}>
+      {/* ── 上部：统计面板 + 竖线 + 功能条（面板 5 行，功能条同高不撑高） ── */}
+      <Box flexDirection="row">
         {/* 统计面板：范围页签 + 统计横排（最左端留吉祥物的家）；吉祥物是绝对定位叠层（Mascot.tsx） */}
-        <Box borderStyle="round" borderColor="#3A3D42" flexDirection="column" paddingX={1}>
+        <Box borderStyle="round" borderColor="#3A3D42" flexDirection="column" paddingX={1} flexGrow={1}>
           <Box flexDirection="column" marginLeft={MASCOT_W + 1}>
             {/* 标题行：范围页签（选中紫底；tab 切换的键位提示在底栏） */}
             <Box flexDirection="row">
@@ -204,64 +204,64 @@ export default function LandingView({
               walkMinX = 统计块右缘（家 10 + 7 列×8 + 6 分隔线）+ 2 缓冲：散步限定右侧空旷区，不踩统计文字 */}
           <Mascot width={Math.max(0, innerW - 4)} walkMinX={MASCOT_W + 1 + (7 * 8 + 6) + 2} />
         </Box>
-        {/* 最近活跃：分隔标题行（左侧引一段线，标题右移） */}
-        <Box flexDirection="row" marginTop={1}>
-          <Text color="#30363D">{'─── '}</Text>
-          <Text color="#8B949E">最近活跃 </Text>
-          <Text color="#30363D">{'─'.repeat(Math.max(2, innerW - 13))}</Text>
+        {/* 分隔竖线（只隔上部，不再贯通到底） */}
+        <Box width={1} borderStyle="single" borderTop={false} borderBottom={false} borderRight={false} borderColor="#30363D" />
+        {/* 右侧功能条：5 行恰好与面板同高（不再 paddingTop 下压，省 1 行给卡片） */}
+        <Box width={STRIP_W} flexDirection="column">
+          {MENU.map((m, i) => {
+            const active = focus === 'menu' && menuIdx === i;
+            return (
+              <Box key={m.id} flexDirection="column">
+                {i > 0 && <Text color="#30363D">{'─'.repeat(STRIP_W - 1)}</Text>}
+                <Box backgroundColor={active ? '#2A2A3E' : undefined}>
+                  <Text bold={active} color={active ? '#A371F7' : '#8B949E'} wrap="truncate">
+                    {` ${m.icon} ${m.label}`}
+                  </Text>
+                </Box>
+              </Box>
+            );
+          })}
         </Box>
-        {shown.length === 0 && <Text color="#6E7681">（暂无会话记录）</Text>}
-        {shown.map((s, i) => {
-          const active = focus === 'list' && i === li;
-          const empty = s.userCount === 0 && s.assistantCount === 0;
-          const running = Date.now() - s.mtimeMs < RUNNING_MS;
-          return (
-            <Box
-              key={s.sessionId}
-              flexDirection="column"
-              borderStyle="round"
-              borderColor={active ? '#A371F7' : '#3A3D42'}
-              backgroundColor={active ? '#2A2A3E' : undefined}
-              paddingX={1}
-            >
-              <Box flexDirection="row">
-                <Box flexGrow={1}>
-                  <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
-                    {s.title}
-                  </Text>
-                </Box>
-                <Text color="#F85149">{fmtDate(s.lastTime)}</Text>
-              </Box>
-              <Box flexDirection="row">
-                <Text color={empty ? '#6E7681' : running ? '#3FB950' : '#8B949E'}>{empty ? '○ ' : '● '}</Text>
-                <Box flexGrow={1}>
-                  <Text color="#8B949E" wrap="truncate">
-                    {empty ? '无对话内容' : s.preview || s.title}
-                  </Text>
-                </Box>
-              </Box>
-            </Box>
-          );
-        })}
       </Box>
-      {/* ── 分隔竖线（左边框线画满整列） ── */}
-      <Box width={1} borderStyle="single" borderTop={false} borderBottom={false} borderRight={false} borderColor="#30363D" />
-      {/* ── 右侧功能条 ── */}
-      <Box width={STRIP_W} flexDirection="column" paddingTop={1}>
-        {MENU.map((m, i) => {
-          const active = focus === 'menu' && menuIdx === i;
-          return (
-            <Box key={m.id} flexDirection="column">
-              {i > 0 && <Text color="#30363D">{'─'.repeat(STRIP_W - 1)}</Text>}
-              <Box backgroundColor={active ? '#2A2A3E' : undefined}>
-                <Text bold={active} color={active ? '#A371F7' : '#8B949E'} wrap="truncate">
-                  {` ${m.icon} ${m.label}`}
+      {/* ── 下部：最近活跃通栏（卡片占满整行宽）；分隔标题行（左侧引一段线，标题右移） ── */}
+      <Box flexDirection="row" marginTop={1}>
+        <Text color="#30363D">{'─── '}</Text>
+        <Text color="#8B949E">最近活跃 </Text>
+        <Text color="#30363D">{'─'.repeat(Math.max(2, width - 15))}</Text>
+      </Box>
+      {shown.length === 0 && <Text color="#6E7681">（暂无会话记录）</Text>}
+      {shown.map((s, i) => {
+        const active = focus === 'list' && i === li;
+        const empty = s.userCount === 0 && s.assistantCount === 0;
+        const running = Date.now() - s.mtimeMs < RUNNING_MS;
+        return (
+          <Box
+            key={s.sessionId}
+            flexDirection="column"
+            borderStyle="round"
+            borderColor={active ? '#A371F7' : '#3A3D42'}
+            backgroundColor={active ? '#2A2A3E' : undefined}
+            paddingX={1}
+          >
+            <Box flexDirection="row">
+              <Box flexGrow={1}>
+                <Text bold={active} color={empty ? '#8B949E' : '#E6EDF3'} wrap="truncate">
+                  {s.title}
+                </Text>
+              </Box>
+              <Text color="#F85149">{fmtDate(s.lastTime)}</Text>
+            </Box>
+            <Box flexDirection="row">
+              <Text color={empty ? '#6E7681' : running ? '#3FB950' : '#8B949E'}>{empty ? '○ ' : '● '}</Text>
+              <Box flexGrow={1}>
+                <Text color="#8B949E" wrap="truncate">
+                  {empty ? '无对话内容' : s.preview || s.title}
                 </Text>
               </Box>
             </Box>
-          );
-        })}
-      </Box>
+          </Box>
+        );
+      })}
     </Box>
   );
 }
