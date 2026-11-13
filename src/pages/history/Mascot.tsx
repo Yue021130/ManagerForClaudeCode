@@ -86,9 +86,9 @@ const advance = (prev: S, maxX: number, step: number): S => {
     return { ...prev, t: nt, blink: false };
   }
   if (prev.phase === 'sleep') {
-    // 睡眠中每拍小概率起跑/起跳「立刻醒」；否则继续睡（眼闭着，鼾声帧随 t 滚动）
-    if (maxX >= 4 && Math.random() < 0.02) return { ...prev, phase: 'jump', t: 0, blink: false };
-    if (maxX >= 4 && Math.random() < 0.04) {
+    // 睡眠中每拍约 1% 概率起跑/起跳「立刻醒」（平均睡 ~40s）；否则继续睡（鼾声帧随 t 滚动）
+    if (maxX >= 4 && Math.random() < 0.003) return { ...prev, phase: 'jump', t: 0, blink: false };
+    if (maxX >= 4 && Math.random() < 0.007) {
       return { x: prev.x, dir: prev.x === 0 ? 1 : -1, phase: 'run', t: 0, blink: false };
     }
     return { ...prev, t: prev.t + 1, blink: true };
