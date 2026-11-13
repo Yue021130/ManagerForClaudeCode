@@ -251,6 +251,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
   // ── 全屏预览：session 焦点下 space 进全屏（隐藏左/中栏），q 退出 ──
   const [fullscreen, setFullscreen] = useState(false);
+  // 全屏来源：从首页卡片 space 进的，q/Esc 退出回首页；总览里进的还回总览
+  const [fullscreenFrom, setFullscreenFrom] = useState<'landing' | 'overview'>('overview');
   const effPreviewW = fullscreen ? width - 2 : previewW;
 
   // ── 粘贴段展开状态：默认全部折叠成 chip，space 切换（切换会话时重置） ──
@@ -577,7 +579,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
     setKeysEnabled(false); // 弹窗接管键盘：数字键不切页、Esc 不退出
   };
 
-  // 看板卡片 space → 进总览并直接全屏预览该会话（复用总览的预览/全屏状态机；
+  // 看板卡片 space → 进总览并直接全屏预览该会话（复用总览的预览/全屏状态机，q/Esc 退出回首页；
   // 会话切过去后 currentPath 防抖 effect 自动载入预览，载入期间显示「载入中」动画）
   const landingFullscreen = (s: SessionMeta) => {
     if (!projects) return;
@@ -594,6 +596,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
     setSessIdx(si);
     setFocus('preview');
     setFullscreen(true);
+    setFullscreenFrom('landing');
     setKeysEnabled(false); // 全屏接管键盘：q/Esc 退出全屏而不是 App
     setView('overview');
   };
@@ -775,11 +778,16 @@ export default function HISTORYPage({ width, height }: PageProps) {
       return;
     }
 
-    // 全屏预览：q/Esc 退出（已 setKeysEnabled(false)，不会误退 App）
+    // 全屏预览：q/Esc 退出。从首页进的回首页（view 切换的 effect 会把 keysEnabled 恢复为 true）；
+    // 总览里进的留在总览（keysEnabled 保持 false，Esc 不会误退 App）
     if (fullscreen && (input === 'q' || key.escape)) {
       setFullscreen(false);
-      setFocus('session');
-      setKeysEnabled(false);
+      if (fullscreenFrom === 'landing') {
+        setView('landing');
+      } else {
+        setFocus('session');
+        setKeysEnabled(false);
+      }
       return;
     }
 
@@ -811,6 +819,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
     if (input === ' ') {
       if (focus === 'session' && currentSession && !previewStale) {
         setFullscreen(true);
+        setFullscreenFrom('overview');
         setFocus('preview');
         setKeysEnabled(false); // 全屏接管键盘：q 退出全屏而不是 App
         return;
