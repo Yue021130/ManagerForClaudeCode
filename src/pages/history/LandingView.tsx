@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import type { PageProps } from '../../types.js';
 import type { ProjectInfo, SessionMeta } from './types.js';
 import { dayKey, fmtCount, fmtDate, fmtSize } from './fmt.js';
+import Mascot, { MASCOT_W } from './Mascot.js';
 
 /**
  * LandingView — HISTORY 落地页（数据看板 + 功能菜单）
  *
- * 左栏看板：统计面板（左侧象限块吉祥物，2 FPS 眨眼；右侧范围页签 + 对话/项目/提问/回答/输入token/
- *           输出token/占用 等宽列横排，口径随 tab 范围）
+ * 左栏看板：统计面板（范围页签 + 对话/项目/提问/回答/输入token/输出token/占用 等宽列横排，
+ *           口径随 tab 范围；右侧空地是走动吉祥物，见 Mascot.tsx）
  *           → 最近活跃会话卡片（标题+时间 / ●+首条提问快照）。
  * 右侧功能条：历史总览 / 迁移管理 / 删除记录（图标 + 分隔线）。
  *
@@ -49,17 +50,6 @@ const RANGES: { label: string; days: number }[] = [
 const STRIP_W = 13;              // 右侧功能条宽（图标+空格+4 汉字 = 11 列 + 留白）
 const RUNNING_MS = 3 * 60_000;   // 与 overview 同标准：3 分钟内有写入视为运行中
 
-// ── 吉祥物：Clawd 风格象限块像素小人 ──
-// U+2580 块元素一格承载 4 个子像素；眼睛不是画的是「缺象限」——▛/▜ 各缺一角露出终端背景，
-// 眨眼帧换成 ▀（上下半块）即闭眼。2 FPS 姿态状态机，大多 idle、约 4s 眨一次；
-// Ink 双缓冲 diff，实际重写只有这 3 行。
-const MASCOT_COLOR = '#D97757'; // 品牌橙
-const MASCOT_POSES = [
-  [' ▐▛███▜▌ ', '▝▜█████▛▘', '  ▘▘ ▝▝  '],  // idle
-  [' ▐▀███▀▌ ', '▝▜█████▛▘', '  ▘▘ ▝▝  ']   // 眨眼
-];
-const MASCOT_SEQ = [0, 0, 0, 0, 0, 0, 0, 1]; // 500ms 一帧：末尾一帧眨眼
-
 export default function LandingView({
   width,
   height,
@@ -75,13 +65,6 @@ export default function LandingView({
   const [listIdx, setListIdx] = useState(0);
   const [menuIdx, setMenuIdx] = useState(0);
   const [rangeIdx, setRangeIdx] = useState(0);
-  const [mascotTick, setMascotTick] = useState(0);
-
-  // 吉祥物心跳：2 FPS 推进姿态（组件普通 state，Ink diff 只重写那 3 行）
-  useEffect(() => {
-    const t = setInterval(() => setMascotTick(i => i + 1), 500);
-    return () => clearInterval(t);
-  }, []);
 
   // ── 汇总：全项目会话按 lastTime 倒序（最近活跃列表）──
   const recent = useMemo(() => {
@@ -175,15 +158,9 @@ export default function LandingView({
     <Box width={width} height={height} flexDirection="row">
       {/* ── 左栏：数据看板 ── */}
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
-        {/* 统计面板：左吉祥物 + 右（范围页签标题行 + 统计横排） */}
-        <Box borderStyle="round" borderColor="#3A3D42" flexDirection="row" paddingX={1}>
-          {/* 吉祥物：象限块像素小人，2 FPS 偶尔眨眼；眼睛是缺象限露终端背景 */}
-          <Box flexDirection="column" justifyContent="center">
-            {MASCOT_POSES[MASCOT_SEQ[mascotTick % MASCOT_SEQ.length]].map((line, i) => (
-              <Text key={i} color={MASCOT_COLOR}>{line}</Text>
-            ))}
-          </Box>
-          <Box flexDirection="column" flexGrow={1} paddingLeft={2}>
+        {/* 统计面板：范围页签 + 统计横排（最左端留吉祥物的家）；吉祥物是绝对定位叠层（Mascot.tsx） */}
+        <Box borderStyle="round" borderColor="#3A3D42" flexDirection="column" paddingX={1}>
+          <Box flexDirection="column" marginLeft={MASCOT_W + 1}>
             {/* 标题行：范围页签（选中紫底；tab 切换的键位提示在底栏） */}
             <Box flexDirection="row">
               {RANGES.map((r, i) => (
@@ -223,6 +200,8 @@ export default function LandingView({
               ))}
             </Box>
           </Box>
+          {/* 吉祥物叠层：覆盖整个面板内容宽（扣边框 2 + paddingX 2），初始家在最左端 */}
+          <Mascot width={Math.max(0, innerW - 4)} />
         </Box>
         {/* 最近活跃：分隔标题行（左侧引一段线，标题右移） */}
         <Box flexDirection="row" marginTop={1}>
