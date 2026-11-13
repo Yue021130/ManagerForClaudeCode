@@ -160,17 +160,8 @@ function ScanningHint() {
   );
 }
 
-// 落地页底栏键位（overview 用 meta.hints；按视图切换见下方 effect）
-const LANDING_HINTS: [string, string][] = [
-  ['↑↓', '选择'],
-  ['←→', '切换区域'],
-  ['enter', '进入'],
-  ['/', '搜索'],
-  ['q', '退出']
-];
-
 export default function HISTORYPage({ width, height }: PageProps) {
-  const { setMessage, setError, setKeysEnabled, setHints } = useShell();
+  const { setMessage, setError, setKeysEnabled } = useShell();
 
   // ── 视图：landing = 落地页（数据看板）；overview = 三栏管理页 ──
   // App 切页会卸载重挂载本组件，所以每次按 1 回 HISTORY 都落在 landing
@@ -181,11 +172,6 @@ export default function HISTORYPage({ width, height }: PageProps) {
   useEffect(() => {
     setKeysEnabled(view === 'landing');
   }, [view, setKeysEnabled]);
-
-  // 底栏键位随视图换一套（切走页面时外壳自动重置回 meta.hints）
-  useEffect(() => {
-    setHints(view === 'landing' ? LANDING_HINTS : meta.hints);
-  }, [view, setHints]);
 
   // ── 数据 ──
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null); // null = 扫描中

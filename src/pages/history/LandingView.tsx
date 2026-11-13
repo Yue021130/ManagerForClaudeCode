@@ -8,8 +8,8 @@ import { fmtDate, fmtSize } from './fmt.js';
  * LandingView — HISTORY 落地页（数据看板 + 功能菜单）
  *
  * 左栏看板：统计行（总对话/项目/占用）→ 近 30 天贡献热力图（GitHub 绿阶、周一对齐）→
- *           最近活跃会话卡片（标题+时间 / ●+首条提问快照），底部钉一行操作提示。
- * 右侧功能条：历史总览 / 迁移管理 / 删除记录（图标 + 分隔线），下挂键位提示。
+ *           最近活跃会话卡片（标题+时间 / ●+首条提问快照）。
+ * 右侧功能条：历史总览 / 迁移管理 / 删除记录（图标 + 分隔线）。
  *
  * 键位：←→ 切换区域（列表/菜单）  ↑↓ 移动  enter（列表=恢复会话弹窗，菜单=进入功能）
  *       / 进历史总览并开搜索  q 退出程序；Esc/数字键归外壳（Esc 退出、数字切页）。
@@ -103,9 +103,9 @@ export default function LandingView({
     };
   }, [projects]);
 
-  // 高度预算：统计 4 行 + 热力图(周数+4) + 分隔行 1 + 底部提示 1 + 间隙 3，余下全给卡片（每张 4 行）
+  // 高度预算：统计 4 行 + 热力图(周数+4) + 分隔行 1 + 间隙 3，余下全给卡片（每张 4 行）
   const heatH = weeks.length + 4;
-  const cardBudget = Math.max(1, Math.floor((height - 4 - heatH - 1 - 1 - 3) / 4));
+  const cardBudget = Math.max(1, Math.floor((height - 4 - heatH - 1 - 3) / 4));
   const shown = recent.slice(0, cardBudget);
   const li = Math.min(listIdx, Math.max(0, shown.length - 1));
 
@@ -223,9 +223,6 @@ export default function LandingView({
             </Box>
           );
         })}
-        {/* 底部操作提示（钉在左栏底） */}
-        <Box flexGrow={1} />
-        <Text color="#6E7681">按 enter 恢复会话 · 按右侧按钮进入功能</Text>
       </Box>
       {/* ── 分隔竖线（左边框线画满整列） ── */}
       <Box width={1} borderStyle="single" borderTop={false} borderBottom={false} borderRight={false} borderColor="#30363D" />
@@ -244,10 +241,6 @@ export default function LandingView({
             </Box>
           );
         })}
-        <Box flexDirection="column" marginTop={1}>
-          <Text color="#6E7681">↑↓ 选择</Text>
-          <Text color="#6E7681">enter 进入</Text>
-        </Box>
       </Box>
     </Box>
   );

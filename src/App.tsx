@@ -37,7 +37,7 @@ export default function App() {
   // ── 当前页 ──
   const current = PAGE_REGISTRY.find(p => p.key === pageKey) || PAGE_REGISTRY[0];
 
-  // ── 底栏键位：默认当前页 meta.hints；页面可按视图临时换（HISTORY 落地页/总览各一套），切页重置 ──
+  // ── 底栏键位：默认当前页 meta.hints；页面可用 setHints 临时换一套，切页自动重置 ──
   const [hints, setHints] = useState<[string, string][]>(current.meta.hints);
   useEffect(() => {
     setHints(current.meta.hints);
