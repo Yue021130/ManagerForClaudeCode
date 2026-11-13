@@ -228,7 +228,7 @@ export default function LandingView({
       {/* ── 下部：最近对话通栏（卡片占满整行宽）；分隔标题行（左侧引一段线，标题右移） ── */}
       <Box flexDirection="row" marginTop={1}>
         <Text color="#30363D">{'─── '}</Text>
-        <Text color="#8B949E">🧐 最近对话 </Text>
+        <Text bold color="#E6EDF3">🧐 最近对话 </Text>
         <Text color="#30363D">{'─'.repeat(Math.max(2, width - 18))}</Text>
       </Box>
       {shown.length === 0 && <Text color="#6E7681">（暂无会话记录）</Text>}
