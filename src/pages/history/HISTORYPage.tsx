@@ -161,7 +161,7 @@ function ScanningHint() {
 }
 
 export default function HISTORYPage({ width, height }: PageProps) {
-  const { setMessage, setError, setKeysEnabled } = useShell();
+  const { setMessage, setError, setKeysEnabled, setHints } = useShell();
 
   // ── 视图：landing = 落地页（数据看板）；overview = 三栏管理页 ──
   // App 切页会卸载重挂载本组件，所以每次按 1 回 HISTORY 都落在 landing
@@ -172,6 +172,11 @@ export default function HISTORYPage({ width, height }: PageProps) {
   useEffect(() => {
     setKeysEnabled(view === 'landing');
   }, [view, setKeysEnabled]);
+
+  // 底栏键帽随视图换：落地页多一个 tab 切范围（总览的 tab 是切焦点，不能共用同一条说明）
+  useEffect(() => {
+    setHints(view === 'landing' ? [...meta.hints, ['tab', '切换范围']] : meta.hints);
+  }, [view, setHints]);
 
   // ── 数据 ──
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null); // null = 扫描中

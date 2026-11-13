@@ -154,7 +154,7 @@ export default function LandingView({
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
         {/* 统计面板：范围页签 + 三项统计横排 */}
         <Box borderStyle="round" borderColor="#3A3D42" flexDirection="column" paddingX={1}>
-          {/* 标题行：名称 + 范围页签（tab 切换，选中紫底），右侧键位提示 */}
+          {/* 标题行：名称 + 范围页签（选中紫底；tab 切换的键位提示在底栏） */}
           <Box flexDirection="row">
             <Text color="#C9D1D9">统计</Text>
             {RANGES.map((r, i) => (
@@ -167,8 +167,6 @@ export default function LandingView({
                 >{` ${r.label} `}</Text>
               </Text>
             ))}
-            <Box flexGrow={1} />
-            <Text color="#6E7681">tab 切换范围</Text>
           </Box>
           {/* 统计横排：对话 / 项目 / 占用 / 输入 / 输出（口径跟随 tab 范围），竖线分隔 */}
           <Box flexDirection="row">
@@ -193,10 +191,11 @@ export default function LandingView({
             ))}
           </Box>
         </Box>
-        {/* 最近活跃：分隔标题行 */}
+        {/* 最近活跃：分隔标题行（左侧引一段线，标题右移） */}
         <Box flexDirection="row" marginTop={1}>
+          <Text color="#30363D">{'─── '}</Text>
           <Text color="#8B949E">最近活跃 </Text>
-          <Text color="#30363D">{'─'.repeat(Math.max(2, innerW - 8))}</Text>
+          <Text color="#30363D">{'─'.repeat(Math.max(2, innerW - 13))}</Text>
         </Box>
         {shown.length === 0 && <Text color="#6E7681">（暂无会话记录）</Text>}
         {shown.map((s, i) => {
