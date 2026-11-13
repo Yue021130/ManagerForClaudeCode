@@ -16,6 +16,7 @@ import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
  */
 
 const TITLE_MAX = 40;
+const PREVIEW_MAX = 80; // 首条提问快照（落地页卡片预览行）截断长度
 
 export function claudeProjectsRoot(): string | null {
   const root = path.join(os.homedir(), '.claude', 'projects');
@@ -37,6 +38,7 @@ interface MetaAcc {
   readBytes: number;
   cwd: string | null;
   title: string;
+  preview: string; // 首条真实用户消息快照（落地页卡片用），同标题清洗规则、截断 80 字
   firstTime: string | null;
   lastTime: string | null;
   userCount: number;
@@ -52,7 +54,7 @@ const metaCache = new Map<string, MetaAcc>();
 const convCache = new Map<string, ConvAcc>();
 
 const freshMetaAcc = (): MetaAcc => ({
-  mtimeMs: 0, readBytes: 0, cwd: null, title: '(空会话)',
+  mtimeMs: 0, readBytes: 0, cwd: null, title: '(空会话)', preview: '',
   firstTime: null, lastTime: null, userCount: 0, assistantCount: 0
 });
 const freshConvAcc = (): ConvAcc => ({ mtimeMs: 0, readBytes: 0, entries: [], pendingTools: [] });
@@ -159,13 +161,14 @@ function metaLine(acc: MetaAcc, o: RawLine): void {
   }
   if (isRealUserText(o)) {
     acc.userCount++;
+    // 剥掉 <pasted_content> 标签，标题/快照只留可读内容
+    const clean = o.message.content
+      .replace(/<\/?pasted_content[^>]*>/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!acc.preview) acc.preview = clean.slice(0, PREVIEW_MAX); // 首条提问快照（落地页卡片用）
     if (acc.title === '(空会话)') {
-      // 剥掉 <pasted_content> 标签，标题只留可读内容
-      acc.title = o.message.content
-        .replace(/<\/?pasted_content[^>]*>/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, TITLE_MAX) || '(空消息)';
+      acc.title = clean.slice(0, TITLE_MAX) || '(空消息)';
     }
   } else if (o.type === 'assistant') {
     acc.assistantCount++;
@@ -200,6 +203,7 @@ export function scanSession(filePath: string): SessionMeta {
     filePath,
     cwd: acc.cwd,
     title: acc.title,
+    preview: acc.preview,
     firstTime: acc.firstTime,
     lastTime: acc.lastTime,
     userCount: acc.userCount,
