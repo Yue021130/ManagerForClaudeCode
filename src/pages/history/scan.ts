@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
+import type { ChatEntry, DayStat, ProjectInfo, SessionMeta } from './types.js';
+import { dayKey } from './fmt.js';
 
 /**
  * scan.ts — HISTORY 页纯数据层（无 React 依赖，可直接 node 单测）
@@ -13,6 +14,8 @@ import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
  * 性能：meta/对话双层缓存 + 增量续读——jsonl 只追加（重命名/移动会显式 invalidateSession），
  * mtime 变化时只解析新增字节，运行中大会话的 3s 轮询不再全量重读；
  * readConversationAsync 冷启动全量解析分片让出主线程，UI 不冻结。
+ * meta 缓存还落盘持久化（~/.mfcc/history-scan-cache.json，含 token 累计）：
+ * 重启后 mtime 未变的文件零解析，首扫从「全量解析」降为「stat 比对」。
  */
 
 const TITLE_MAX = 40;
@@ -43,6 +46,9 @@ interface MetaAcc {
   lastTime: string | null;
   userCount: number;
   assistantCount: number;
+  inputTokens: number;   // assistant 行 usage.input_tokens 累计（每轮全量上下文，含重复发送）
+  outputTokens: number;  // assistant 行 usage.output_tokens 累计
+  days: Record<string, DayStat>; // 'YYYY-MM-DD'（本地）→ 当日桶；范围统计以 QA 为粒度按它过滤
 }
 interface ConvAcc {
   mtimeMs: number;
@@ -55,13 +61,57 @@ const convCache = new Map<string, ConvAcc>();
 
 const freshMetaAcc = (): MetaAcc => ({
   mtimeMs: 0, readBytes: 0, cwd: null, title: '(空会话)', preview: '',
-  firstTime: null, lastTime: null, userCount: 0, assistantCount: 0
+  firstTime: null, lastTime: null, userCount: 0, assistantCount: 0,
+  inputTokens: 0, outputTokens: 0, days: {}
 });
 const freshConvAcc = (): ConvAcc => ({ mtimeMs: 0, readBytes: 0, entries: [], pendingTools: [] });
 
 export function invalidateSession(filePath: string): void {
   metaCache.delete(filePath);
   convCache.delete(filePath);
+}
+
+// ── meta 缓存落盘持久化 ──
+// 键 = 会话文件路径，值 = MetaAcc（含已解析字节偏移、计数、token 累计）。
+// 启动首次扫描时懒加载；扫描结束有改动才写回（tmp+rename 原子替换），
+// 并清掉已不存在文件的陈旧条目。缓存损坏/版本不兼容就当没有，全量重扫兜底。
+const scanCacheFile = (): string => path.join(os.homedir(), '.mfcc', 'history-scan-cache.json');
+let scanCacheLoaded = false;
+let scanCacheDirty = false;
+
+function loadScanCache(): void {
+  if (scanCacheLoaded) return;
+  scanCacheLoaded = true;
+  try {
+    const map = JSON.parse(fs.readFileSync(scanCacheFile(), 'utf8')) as Record<string, MetaAcc>;
+    for (const [k, v] of Object.entries(map)) {
+      // 宽松校验：关键字段缺了宁可不要这条缓存（该文件走全量重扫）；
+      // days 必须有——旧版缓存没有日桶，留着会让范围统计丢掉整个会话
+      if (
+        v && typeof v.readBytes === 'number' && typeof v.mtimeMs === 'number' &&
+        v.days && typeof v.days === 'object'
+      ) metaCache.set(k, v);
+    }
+  } catch { /* 不存在/损坏：空缓存起步 */ }
+}
+
+/** 扫描结束时调用：清掉已消失文件的条目，有改动则原子写回 */
+function persistScanCache(validPaths: Set<string>): void {
+  for (const k of [...metaCache.keys()]) {
+    if (!validPaths.has(k)) {
+      metaCache.delete(k);
+      scanCacheDirty = true;
+    }
+  }
+  if (!scanCacheDirty) return;
+  scanCacheDirty = false;
+  try {
+    const file = scanCacheFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(metaCache)), 'utf8');
+    fs.renameSync(tmp, file);
+  } catch { /* 写失败不碍事：下次扫描再试 */ }
 }
 
 /** 读 [fromBytes, size) 的新增字节里「完整行」的部分（截至最后一个 \n），返回 null 表示没有完整行 */
@@ -86,7 +136,10 @@ interface RawLine {
   isMeta?: boolean;
   requestedModel?: string;
   aiTitle?: string;         // type==='ai-title'：Claude Code 生成的会话标题
-  message?: { content?: unknown };
+  message?: {
+    content?: unknown;
+    usage?: { input_tokens?: number; output_tokens?: number }; // 仅 assistant 行有
+  };
 }
 
 function parseLine(line: string): RawLine | null {
@@ -152,14 +205,18 @@ function resultBrief(content: unknown, isError: boolean | undefined): { text: st
   };
 }
 
-/** meta 单行累计：标题（ai-title 优先，其次首条用户消息）/ cwd / 计数 / 时间范围 */
-function metaLine(acc: MetaAcc, o: RawLine): void {
+/** meta 单行累计：标题（ai-title 优先，其次首条用户消息）/ cwd / 计数 / token / 时间范围，
+ *  并按行时间戳的本地日期落日桶（范围统计以 QA 为粒度）；lineBytes 含换行符，用于当日字节量 */
+function metaLine(acc: MetaAcc, o: RawLine, lineBytes: number): void {
   if (!acc.cwd && typeof o.cwd === 'string') acc.cwd = o.cwd;
   // Claude Code 生成的真标题（ai-title 行），优先于首条用户消息截断
   if (o.type === 'ai-title' && typeof o.aiTitle === 'string' && o.aiTitle.trim()) {
     acc.title = o.aiTitle.trim().slice(0, TITLE_MAX);
   }
-  if (isRealUserText(o)) {
+  const realUser = isRealUserText(o);
+  let input = 0;
+  let output = 0;
+  if (realUser) {
     acc.userCount++;
     // 剥掉 <pasted_content> 标签，标题/快照只留可读内容
     const clean = o.message.content
@@ -172,27 +229,52 @@ function metaLine(acc: MetaAcc, o: RawLine): void {
     }
   } else if (o.type === 'assistant') {
     acc.assistantCount++;
+    // token 用量只挂在 assistant 行；累计的是各轮 API 请求值（input 含重复发送的上下文）
+    const u = o.message?.usage;
+    if (u) {
+      input = u.input_tokens ?? 0;
+      output = u.output_tokens ?? 0;
+      acc.inputTokens += input;
+      acc.outputTokens += output;
+    }
   }
   if (o.timestamp) {
     if (!acc.firstTime || o.timestamp < acc.firstTime) acc.firstTime = o.timestamp;
     if (!acc.lastTime || o.timestamp > acc.lastTime) acc.lastTime = o.timestamp;
+    const t = Date.parse(o.timestamp);
+    if (!Number.isNaN(t)) {
+      const k = dayKey(new Date(t));
+      const b = acc.days[k] ?? (acc.days[k] = { input: 0, output: 0, user: 0, assistant: 0, bytes: 0 });
+      b.bytes += lineBytes;
+      if (realUser) b.user++;
+      else if (o.type === 'assistant') {
+        b.assistant++;
+        b.input += input;
+        b.output += output;
+      }
+    }
   }
 }
 
-/** 扫描单个会话文件 → 元信息（标题/时间/计数/体积）；增量：只解析新增字节 */
+/** 扫描单个会话文件 → 元信息（标题/时间/计数/token/体积）；增量：只解析新增字节 */
 export function scanSession(filePath: string): SessionMeta {
+  loadScanCache();
   const st = fs.statSync(filePath);
   let acc = metaCache.get(filePath);
-  if (!acc || st.size < acc.readBytes) acc = freshMetaAcc(); // 无缓存 / 文件被截断重写：全量
+  if (!acc || st.size < acc.readBytes) {
+    acc = freshMetaAcc(); // 无缓存 / 文件被截断重写：全量
+    scanCacheDirty = true;
+  }
   if (acc.mtimeMs !== st.mtimeMs && st.size > acc.readBytes) {
     const chunk = readCompleteLines(filePath, acc.readBytes, st.size);
     if (chunk) {
       for (const line of chunk.text.split('\n')) {
         if (!line) continue;
         const o = parseLine(line);
-        if (o) metaLine(acc, o);
+        if (o) metaLine(acc, o, Buffer.byteLength(line, 'utf8') + 1); // +1 = 换行符
       }
       acc.readBytes += chunk.bytes;
+      scanCacheDirty = true;
     }
     acc.mtimeMs = st.mtimeMs;
   }
@@ -208,6 +290,10 @@ export function scanSession(filePath: string): SessionMeta {
     lastTime: acc.lastTime,
     userCount: acc.userCount,
     assistantCount: acc.assistantCount,
+    inputTokens: acc.inputTokens,
+    outputTokens: acc.outputTokens,
+    // 日桶深拷贝一份给快照：acc 还会随增量续读原地变化，不能共享引用
+    days: Object.fromEntries(Object.entries(acc.days).map(([k, b]) => [k, { ...b }])),
     sizeBytes: st.size,
     mtimeMs: st.mtimeMs
   };
@@ -270,11 +356,12 @@ export function renameSessionTitle(filePath: string, title: string): void {
   invalidateSession(filePath);
 }
 
-/** 扫描全部项目目录（空目录跳过；项目按最新会话倒序） */
+/** 扫描全部项目目录（空目录跳过；项目按最新会话倒序）；结束把 meta 缓存写回磁盘 */
 export function scanAllProjects(): ProjectInfo[] {
   const root = claudeProjectsRoot();
   if (!root) return [];
 
+  const scanned = new Set<string>(); // 本次实际存在的会话文件，给缓存清理用
   const projects: ProjectInfo[] = [];
   for (const dirName of fs.readdirSync(root)) {
     const dirPath = path.join(root, dirName);
@@ -284,7 +371,9 @@ export function scanAllProjects(): ProjectInfo[] {
     for (const f of fs.readdirSync(dirPath)) {
       if (!f.endsWith('.jsonl')) continue;
       try {
-        sessions.push(scanSession(path.join(dirPath, f)));
+        const fp = path.join(dirPath, f);
+        sessions.push(scanSession(fp));
+        scanned.add(fp);
       } catch {
         // 单个文件读失败（占用/权限）不拖垮整个扫描
       }
@@ -298,6 +387,7 @@ export function scanAllProjects(): ProjectInfo[] {
   projects.sort((a, b) =>
     (b.sessions[0]?.lastTime ?? '').localeCompare(a.sessions[0]?.lastTime ?? '')
   );
+  persistScanCache(scanned);
   return projects;
 }
 

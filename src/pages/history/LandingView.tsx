@@ -2,12 +2,12 @@ import { useMemo, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import type { PageProps } from '../../types.js';
 import type { ProjectInfo, SessionMeta } from './types.js';
-import { fmtDate, fmtSize } from './fmt.js';
+import { dayKey, fmtCount, fmtDate, fmtSize } from './fmt.js';
 
 /**
  * LandingView — HISTORY 落地页（数据看板 + 功能菜单）
  *
- * 左栏看板：统计面板（范围页签 + 对话/项目/占用三项横排，口径随 tab 范围）
+ * 左栏看板：统计面板（范围页签 + 对话/项目/占用/输入token/输出token 横排，口径随 tab 范围）
  *           → 最近活跃会话卡片（标题+时间 / ●+首条提问快照）。
  * 右侧功能条：历史总览 / 迁移管理 / 删除记录（图标 + 分隔线）。
  *
@@ -71,27 +71,35 @@ export default function LandingView({
     return all;
   }, [projects]);
 
-  // ── 范围统计（tab 切换口径）：范围内活跃的对话数 / 项目数 / 会话体积 ──
+  // ── 范围统计（tab 切换口径）：以 QA 为粒度——遍历各会话日桶，只累计落在范围内的日子 ──
   const rangeStats = useMemo(() => {
     const days = RANGES[rangeIdx].days;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const start = today.getTime() - (days - 1) * 86400000;
+    const startKey = dayKey(new Date(today.getTime() - (days - 1) * 86400000));
+    const endKey = dayKey(today);
     let sessions = 0;
     let bytes = 0;
+    let input = 0;
+    let output = 0;
     const dirs = new Set<string>();
     for (const p of projects) {
       for (const s of p.sessions) {
-        if (!s.lastTime) continue;
-        const d = new Date(s.lastTime);
-        const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-        if (day < start || day > today.getTime()) continue;
-        sessions++;
-        bytes += s.sizeBytes;
-        dirs.add(p.dirName);
+        let active = false;
+        for (const [k, b] of Object.entries(s.days)) {
+          if (k < startKey || k > endKey) continue; // 日键字典序 = 日期先后
+          active = true;
+          bytes += b.bytes;
+          input += b.input;
+          output += b.output;
+        }
+        if (active) {
+          sessions++;
+          dirs.add(p.dirName);
+        }
       }
     }
-    return { sessions, bytes, projects: dirs.size };
+    return { sessions, bytes, projects: dirs.size, input, output };
   }, [projects, rangeIdx]);
 
   // 左栏内容宽 = 总宽 - 功能条 - 竖线 - 左右 padding
@@ -162,13 +170,15 @@ export default function LandingView({
             <Box flexGrow={1} />
             <Text color="#6E7681">tab 切换范围</Text>
           </Box>
-          {/* 统计横排：对话 / 项目 / 占用（口径跟随 tab 范围），竖线分隔 */}
+          {/* 统计横排：对话 / 项目 / 占用 / 输入 / 输出（口径跟随 tab 范围），竖线分隔 */}
           <Box flexDirection="row">
             {(
               [
                 [String(rangeStats.sessions), '对话', '#79C0FF'],
                 [String(rangeStats.projects), '项目', '#3FB950'],
-                [fmtSize(rangeStats.bytes), '占用', '#E3B341']
+                [fmtSize(rangeStats.bytes), '占用', '#E3B341'],
+                [fmtCount(rangeStats.input), '输入', '#D2A8FF'],
+                [fmtCount(rangeStats.output), '输出', '#F778BA']
               ] as [string, string, string][]
             ).map(([v, l, c], i) => (
               <Box key={i} flexDirection="row" flexGrow={1}>
