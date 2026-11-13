@@ -48,8 +48,8 @@ export default function LandingView({
     if (key.return) onSelect(sel);
   });
 
-  // 左块占约 2/3 宽（数字定宽比百分比 + margin 好预测）；右列 flexGrow 占满剩余
-  const leftW = Math.max(20, Math.floor(width * 0.64) - 2);
+  // 左块占约 9.5 成宽（数字定宽比百分比 + margin 好预测）；右列 0.5 成，flexGrow 占满剩余
+  const leftW = Math.max(20, Math.floor(width * 0.95) - 2);
 
   // 选中态与会话卡同款（HISTORYPage 卡片：紫框/深底）；未选中灰框
   const zoneStyle = (id: LandingTarget) => ({
