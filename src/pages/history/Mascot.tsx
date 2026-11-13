@@ -7,7 +7,7 @@ import { Box, Text } from 'ink';
  * 造型：U+2580 块元素一格承载 4 个子像素；眼睛是「缺象限」（▛/▜ 各缺一角）露出终端背景，
  *       闭眼帧在眼睛位画深色下半块（眼睑线），头形不变、仍有五官；品牌橙 #D97757。
  * 动画：终端没有「动画」原语，本质是定时器 + 覆盖重绘；Ink 双缓冲 diff 后每次只重写那几格。
- *       随机状态机九态：
+ *       随机状态机十态：
  *       idle：初始家在面板最左端，随机眨眼（每拍 18%），随机起跑（每拍 4%，朝对面跑）
  *       run ：快速横移（90ms 一拍，全程约 1.3s），腿帧交替出步态、身后拖 8 列流动风带；
  *             奔跑全程不眨眼
@@ -23,6 +23,7 @@ import { Box, Text } from 'ink';
  *       turn：原地转身（idle 每拍 2%）——侧面收窄 → 背面无眼实心 → 侧面 → 回正（3 拍快转）
  *       wave：招手（idle 每拍 3%）——右臂举直贴头侧（右半块细臂+臂尖翘起），手点在上方 ▗/▖ 左右摆 3 个来回
  *       tele：闪现（idle 每拍 2%）——原地淡出 → 消失一拍 → 在对面端点淡入（不换向位移的第二种方式）
+ *       kick：四处蹬脚（idle 每拍 3%）——150ms 快拍：外蹬劈叉 → 双腿甩左 → 外蹬 → 甩右 → 外蹬回正
  * 叠层：position absolute 覆盖在统计块同区（Yoga 绝对定位原点 = 父级内容区 (0,0)，
  *       无需 top/left，marginLeft 控制横移），跑过统计时小人盖在字上，离开后 Ink diff 复原文字。
  */
@@ -65,6 +66,11 @@ const HEAD_BACK = ' ▐█████▌ ';
 // 体行右臂尖翘起（▝）接上手臂，手点在上方气泡行 ▗/▖ 左右摆 = 挥手
 const HEAD_WAVE = ' ▐▛███▜▌▐';
 const BODY_WAVE = '▝▜█████▛▝';
+// 蹬脚：腿行三态——外蹬劈叉 / 双腿甩左 / 双腿甩右，快速切换出扑腾感
+const LEGS_WIDE = ' ▘▘   ▝▝ ';
+const LEGS_LEFT = ' ▘▘▝▝    ';
+const LEGS_RIGHT = '    ▘▘▝▝ ';
+const KICK_SEQ = [LEGS_WIDE, LEGS_LEFT, LEGS_WIDE, LEGS_RIGHT, LEGS_WIDE];
 // 压扁帧（跳跃蓄力/落地）：头压扁、身体摊平、腿收起（第三行空串 = 不画，留白由 diff 复原）
 const SQUASH = [' ▐▄███▄▌ ', '▀▀▀▀▀▀▀▀▀', ''];
 
@@ -89,6 +95,8 @@ const LOOK_TICKS = 4; // 东张西望 4 拍：看左 ×2 → 看右 ×2 → 回 
 const TURN_TICKS = 3; // 原地转身 3 拍：侧面 → 背面 → 侧面 → 回 idle
 const WAVE_TICKS = 6; // 招手 6 拍（≈2.4s）：手左右摆 3 个来回
 const TELE_TICKS = 4; // 闪现 4 拍：淡出 → 消失 → 对面淡入 → 回 idle
+const KICK_TICKS = 5; // 蹬脚 5 拍：外蹬 → 甩左 → 外蹬 → 甩右 → 外蹬
+const KICK_MS = 150;  // 蹬脚拍（快于待机、慢于奔跑，出扑腾感）
 // t0 头部帧：爱心贴头两侧角（其余拍用 HEAD_HAPPY）
 const HEAD_HAPPY_HEARTS: Seg[] = [
   ['♥', HEART_COLOR],
@@ -112,9 +120,9 @@ const windAt = (row: number, t: number, dir: 1 | -1): string => {
 interface S {
   x: number;                         // 面板内容区内左偏移（列）；0 = 最左端的家
   dir: 1 | -1;                       // 奔跑方向
-  phase: 'idle' | 'run' | 'pop' | 'jump' | 'sleep' | 'happy' | 'look' | 'turn' | 'wave' | 'tele';
+  phase: 'idle' | 'run' | 'pop' | 'jump' | 'sleep' | 'happy' | 'look' | 'turn' | 'wave' | 'tele' | 'kick';
   t: number;                         // 阶段内帧数（步态/冒出/跳跃节拍用；idle 兼作入睡计时）
-  blink: boolean;                    // 本拍是否闭眼（sleep 恒 true，run/jump/happy/look/turn/wave/tele 恒 false）
+  blink: boolean;                    // 本拍是否闭眼（sleep 恒 true，run/jump/happy/look/turn/wave/tele/kick 恒 false）
 }
 
 const advance = (prev: S, maxX: number, step: number): S => {
@@ -172,7 +180,12 @@ const advance = (prev: S, maxX: number, step: number): S => {
     }
     return { ...prev, t: nt, blink: false };
   }
-  // idle：随机动作——眨眼 / 原地起跳 / 开心 / 东张西望 / 原地转身 / 招手 / 闪现 / 起跑（朝对面）；连续无动作 30s 入睡
+  if (prev.phase === 'kick') {
+    const nt = prev.t + 1;
+    if (nt >= KICK_TICKS) return { ...prev, phase: 'idle', t: 0, blink: false };
+    return { ...prev, t: nt, blink: false };
+  }
+  // idle：随机动作——眨眼 / 原地起跳 / 开心 / 东张西望 / 原地转身 / 招手 / 闪现 / 蹬脚 / 起跑（朝对面）；连续无动作 30s 入睡
   if (maxX >= 4 && Math.random() < 0.02) {
     return { ...prev, phase: 'jump', t: 0, blink: false };
   }
@@ -190,6 +203,9 @@ const advance = (prev: S, maxX: number, step: number): S => {
   }
   if (maxX >= 4 && Math.random() < 0.02) {
     return { ...prev, phase: 'tele', t: 0, blink: false };
+  }
+  if (maxX >= 4 && Math.random() < 0.03) {
+    return { ...prev, phase: 'kick', t: 0, blink: false };
   }
   if (maxX >= 4 && Math.random() < 0.04) {
     return { x: prev.x, dir: prev.x === 0 ? 1 : -1, phase: 'run', t: 0, blink: false };
@@ -209,16 +225,18 @@ export default function Mascot({ width }: { width: number }) {
     const ms =
       s.phase === 'run' || s.phase === 'jump'
         ? RUN_MS
-        : (s.phase === 'idle' || s.phase === 'pop') && s.blink
-          ? BLINK_MS
-          : IDLE_MS;
+        : s.phase === 'kick'
+          ? KICK_MS
+          : (s.phase === 'idle' || s.phase === 'pop') && s.blink
+            ? BLINK_MS
+            : IDLE_MS;
     const timer = setTimeout(() => setS(prev => advance(prev, maxX, step)), ms);
     return () => clearTimeout(timer);
   }, [s, maxX, step]);
 
   if (width < MASCOT_W) return null; // 放不下就不画
 
-  // 睡眠：闭眼（HEAD_SLEEP）；开心：笑眼（HEAD_HAPPY）；东张西望：HEAD_LOOK_L/R；转身：侧面/背面帧；招手：HEAD_OPEN+翘臂（手点画在气泡行）；闪现：消失拍空串、其余压暗；跳跃蓄力/落地用压扁帧；其余正常造型
+  // 睡眠：闭眼（HEAD_SLEEP）；开心：笑眼（HEAD_HAPPY）；东张西望：HEAD_LOOK_L/R；转身：侧面/背面帧；招手：HEAD_OPEN+翘臂（手点画在气泡行）；闪现：消失拍空串、其余压暗；蹬脚：KICK_SEQ；跳跃蓄力/落地用压扁帧；其余正常造型
   const sleeping = s.phase === 'sleep';
   const happy = s.phase === 'happy';
   const waving = s.phase === 'wave';
@@ -238,7 +256,9 @@ export default function Mascot({ width }: { width: number }) {
               ? s.t === 1
                 ? ['', '', ''] // 消失拍：空串不写字符，diff 自动清掉
                 : [HEAD_OPEN, BODY, LEGS[0]]
-              : s.phase === 'jump' && (s.t === 0 || s.t === 3)
+              : s.phase === 'kick'
+                ? [HEAD_OPEN, BODY, KICK_SEQ[s.t]]
+                : s.phase === 'jump' && (s.t === 0 || s.t === 3)
                 ? SQUASH
                 : [s.blink ? HEAD_CLOSED : HEAD_OPEN, BODY, LEGS[s.phase === 'run' ? s.t % 2 : 0]];
   // 闪现淡出/淡入拍整体压暗
