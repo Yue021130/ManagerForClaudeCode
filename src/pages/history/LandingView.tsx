@@ -32,6 +32,8 @@ interface LandingProps extends PageProps {
   onResume: (s: SessionMeta) => void;     // 最近对话卡片 ss 双击 → 恢复弹窗
   onFullscreen: (s: SessionMeta) => void; // 最近活跃卡片 space → 进总览全屏预览
   onSearch: () => void;                   // '/' → 进总览并开搜索
+  listIdx: number;                        // 列表选中（受控：HISTORYPage 持有，跳总览再回来选中不丢）
+  onListIdxChange: (i: number) => void;
 }
 
 // 右侧功能菜单：图标 + 中文标签
@@ -92,11 +94,12 @@ export default function LandingView({
   onLocate,
   onResume,
   onFullscreen,
-  onSearch
+  onSearch,
+  listIdx,
+  onListIdxChange
 }: LandingProps) {
   const { exit } = useApp();
   const [focus, setFocus] = useState<'list' | 'menu'>('list');
-  const [listIdx, setListIdx] = useState(0);
   const [menuIdx, setMenuIdx] = useState(0);
   const [rangeIdx, setRangeIdx] = useState(0);
   const lastSRef = useRef(0); // ss 双击计时（与总览同 500ms 窗口）
@@ -168,7 +171,7 @@ export default function LandingView({
     if (key.upArrow || key.downArrow) {
       const dir = key.upArrow ? -1 : 1;
       if (focus === 'list') {
-        if (shown.length) setListIdx(Math.min(Math.max(0, li + dir), shown.length - 1));
+        if (shown.length) onListIdxChange(Math.min(Math.max(0, li + dir), shown.length - 1));
       } else {
         setMenuIdx(i => Math.min(Math.max(0, i + dir), MENU.length - 1));
       }

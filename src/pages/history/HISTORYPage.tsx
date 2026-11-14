@@ -144,6 +144,9 @@ export default function HISTORYPage({ width, height }: PageProps) {
   // ── 视图：landing = 落地页（数据看板）；overview = 三栏管理页 ──
   // App 切页会卸载重挂载本组件，所以每次按 1 回 HISTORY 都落在 landing
   const [view, setView] = useState<'landing' | 'overview'>('landing');
+  // 落地页最近对话选中条（受控给 LandingView）：它随视图切换卸载重挂，
+  // 状态放这儿才能「跳总览再 q 回来，选中还是原来那条」
+  const [landingListIdx, setLandingListIdx] = useState(0);
 
   // 键盘基线随视图切换：landing 归外壳（Esc 退出 / 数字切页）；
   // overview 接管键盘（Esc 返回落地页，数字切页失效，要切页先 Esc 回落地页）
@@ -930,6 +933,8 @@ export default function HISTORYPage({ width, height }: PageProps) {
           onResume={landingResume}
           onFullscreen={landingFullscreen}
           onSearch={landingSearch}
+          listIdx={landingListIdx}
+          onListIdxChange={setLandingListIdx}
         />
         {resumeModal}
       </Box>
