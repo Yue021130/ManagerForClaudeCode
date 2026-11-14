@@ -12,7 +12,7 @@ import Mascot, { MASCOT_W } from './Mascot.js';
  *       口径随 tab 范围；右侧空地是走动吉祥物，见 Mascot.tsx）+ 竖线 + 功能条
  *       （历史总览 / 迁移管理 / 删除记录，图标 + 分隔线）。
  * 下部：🧐 最近对话通栏 QA 卡（标题+项目路径+相对时间 / ╭─ 最后一条 Q / ╰─ 最后一条 A），
- *       最多 3 张、卡高 5~8 行随屏高自适应；● 仅运行中显示；空会话不展示（口径同总览）。
+ *       最多 3 张、卡高 5~12 行随屏高自适应；● 仅运行中显示；空会话不展示（口径同总览）。
  *
  * 键位：←→ 切换区域（列表/菜单）  ↑↓ 移动  enter（列表=恢复会话弹窗，菜单=进入功能）
  *       space 列表=全屏预览该卡片（q/Esc 退出回首页）  / 进历史总览并开搜索  q 退出程序
@@ -145,9 +145,10 @@ export default function LandingView({
   const innerW = Math.max(10, width - STRIP_W - 1 - 2);
 
   // 高度预算：上部 5 行（统计面板，功能条同高不超高）+ 分隔行 1 + 间隙 1，余下给 QA 卡。
-  // 最多 3 张；卡高 = 可用行均分后钳 5~8（边框2 + 标题1 + Q1~2 + A1~3），屏矮自动减张数
+  // 最多 3 张；卡高 = 可用行均分后钳 5~12（边框2 + 标题1 + Q1~2 + A1~7），屏矮自动减张数
   const MIN_CARD = 5;
-  const MAX_CARD = 8;
+  // 上限 12：A 最多 7 行——高屏 3 张卡分不完的富余全摊给回答，一张卡基本看完整个回答
+  const MAX_CARD = 12;
   const avail = height - 5 - 1 - 1;
   const cardN = Math.min(3, recent.length, Math.max(1, Math.floor(avail / MIN_CARD)));
   const perCard = Math.min(MAX_CARD, Math.max(MIN_CARD, Math.floor(avail / cardN)));
