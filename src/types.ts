@@ -34,4 +34,9 @@ export interface ShellValue {
   setError: (e: string | null) => void;     // 底栏右侧红色 ✗
   /** 页面进入输入模式（如搜索框）时调 false，外壳数字切页让位；退出时调 true */
   setKeysEnabled: (enabled: boolean) => void;
+  /** 页面想自己接管 Esc（如 HISTORY 总览 Esc 返回落地页）时调 false，外壳 Esc 不退出程序；
+   *  默认 true。与 setKeysEnabled 独立：总览可以数字能切页、但 Esc 归页面 */
+  setEscEnabled: (enabled: boolean) => void;
+  /** 底栏键位临时换一套（默认当前页 meta.hints；切页时外壳自动重置） */
+  setHints: (h: [string, string][]) => void;
 }

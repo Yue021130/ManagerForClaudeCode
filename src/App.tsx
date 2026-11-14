@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import type { ShellValue } from './types.js';
 import { useTerminalSize } from './hooks/useTerminalSize.js';
@@ -32,10 +32,18 @@ export default function App() {
 
   // ── 页面输入模式（搜索框等）：禁用外壳数字切页，Esc 仍然生效 ──
   const [keysEnabled, setKeysEnabled] = useState(true);
+  // ── 页面自管 Esc（HISTORY 总览 Esc 返回落地页）：外壳 Esc 不退出程序 ──
+  const [escEnabled, setEscEnabled] = useState(true);
 
 
   // ── 当前页 ──
   const current = PAGE_REGISTRY.find(p => p.key === pageKey) || PAGE_REGISTRY[0];
+
+  // ── 底栏键位：默认当前页 meta.hints；页面可用 setHints 临时换一套，切页自动重置 ──
+  const [hints, setHints] = useState<[string, string][]>(current.meta.hints);
+  useEffect(() => {
+    setHints(current.meta.hints);
+  }, [current.meta.hints]);
 
   // ── 全局键盘：只处理退出与切页，其余按键留给页面自己 ──
   useInput((input, key) => {
@@ -46,9 +54,9 @@ export default function App() {
     // esc键退出
     // Esc 退出：延迟一拍再退。曾在 input 派发栈内同步 exit() 触发 Ink 卸载重入，
     // 恰好撞上启动扫描后的重渲染时卸载挂起（stdin 已拆、waitUntilExit 永不 resolve）。
-    // keysEnabled=false（页面输入/详情模式）时 Esc 归页面自己处理（返回/关闭）。
+    // keysEnabled=false（页面输入/详情模式）或 escEnabled=false（页面自管 Esc）时外壳不插手。
     if (key.escape) {
-      if (keysEnabled) setTimeout(() => exit(), 0);
+      if (keysEnabled && escEnabled) setTimeout(() => exit(), 0);
       return;
     }
 
@@ -70,7 +78,9 @@ export default function App() {
   const shell = useMemo<ShellValue>(() => ({
     setMessage,
     setError,
-    setKeysEnabled
+    setKeysEnabled,
+    setEscEnabled,
+    setHints
   }), []);
 
   const ActiveComponent = current.Component;
@@ -118,8 +128,8 @@ export default function App() {
       </Box>
       {/* ── 底栏：左侧键位 / 右侧反馈消息 ── */}
       <Box height={1} flexDirection="row" alignItems="center" paddingX={1}>
-        {/*  左侧键位 */}
-        {current.meta.hints.map(([k, label]) => (
+        {/*  左侧键位（页面可用 setHints 按视图换一套） */}
+        {hints.map(([k, label]) => (
           <Box key={k} flexDirection="row" marginRight={2}>
             <Text bold color="#E6EDF3">{k}</Text>
             <Text color="#8B949E">{` ${label}`}</Text>
