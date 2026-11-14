@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import type { PageProps } from '../../types.js';
 import type { ProjectInfo, SessionMeta } from './types.js';
-import { dayKey, fmtCount, fmtDate, fmtSize, strW } from './fmt.js';
+import { dayKey, fmtCount, fmtRel, fmtSize, fitPath, shortPath, strW } from './fmt.js';
 import Mascot, { MASCOT_W } from './Mascot.js';
 
 /**
@@ -11,8 +11,8 @@ import Mascot, { MASCOT_W } from './Mascot.js';
  * 上部：统计面板（范围页签 + 对话/项目/提问/回答/输入token/输出token/占用 等宽列横排，
  *       口径随 tab 范围；右侧空地是走动吉祥物，见 Mascot.tsx）+ 竖线 + 功能条
  *       （历史总览 / 迁移管理 / 删除记录，图标 + 分隔线）。
- * 下部：🧐 最近对话通栏 QA 卡（●+标题+时间 / 最后一条 Q / 最后一条 A），最多 3 张、
- *       卡高 5~8 行随屏高自适应；空会话不展示（口径同总览）。
+ * 下部：🧐 最近对话通栏 QA 卡（●+标题+项目路径+相对时间 / 最后一条 Q / 最后一条 A），
+ *       最多 3 张、卡高 5~8 行随屏高自适应；空会话不展示（口径同总览）。
  *
  * 键位：←→ 切换区域（列表/菜单）  ↑↓ 移动  enter（列表=恢复会话弹窗，菜单=进入功能）
  *       space 列表=全屏预览该卡片（q/Esc 退出回首页）  / 进历史总览并开搜索  q 退出程序
@@ -277,6 +277,11 @@ export default function LandingView({
         const textW = Math.max(8, width - 8);
         const qLines = wrapClamp(s.lastQ || s.preview || s.title, textW, qMax);
         const aLines = s.lastA ? wrapClamp(s.lastA, textW, aMax) : null;
+        const timeText = fmtRel(s.lastTime);
+        // 项目路径后缀：预算 = 卡内宽（全宽-边框2-paddingX2）- ● - 标题 - 分隔 - 时间 - 右端呼吸 1；
+        // home 缩 ~、中段省略保尾部项目名；预算太窄（标题很长）就不显示路径
+        const pathBudget = Math.max(0, width - 6 - 2 - strW(s.title) - 3 - strW(timeText) - 1);
+        const pathSuffix = s.cwd && pathBudget >= 6 ? fitPath(shortPath(s.cwd), pathBudget) : null;
         return (
           <Box
             key={s.sessionId}
@@ -289,11 +294,13 @@ export default function LandingView({
             <Box flexDirection="row">
               <Text color={running ? '#3FB950' : '#8B949E'}>{'● '}</Text>
               <Box flexGrow={1}>
-                <Text bold={active} color="#E6EDF3" wrap="truncate">
-                  {s.title}
+                {/* 标题 + 项目路径（灰色小字）：最近列表跨项目混排，需要一眼定位来源项目 */}
+                <Text wrap="truncate">
+                  <Text bold={active} color="#E6EDF3">{s.title}</Text>
+                  {pathSuffix && <Text color="#6E7681">{` · ${pathSuffix}`}</Text>}
                 </Text>
               </Box>
-              <Text color="#F85149">{fmtDate(s.lastTime)}</Text>
+              <Text color="#F85149">{timeText}</Text>
             </Box>
             {/* 最后一条 Q/A：标记列固定 2 列，续行空格缩进对齐；超行末行已带 …（wrapClamp） */}
             {qLines.map((t, qi) => (
