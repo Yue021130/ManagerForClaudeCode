@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import type { PageMeta, PageProps } from '../../types.js';
 import { useShell } from '../../shell/context.js';
@@ -21,7 +20,7 @@ import {
 import { requestResume, spawnResumeNewWindow } from './resume.js';
 import LandingView, { type LandingTarget } from './LandingView.js';
 import Mascot from './Mascot.js';
-import { fmtDate, fmtSize, strW } from './fmt.js';
+import { fmtDate, fmtSize, fitPath, shortPath, strW } from './fmt.js';
 import type { ChatEntry, ProjectInfo, SessionMeta } from './types.js';
 
 /**
@@ -66,29 +65,7 @@ export const meta: PageMeta = {
 
 const projName = (p: ProjectInfo): string => (p.cwd ? path.basename(p.cwd) : p.dirName);
 
-// 展示路径：home 前缀缩成 ~，省横向空间
-const shortPath = (p: string): string => {
-  const home = os.homedir();
-  return p.toLowerCase().startsWith(home.toLowerCase()) ? '~' + p.slice(home.length) : p;
-};
-
-// 路径放不下时中段省略：~\Desktop\…\ManagerForClaudeCode —— 优先保住尾部项目名，
-// 比 wrap="truncate" 直接砍尾巴有用（砍尾巴恰恰把最重要的项目名砍没了）
-const fitPath = (p: string, maxW: number): string => {
-  if (strW(p) <= maxW) return p;
-  const segs = p.split(/[\\/]+/);
-  if (segs.length >= 2) {
-    const last = segs[segs.length - 1];
-    for (let keep = segs.length - 2; keep >= 1; keep--) {
-      const cand = `${segs.slice(0, keep).join('\\')}\\…\\${last}`;
-      if (strW(cand) <= maxW) return cand;
-    }
-    if (strW(`…\\${last}`) <= maxW) return `…\\${last}`;
-  }
-  let tail = p;
-  while (tail && strW('…' + tail) > maxW) tail = tail.slice(1);
-  return '…' + tail;
-};
+// 展示路径 shortPath / 中段省略 fitPath 已挪到 ./fmt.js（落地页卡片标题行共用）
 
 // 模型名展示：只去供应商前缀（openai/gpt-x → gpt-x）。不做长度截断——
 // 头部行本身有 wrap="truncate" 兜底，硬砍 16 字符会把 deepseek-flash[...] 这类名字拦腰切断
