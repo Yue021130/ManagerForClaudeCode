@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Box, Text, useApp, useInput } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import type { PageProps } from '../../types.js';
 import type { ProjectInfo, SessionMeta } from './types.js';
 import { dayKey, fmtCount, fmtRel, fmtSize, fitPath, shortPath, strW } from './fmt.js';
@@ -16,9 +16,9 @@ import Mascot, { MASCOT_W } from './Mascot.js';
  *
  * 键位：←→ 切换区域（列表/菜单）  ↑↓ 移动  enter（列表=跳总览定位该会话，菜单=进入功能）
  *       ss 双击恢复该卡片（同总览手感）
- *       space 列表=全屏预览该卡片（q/Esc 退出回首页）  / 进历史总览并开搜索  q 退出程序
+ *       space 列表=全屏预览该卡片（q/Esc 退出回首页）  / 进历史总览并开搜索
  *       tab 切换统计范围（一年/半年/一个月/一周/一天）
- *       Esc/数字键归外壳（Esc 退出、数字切页）。
+ *       Esc/数字键归外壳（只有 Esc 退出程序、数字切页）。
  * locked=true（恢复弹窗开着）时本组件不吃任何键，键盘归弹窗。
  */
 
@@ -98,7 +98,6 @@ export default function LandingView({
   listIdx,
   onListIdxChange
 }: LandingProps) {
-  const { exit } = useApp();
   const [focus, setFocus] = useState<'list' | 'menu'>('list');
   const [menuIdx, setMenuIdx] = useState(0);
   const [rangeIdx, setRangeIdx] = useState(0);
@@ -210,8 +209,6 @@ export default function LandingView({
       setRangeIdx(i => (key.shift ? (i - 1 + RANGES.length) : i + 1) % RANGES.length);
       return;
     }
-    // 同外壳 Esc 的延迟一拍：避免在 input 派发栈内同步卸载
-    if (input === 'q') setTimeout(() => exit(), 0);
   });
 
   return (

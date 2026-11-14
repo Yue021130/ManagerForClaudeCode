@@ -659,7 +659,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
       return;
     }
 
-    if (view !== 'overview') return; // 落地页：键盘归 LandingView（←→/↑↓/enter/q//）与外壳（Esc/数字）
+    if (view !== 'overview') return; // 落地页：键盘归 LandingView（←→/↑↓/enter/ss//）与外壳（Esc/数字）
     if (!projects) return;
 
     // 删除确认弹窗：输入 YUE + enter 才执行；esc 取消；其余键吃掉
