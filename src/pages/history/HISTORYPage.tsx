@@ -139,7 +139,7 @@ function ScanningHint() {
 }
 
 export default function HISTORYPage({ width, height }: PageProps) {
-  const { setMessage, setError, setKeysEnabled, setHints } = useShell();
+  const { setMessage, setError, setKeysEnabled, setEscEnabled, setHints } = useShell();
 
   // ── 视图：landing = 落地页（数据看板）；overview = 三栏管理页 ──
   // App 切页会卸载重挂载本组件，所以每次按 1 回 HISTORY 都落在 landing
@@ -148,11 +148,12 @@ export default function HISTORYPage({ width, height }: PageProps) {
   // 状态放这儿才能「跳总览再 q 回来，选中还是原来那条」
   const [landingListIdx, setLandingListIdx] = useState(0);
 
-  // 键盘基线随视图切换：landing 归外壳（Esc 退出 / 数字切页）；
-  // overview 接管键盘（Esc 返回落地页，数字切页失效，要切页先 Esc 回落地页）
+  // 键盘基线随视图切换：数字切页落地页/总览都可用（弹窗/搜索各自再临时关掉）；
+  // Esc 只在落地页退出程序，总览 Esc 归页面（顶栏 1/2/3 随时切页，不用先退回首页）
   useEffect(() => {
-    setKeysEnabled(view === 'landing');
-  }, [view, setKeysEnabled]);
+    setKeysEnabled(true);
+    setEscEnabled(view === 'landing');
+  }, [view, setKeysEnabled, setEscEnabled]);
 
   // 底栏键帽随视图换：落地页多一个 tab 切范围（总览的 tab 是切焦点，不能共用同一条说明）；
   // 总览多一个 q 返回（Esc 在总览不退出，只在首页退程序）
@@ -203,8 +204,11 @@ export default function HISTORYPage({ width, height }: PageProps) {
     return () => clearTimeout(t);
   }, [setError]);
 
-  // 页面卸载时恢复外壳全局键（防止在搜索中途切走页面后数字键一直失灵）
-  useEffect(() => () => setKeysEnabled(true), [setKeysEnabled]);
+  // 页面卸载时恢复外壳全局键（防止在搜索/总览中途切走后数字键、Esc 一直失灵）
+  useEffect(() => () => {
+    setKeysEnabled(true);
+    setEscEnabled(true);
+  }, [setKeysEnabled, setEscEnabled]);
 
   // ── 派生数据 ──
   const pIdx = projects ? Math.min(projIdx, projects.length - 1) : 0;
@@ -482,7 +486,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
 
   const closeDetail = () => {
     setDetail(null);
-    setKeysEnabled(false);
+    setKeysEnabled(true); // 回到总览基线（数字可切页）
   };
 
   // 切换一组粘贴段的展开状态（块内多个时同开同关）
@@ -629,7 +633,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
     if (resuming) {
       if (key.escape) {
         setResuming(null);
-        setKeysEnabled(view === 'landing'); // 恢复所在视图的键盘基线
+        setKeysEnabled(true); // 恢复数字切页基线
         return;
       }
       if (key.upArrow || key.downArrow) return setResumeChoice(c => (c === 0 ? 1 : 0));
@@ -643,7 +647,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
             .then(() => setMessage(`已在新窗口恢复「${target.title.slice(0, 16)}」`))
             .catch((e) => setError(`恢复失败: ${String(e)}`));
           setResuming(null);
-          setKeysEnabled(view === 'landing');
+          setKeysEnabled(true); // 恢复数字切页基线
           return;
         }
         // 当前终端：登记请求 → 退出 App，cli.tsx 接力拉起 claude（claude 退出后自动重挂 App）
@@ -665,7 +669,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
         setConfirmInput('');
         setConfirmError(false);
         setConfirmLocked(false);
-        setKeysEnabled(false);
+        setKeysEnabled(true); // 回到总览基线（数字可切页）
         return;
       }
       if (key.return) {
@@ -679,7 +683,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           setConfirmInput('');
           setConfirmError(false);
           setConfirmLocked(false);
-          setKeysEnabled(false);
+          setKeysEnabled(true); // 回到总览基线（数字可切页）
           removeOrArchive('trash', target); // 执行前还会再复查一次
         } else {
           setConfirmInput('');
@@ -704,7 +708,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
         setRenaming(null);
         setRenameInput('');
         setRenameError(false);
-        setKeysEnabled(false);
+        setKeysEnabled(true); // 回到总览基线（数字可切页）
         return;
       }
       if (key.return) {
@@ -720,7 +724,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           setRenaming(null);
           setRenameInput('');
           setRenameError(false);
-          setKeysEnabled(false);
+          setKeysEnabled(true); // 回到总览基线（数字可切页）
           setMessage(`已重命名为「${title.slice(0, 16)}」`);
           rescan();
         } catch (e) {
@@ -764,7 +768,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
     if (searching) {
       if (key.escape || key.return || ((key.backspace || key.delete) && !query)) {
         setSearching(false);
-        setKeysEnabled(false);
+        setKeysEnabled(true); // 回到总览基线（数字可切页）
         if (key.backspace || key.delete) setQuery('');
         setSessIdx(0);
         return;
@@ -774,20 +778,20 @@ export default function HISTORYPage({ width, height }: PageProps) {
       return;
     }
 
-    // 全屏预览：q/Esc 退出。从首页进的回首页（view 切换的 effect 会把 keysEnabled 恢复为 true）；
-    // 总览里进的留在总览（keysEnabled 保持 false，Esc 不会误退 App）
+    // 全屏预览：q/Esc 退出。从首页进的回首页（view 切换 effect 会把 escEnabled 恢复 true）；
+    // 总览里进的留在总览（escEnabled 在总览本就 false，Esc 不会误退 App）
     if (fullscreen && (input === 'q' || key.escape)) {
       setFullscreen(false);
       if (fullscreenFrom === 'landing') {
         setView('landing');
       } else {
         setFocus('session');
-        setKeysEnabled(false);
+        setKeysEnabled(true); // 回到总览基线（数字可切页）
       }
       return;
     }
 
-    // 顶层（无弹窗/详情/搜索/全屏）：q 返回落地页；Esc 在总览不做退出（只有首页 Esc 才退出程序）
+    // 顶层（无弹窗/详情/搜索/全屏）：q 返回落地页；Esc 被 escEnabled=false 屏蔽，不会误退程序
     if (input === 'q') return setView('landing');
 
     if (key.upArrow) return move(-1);

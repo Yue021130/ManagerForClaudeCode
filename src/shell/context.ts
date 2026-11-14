@@ -7,6 +7,7 @@ import type { ShellValue } from '../types.js';
  * App（外壳）渲染时提供：
  *   setMessage/setError — 页面向底栏发反馈（✓ 绿 / ✗ 红）
  *   setKeysEnabled     — 页面输入模式（搜索框）下禁用外壳数字切页
+ *   setEscEnabled      — 页面自管 Esc（如总览 Esc 返回落地页）时禁用外壳 Esc 退出
  *   setHints           — 底栏键位临时换一套（默认 meta.hints）
  *   （尺寸不走这里，页面从 props 拿 width/height，见 PageProps）
  *

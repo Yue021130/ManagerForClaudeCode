@@ -32,6 +32,8 @@ export default function App() {
 
   // ── 页面输入模式（搜索框等）：禁用外壳数字切页，Esc 仍然生效 ──
   const [keysEnabled, setKeysEnabled] = useState(true);
+  // ── 页面自管 Esc（HISTORY 总览 Esc 返回落地页）：外壳 Esc 不退出程序 ──
+  const [escEnabled, setEscEnabled] = useState(true);
 
 
   // ── 当前页 ──
@@ -52,9 +54,9 @@ export default function App() {
     // esc键退出
     // Esc 退出：延迟一拍再退。曾在 input 派发栈内同步 exit() 触发 Ink 卸载重入，
     // 恰好撞上启动扫描后的重渲染时卸载挂起（stdin 已拆、waitUntilExit 永不 resolve）。
-    // keysEnabled=false（页面输入/详情模式）时 Esc 归页面自己处理（返回/关闭）。
+    // keysEnabled=false（页面输入/详情模式）或 escEnabled=false（页面自管 Esc）时外壳不插手。
     if (key.escape) {
-      if (keysEnabled) setTimeout(() => exit(), 0);
+      if (keysEnabled && escEnabled) setTimeout(() => exit(), 0);
       return;
     }
 
@@ -77,6 +79,7 @@ export default function App() {
     setMessage,
     setError,
     setKeysEnabled,
+    setEscEnabled,
     setHints
   }), []);
 
