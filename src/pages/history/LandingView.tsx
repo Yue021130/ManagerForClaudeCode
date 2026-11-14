@@ -11,8 +11,8 @@ import Mascot, { MASCOT_W } from './Mascot.js';
  * 上部：统计面板（范围页签 + 对话/项目/提问/回答/输入token/输出token/占用 等宽列横排，
  *       口径随 tab 范围；右侧空地是走动吉祥物，见 Mascot.tsx）+ 竖线 + 功能条
  *       （历史总览 / 迁移管理 / 删除记录，图标 + 分隔线）。
- * 下部：🧐 最近对话通栏 QA 卡（●+标题+项目路径+相对时间 / 最后一条 Q / 最后一条 A），
- *       最多 3 张、卡高 5~8 行随屏高自适应；空会话不展示（口径同总览）。
+ * 下部：🧐 最近对话通栏 QA 卡（标题+项目路径+相对时间 / ╭─ 最后一条 Q / ╰─ 最后一条 A），
+ *       最多 3 张、卡高 5~8 行随屏高自适应；● 仅运行中显示；空会话不展示（口径同总览）。
  *
  * 键位：←→ 切换区域（列表/菜单）  ↑↓ 移动  enter（列表=恢复会话弹窗，菜单=进入功能）
  *       space 列表=全屏预览该卡片（q/Esc 退出回首页）  / 进历史总览并开搜索  q 退出程序
@@ -273,14 +273,14 @@ export default function LandingView({
       {shown.map((s, i) => {
         const active = focus === 'list' && i === li;
         const running = Date.now() - s.mtimeMs < RUNNING_MS;
-        // 卡内文本宽 = 全宽 - 边框2 - paddingX2 - Q/A 标记列2
-        const textW = Math.max(8, width - 8);
+        // 卡内文本宽 = 全宽 - 边框2 - paddingX2 - 树形标记列3
+        const textW = Math.max(8, width - 9);
         const qLines = wrapClamp(s.lastQ || s.preview || s.title, textW, qMax);
         const aLines = s.lastA ? wrapClamp(s.lastA, textW, aMax) : null;
         const timeText = fmtRel(s.lastTime);
         // 项目路径后缀：预算 = 卡内宽（全宽-边框2-paddingX2）- ● - 标题 - 分隔 - 时间 - 右端呼吸 1；
         // home 缩 ~、中段省略保尾部项目名；预算太窄（标题很长）就不显示路径
-        const pathBudget = Math.max(0, width - 6 - 2 - strW(s.title) - 3 - strW(timeText) - 1);
+        const pathBudget = Math.max(0, width - 6 - (running ? 2 : 0) - strW(s.title) - 3 - strW(timeText) - 1);
         const pathSuffix = s.cwd && pathBudget >= 6 ? fitPath(shortPath(s.cwd), pathBudget) : null;
         return (
           <Box
@@ -292,7 +292,8 @@ export default function LandingView({
             paddingX={1}
           >
             <Box flexDirection="row">
-              <Text color={running ? '#3FB950' : '#8B949E'}>{'● '}</Text>
+              {/* ● 只在运行中显示：非运行是绝大多数，灰点是噪声，标题顶格 */}
+              {running && <Text color="#3FB950">{'● '}</Text>}
               <Box flexGrow={1}>
                 {/* 标题 + 项目路径（灰色小字）：最近列表跨项目混排，需要一眼定位来源项目 */}
                 <Text wrap="truncate">
@@ -302,11 +303,12 @@ export default function LandingView({
               </Box>
               <Text color="#F85149">{timeText}</Text>
             </Box>
-            {/* 最后一条 Q/A：标记列固定 2 列，续行空格缩进对齐；超行末行已带 …（wrapClamp） */}
+            {/* 最后一条 Q/A，树形连线强调「一段对话」：╭─ 起问（多行 │ 连下）/ ╰─ 收答；
+                超行末行已带 …（wrapClamp） */}
             {qLines.map((t, qi) => (
               <Box key={`q${qi}`} flexDirection="row">
-                <Box width={2} flexShrink={0}>
-                  <Text color="#3FB950">{qi === 0 ? 'Q ' : '  '}</Text>
+                <Box width={3} flexShrink={0}>
+                  <Text color="#3FB950">{qi === 0 ? '╭─ ' : '│  '}</Text>
                 </Box>
                 <Box flexGrow={1}>
                   <Text color="#F0A6C9" wrap="truncate">{t}</Text>
@@ -315,8 +317,8 @@ export default function LandingView({
             ))}
             {aLines === null ? (
               <Box flexDirection="row">
-                <Box width={2} flexShrink={0}>
-                  <Text color="#E3B341">A </Text>
+                <Box width={3} flexShrink={0}>
+                  <Text color="#E3B341">╰─ </Text>
                 </Box>
                 <Box flexGrow={1}>
                   <Text color="#6E7681">（无回答）</Text>
@@ -325,8 +327,8 @@ export default function LandingView({
             ) : (
               aLines.map((t, ai) => (
                 <Box key={`a${ai}`} flexDirection="row">
-                  <Box width={2} flexShrink={0}>
-                    <Text color="#E3B341">{ai === 0 ? 'A ' : '  '}</Text>
+                  <Box width={3} flexShrink={0}>
+                    <Text color="#E3B341">{ai === 0 ? '╰─ ' : '   '}</Text>
                   </Box>
                   <Box flexGrow={1}>
                     <Text color="#C9D1D9" wrap="truncate">{t}</Text>
