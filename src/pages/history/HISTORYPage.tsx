@@ -885,12 +885,18 @@ export default function HISTORYPage({ width, height }: PageProps) {
     }
   });
 
-  // ── 恢复会话弹窗：landing（看板卡片 enter）/overview（ss 双击）共用 ──
-  // absolute 满宽横带，挂在哪个视图的渲染树下就浮在哪个视图上
+  // ── 恢复会话弹窗：landing（看板卡片 ss）/overview（ss 双击）共用 ──
+  // absolute 满宽横带，挂在哪个视图的渲染树下就浮在哪个视图上。
+  // 会话标题全显（自然换行不截断），下方一行灰色项目路径（恢复时 cd 的目标目录）。
+  const resumeTitleRows = resuming
+    ? Math.max(1, Math.ceil(strW(resuming.title) / Math.max(8, width - 2)))
+    : 1;
+  // 高度 = 边框2 + paddingY2 + 头行1+间距1 + 标题N+间距1 + 路径1+间距1 + 选项2 + 提示1+间距1
+  const resumeModalH = 12 + resumeTitleRows;
   const resumeModal = resuming ? (
     <Box
       position="absolute"
-      marginTop={Math.max(0, Math.floor((height - 10) / 2))}
+      marginTop={Math.max(0, Math.floor((height - resumeModalH) / 2))}
       width={width}
       flexDirection="column"
       borderStyle="single"
@@ -904,9 +910,10 @@ export default function HISTORYPage({ width, height }: PageProps) {
         <Text bold color="#3FB950">恢复会话</Text>
       </Box>
       <Box justifyContent="center" marginBottom={1}>
-        <Text color="#E6EDF3" wrap="truncate">
-          {resuming.title.length > 24 ? `${resuming.title.slice(0, 24)}...` : resuming.title}
-        </Text>
+        <Text color="#E6EDF3">{resuming.title}</Text>
+      </Box>
+      <Box justifyContent="center" marginBottom={1}>
+        <Text color="#6E7681" wrap="truncate">{shortPath(resuming.cwd ?? '')}</Text>
       </Box>
       {(['在当前终端恢复', '新开终端窗口恢复'] as const).map((label, i) => (
         <Box key={i} justifyContent="center">
