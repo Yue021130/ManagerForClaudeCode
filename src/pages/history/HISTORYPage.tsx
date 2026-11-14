@@ -542,7 +542,22 @@ export default function HISTORYPage({ width, height }: PageProps) {
     else setMessage('开发中');
   };
 
-  // 看板卡片 enter → 恢复弹窗（拦截标准与 ss 双击一致：运行中/无路径不开窗）
+  // 看板卡片 enter → 跳到历史总览并定位到该会话（落地页的恢复走 ss 双击，见 landingResume）
+  const landingLocate = (s: SessionMeta) => {
+    if (!projects) return;
+    const pi = projects.findIndex(p => p.sessions.some(x => x.filePath === s.filePath));
+    if (pi < 0) return;
+    // 总览会话列滤掉了空会话，定位口径要与之一致（落地页列表同样滤空，理论上来不了这儿）
+    const list = projects[pi].sessions.filter(x => !isEmptySess(x));
+    const si = list.findIndex(x => x.filePath === s.filePath);
+    if (si < 0) return;
+    setProjIdx(pi);
+    setSessIdx(si);
+    setFocus('session'); // 落在会话列：↑↓ 接着逛，ss 即可恢复
+    setView('overview');
+  };
+
+  // 看板卡片 ss 双击 → 恢复弹窗（拦截标准与总览 ss 一致：运行中/无路径不开窗）
   const landingResume = (s: SessionMeta) => {
     if (isFreshPath(s.filePath)) {
       setError('最近三分钟有会话写入，不可恢复');
@@ -606,7 +621,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
   };
 
   useInput((input, key) => {
-    // 恢复会话弹窗：landing（看板卡片 enter）/overview（ss 双击）都可能开着，最先拦截；
+    // 恢复会话弹窗：landing（卡片 ss 双击）/overview（ss 双击）都可能开着，最先拦截；
     // ↑↓/1/2 选择，enter 确认，esc 取消；其余键吃掉
     if (resuming) {
       if (key.escape) {
@@ -911,6 +926,7 @@ export default function HISTORYPage({ width, height }: PageProps) {
           projects={projects}
           locked={resuming !== null}
           onSelect={landingSelect}
+          onLocate={landingLocate}
           onResume={landingResume}
           onFullscreen={landingFullscreen}
           onSearch={landingSearch}

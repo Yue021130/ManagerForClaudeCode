@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import type { PageProps } from '../../types.js';
 import type { ProjectInfo, SessionMeta } from './types.js';
@@ -14,7 +14,8 @@ import Mascot, { MASCOT_W } from './Mascot.js';
  * 下部：🧐 最近对话通栏 QA 卡（标题+项目路径+相对时间 / ╭─ 最后一条 Q / ╰─ 最后一条 A），
  *       最多 3 张、卡高 5~12 行随屏高自适应；● 仅运行中显示；空会话不展示（口径同总览）。
  *
- * 键位：←→ 切换区域（列表/菜单）  ↑↓ 移动  enter（列表=恢复会话弹窗，菜单=进入功能）
+ * 键位：←→ 切换区域（列表/菜单）  ↑↓ 移动  enter（列表=跳总览定位该会话，菜单=进入功能）
+ *       ss 双击恢复该卡片（同总览手感）
  *       space 列表=全屏预览该卡片（q/Esc 退出回首页）  / 进历史总览并开搜索  q 退出程序
  *       tab 切换统计范围（一年/半年/一个月/一周/一天）
  *       Esc/数字键归外壳（Esc 退出、数字切页）。
@@ -27,7 +28,8 @@ interface LandingProps extends PageProps {
   projects: ProjectInfo[];
   locked: boolean;                        // 恢复弹窗打开时锁键盘
   onSelect: (t: LandingTarget) => void;   // 右侧菜单 enter
-  onResume: (s: SessionMeta) => void;     // 最近活跃卡片 enter → 恢复弹窗
+  onLocate: (s: SessionMeta) => void;     // 最近对话卡片 enter → 跳历史总览定位到该会话
+  onResume: (s: SessionMeta) => void;     // 最近对话卡片 ss 双击 → 恢复弹窗
   onFullscreen: (s: SessionMeta) => void; // 最近活跃卡片 space → 进总览全屏预览
   onSearch: () => void;                   // '/' → 进总览并开搜索
 }
@@ -87,6 +89,7 @@ export default function LandingView({
   projects,
   locked,
   onSelect,
+  onLocate,
   onResume,
   onFullscreen,
   onSearch
@@ -96,6 +99,7 @@ export default function LandingView({
   const [listIdx, setListIdx] = useState(0);
   const [menuIdx, setMenuIdx] = useState(0);
   const [rangeIdx, setRangeIdx] = useState(0);
+  const lastSRef = useRef(0); // ss 双击计时（与总览同 500ms 窗口）
 
   // ── 汇总：全项目会话按 lastTime 倒序（最近对话列表）；空会话（无问无答的壳）不展示，口径同总览 ──
   const recent = useMemo(() => {
@@ -173,10 +177,22 @@ export default function LandingView({
     if (key.return) {
       if (focus === 'list') {
         const s = shown[li];
-        if (s) onResume(s);
+        if (s) onLocate(s);
       } else {
         onSelect(MENU[menuIdx].id);
       }
+      return;
+    }
+    // ss 双击恢复该卡片（500ms 窗口，与总览同手感）；菜单焦点无此操作
+    if (input === 's' && focus === 'list') {
+      const now = Date.now();
+      if (now - lastSRef.current >= 500) {
+        lastSRef.current = now;
+        return;
+      }
+      lastSRef.current = 0;
+      const s = shown[li];
+      if (s) onResume(s);
       return;
     }
     if (input === ' ' && focus === 'list') {
