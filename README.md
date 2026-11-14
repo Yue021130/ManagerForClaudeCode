@@ -4,7 +4,7 @@
 
 ManagerForClaudeCode（简称 MFCC）当前的核心能力是 **Claude Code 历史会话管理**：直接读取本机 `~/.claude/projects/` 中的 JSONL 会话记录，在终端内完成项目浏览、会话搜索、对话预览、标题重命名、Markdown 导出、删除、归档与会话恢复。
 
-本仓库同时包含 CCR 的定制 fork 和 CCRTray 桌面托盘程序。三者位于同一代码仓库，但**主程序、CCR fork、CCRTray 分别安装和运行，互不依赖**。
+本仓库同时包含 CCR 的定制 fork 和 CCRTray 桌面托盘程序。三者分别安装、构建和运行：**MFCC 主程序可完全独立使用**；CCRTray 依赖本机可执行的 `ccr` CLI，其自定义网关端口能力还依赖本仓库 CCR fork 的补丁。
 
 ## 目录
 
@@ -15,6 +15,7 @@ ManagerForClaudeCode（简称 MFCC）当前的核心能力是 **Claude Code 历�
 - [安装与启动](#安装与启动)
 - [HISTORY 使用指南](#history-使用指南)
 - [完整快捷键](#完整快捷键)
+- [SETTING 设置](#setting-设置)
 - [数据路径与文件变更](#数据路径与文件变更)
 - [会话恢复机制](#会话恢复机制)
 - [启动与退出画面](#启动与退出画面)
@@ -28,15 +29,26 @@ ManagerForClaudeCode（简称 MFCC）当前的核心能力是 **Claude Code 历�
 
 | 页面 | 数字键 | 状态 | 当前能力 |
 |---|---:|---|---|
-| HISTORY | `1` | 已实现 | 项目与会话浏览、跨项目标题搜索、对话与工具调用预览、完整详情、删除、归档、导出、重命名、恢复会话、实时刷新 |
+| HISTORY | `1` | 已实现 | 数据看板、最近对话、项目与会话浏览、跨项目标题搜索、对话与工具调用预览、完整详情、删除、归档、导出、重命名、恢复会话、总览实时刷新 |
 | PLUGINS | `2` | 占位 | 规划用于 MCP、Skills 与插件的分类管理和一键拔插；当前不会读取或修改插件配置 |
-| SETTING | `3` | 占位 | 设置页尚未实现 |
+| SETTING | `3` | 已实现 | 配置“新开终端窗口恢复会话”的命令模板 |
 
 **需要特别说明：** 当前主程序并未提供 CCR 路由、MCP 服务器或 Skills 的实际管理功能。仓库名、历史脚本或早期文档中出现的相关描述，不代表这些功能已经接入当前 TUI。
 
 ## 主要功能
 
-### 1. 项目与会话总览
+### 1. HISTORY 数据看板
+
+启动后默认进入 HISTORY 落地页，而不是直接进入项目列表：
+
+- 支持一年、半年、一个月、一周、一天五种统计范围。
+- 统计对话、项目、提问、回答、输入 Token、输出 Token 和 JSONL 文件占用。
+- 最近对话以 Q/A 卡片展示项目路径、相对时间以及最后一条问答摘要，最多显示三张，实际数量随终端高度调整。
+- 最近对话卡片可直接定位到历史总览、打开全屏预览或恢复会话。
+- 右侧提供“历史总览 / 迁移管理 / 删除记录”菜单；后两项目前仍显示“开发中”。
+- 没有真实提问和回答的空会话不会出现在最近对话或历史总览中。
+
+### 2. 项目与会话总览
 
 - 自动扫描 `~/.claude/projects/<编码项目目录>/<sessionId>.jsonl`。
 - 左栏展示项目目录及会话数量，项目按最新会话时间倒序排列。
@@ -45,9 +57,9 @@ ManagerForClaudeCode（简称 MFCC）当前的核心能力是 **Claude Code 历�
 - 项目真实路径优先读取会话记录中的 `cwd` 字段，不尝试从编码目录名反向猜测。
 - 会话标题优先采用 Claude Code 的 `ai-title`；没有标题时使用第一条真实用户消息，最长保留 40 个字符；用户重命名结果具有最高优先级。
 
-### 2. 三栏对话浏览
+### 3. 三栏对话浏览
 
-HISTORY 页面采用固定三栏布局：
+历史总览采用三栏布局：
 
 ```text
 ┌─ PROJECTS ───────┬─ SESSIONS ──────────────┬─ 对话预览 ──────────────────┐
@@ -64,7 +76,7 @@ HISTORY 页面采用固定三栏布局：
 - 预览视口根据每块实际高度计算可见窗口；空间充足时会展开部分长内容，并预窥相邻块。
 - 按 `Enter` 可进入整页详情，查看完整消息、工具结果和 diff。
 
-### 3. 粘贴内容与长输出处理
+### 4. 粘贴内容与长输出处理
 
 - `<pasted_content>` 段默认折叠为一行摘要，避免大段粘贴文本占满屏幕。
 - 在预览或详情中按 `Space` 展开或收起当前块内的粘贴段。
@@ -72,7 +84,7 @@ HISTORY 页面采用固定三栏布局：
 - 工具结果最多保留 200 个非空行，每行最多 200 字符；超出时标注剩余行数。
 - 普通正文按终端显示宽度折行，处理中文全角字符、Tab 和 ANSI 颜色转义。
 
-### 4. 搜索、导出与重命名
+### 5. 搜索、导出与重命名
 
 - 按 `/` 搜索会话标题，支持跨项目、不区分大小写的包含匹配。
 - 搜索范围是**标题**，不是完整对话正文。
@@ -80,7 +92,7 @@ HISTORY 页面采用固定三栏布局：
 - 按 `r` 重命名当前会话，标题不能为空，最长 40 个字符。
 - 重命名会同时写入 MFCC 的标题覆盖表和会话 JSONL 中的 `ai-title` 记录，使 MFCC 与 Claude Code 的标题列表保持一致。
 
-### 5. 删除、归档与运行保护
+### 6. 删除、归档与运行保护
 
 - “删除”不是直接永久删除，而是将会话文件移动到 `~/.claude/backups/mfcc-trash/`。
 - “归档”将会话文件移动到 `~/.claude/backups/mfcc-archive/`。
@@ -89,9 +101,9 @@ HISTORY 页面采用固定三栏布局：
 - 最近 3 分钟内有写入的会话被视为“可能正在运行”，显示绿色状态点，并禁止上述高风险操作。
 - 该机制是基于 `mtime` 的保守判断，不等同于精确的进程检测；刚结束不久的会话也可能暂时处于锁定状态。
 
-### 6. 实时刷新
+### 7. 历史总览实时刷新
 
-HISTORY 页面每 3 秒检查一次会话文件：
+只有三栏历史总览会每 3 秒检查一次会话文件，落地页不进行该轮询：
 
 - 文件最近有写入时更新运行状态。
 - 文件修改时间变化时重新读取标题、统计、时间和大小。
@@ -104,7 +116,7 @@ HISTORY 页面每 3 秒检查一次会话文件：
 |---|---|---|---|---|
 | `src/` | ManagerForClaudeCode 主程序 | React 19、Ink 6、TypeScript | 终端 TUI，目前主要管理 Claude Code 历史会话 | 本文档的主要描述对象 |
 | `claude-code-router/` | CCR 定制 fork | Node.js / TypeScript | 基于 `musistudio/claude-code-router` 的本地补丁版本 | 独立 git submodule，不是主程序运行依赖 |
-| `ccr-tray/` | CCRTray | Electron、TypeScript | 系统托盘监控、启停 CCR 服务、端口设置、开机自启和通知 | 独立桌面程序，不是主程序运行依赖 |
+| `ccr-tray/` | CCRTray | Electron、TypeScript | 系统托盘监控、启停 CCR 服务、端口设置、开机自启和通知 | 独立桌面程序；依赖本机 `ccr` CLI |
 
 主程序只依赖本机 Claude Code 会话文件；只有“恢复会话”功能需要调用 `claude` 命令。仅浏览、搜索、导出或整理历史记录时，不需要启动 CCR 或 CCRTray。
 
@@ -119,6 +131,11 @@ HISTORY 页面每 3 秒检查一次会话文件：
 - 建议终端尺寸至少为 120 列 × 30 行；较窄窗口仍可使用，但三栏内容会更紧凑。
 - 浏览历史需要本机存在 `~/.claude/projects/`。
 - 恢复会话需要 `claude` 已安装并加入 `PATH`。
+
+### 子项目
+
+- CCR fork 与 CCRTray 均要求 Node.js 22+。
+- CCRTray 还要求目标机器可执行 `ccr` 命令。
 
 ### 平台说明
 
@@ -165,7 +182,7 @@ node dist/cli.js
 
 - `Enter`：进入主界面。
 - `Esc` 或 `Ctrl+C`：在启动画面直接退出。
-- 主界面普通状态下按 `Esc`：退出并显示结束画面。
+- 在外壳启用退出键的普通状态（如 HISTORY 落地页）按 `Esc`：退出并显示结束画面；总览、详情、搜索和弹窗中的返回行为见快捷键表。
 
 ### 3. 全局命令（可选）
 
@@ -196,16 +213,27 @@ node dist/cli.js
 
 ## HISTORY 使用指南
 
-### 基本浏览流程
+### 落地页：统计与最近对话
 
-1. 启动后默认进入 HISTORY，左栏焦点位于项目列表。
-2. 使用 `↑` / `↓` 选择项目。
-3. 按 `Enter` 或 `→` 进入会话列表。
-4. 使用 `↑` / `↓` 选择会话，右侧自动加载预览。
-5. 按 `Enter` 将焦点移入预览。
-6. 在预览中按 `↑` / `↓` 选择对话块。
-7. 对选中的块按 `Enter`，进入完整详情；按 `Esc` 返回三栏界面。
-8. 使用 `←` / `→`、`Tab` / `Shift+Tab` 在三栏之间切换焦点。
+1. 启动后默认进入 HISTORY 数据看板。
+2. 使用 `Tab` / `Shift+Tab` 切换统计范围。
+3. 使用 `←` / `→` 在最近对话和功能菜单之间切换，`↑` / `↓` 移动当前区域的选择。
+4. 在最近对话卡片上按 `Enter`，进入历史总览并定位该会话；按 `Space` 直接全屏预览。
+5. 在功能菜单中选择“历史总览”进入三栏界面；“迁移管理”和“删除记录”目前仍在开发中。
+6. 按 `/` 可进入历史总览并打开标题搜索；在卡片上双击 `s` 可打开恢复选项。
+
+### 三栏总览：浏览与管理
+
+1. 使用 `↑` / `↓` 选择项目。
+2. 按 `Enter` 或 `→` 进入会话列表。
+3. 使用 `↑` / `↓` 选择会话，右侧自动加载预览。
+4. 按 `Enter` 将焦点移入预览。
+5. 在预览中按 `↑` / `↓` 选择对话块。
+6. 对选中的块按 `Enter`，进入完整详情；按 `q` 或 `Esc` 返回三栏界面。
+7. 使用 `←` / `→`、`Tab` / `Shift+Tab` 在三栏之间切换焦点。
+8. 按 `q` 从总览返回落地页。
+
+以下搜索、导出、删除、归档与重命名操作均在历史总览中进行。
 
 ### 搜索会话
 
@@ -257,10 +285,24 @@ node dist/cli.js
 | 启动画面 | `Enter` | 进入主界面 |
 | 启动画面 | `Esc` / `Ctrl+C` | 直接退出 |
 | 主界面普通状态 | `1` / `2` / `3` | 切换 HISTORY / PLUGINS / SETTING |
-| 主界面普通状态 | `Esc` | 退出程序 |
+| 外壳启用退出键的普通状态（如 HISTORY 落地页） | `Esc` | 退出程序 |
 | 搜索、详情或弹窗 | `Esc` | 优先返回或取消，不直接退出程序 |
 
-### HISTORY 三栏与详情
+### HISTORY 落地页
+
+| 按键 | 行为 |
+|---|---|
+| `Tab` / `Shift+Tab` | 正向 / 反向切换统计范围 |
+| `←` / `→` | 在最近对话和功能菜单之间切换 |
+| `↑` / `↓` | 选择最近对话卡片或菜单项 |
+| 卡片上 `Enter` | 进入历史总览并定位该会话 |
+| 菜单上 `Enter` | 打开所选功能 |
+| 卡片上 `Space` | 全屏预览该会话 |
+| `/` | 进入历史总览并打开标题搜索 |
+| `ss` | 500 ms 内连续按两次 `s`，打开恢复会话选项 |
+| `Esc` | 普通状态下退出程序 |
+
+### HISTORY 三栏总览与详情
 
 | 按键 | 行为 |
 |---|---|
@@ -268,26 +310,39 @@ node dist/cli.js
 | `←` / `→` | 在项目、会话、预览三栏间切换焦点 |
 | `Tab` / `Shift+Tab` | 正向 / 反向切换三栏焦点 |
 | `Enter` | 项目 → 会话；会话 → 预览；预览块 → 完整详情 |
+| `q` | 从总览返回落地页；从详情或全屏预览返回 |
 | `/` | 进入跨项目标题搜索 |
-| `Space` | 展开或收起当前对话块中的粘贴段 |
+| `Space` | 会话列中全屏预览；预览或详情中展开、收起当前块的粘贴段 |
 | `gg` | 500 ms 内连续按两次 `g`，跳到预览顶部或详情顶部 |
 | `G` | 跳到预览底部或详情底部 |
 | `d` | 删除到 MFCC 回收目录，需输入 `YUE` 确认 |
-| `x` | 立即归档到 MFCC 归档目录 |
+| `x` | 立即归档到 MFCC 归档目录，无二次确认 |
 | `e` | 导出当前会话为 Markdown |
 | `r` | 重命名当前会话 |
 | `ss` | 500 ms 内连续按两次 `s`，打开恢复会话选项 |
-| `Esc` | 关闭详情、搜索或弹窗；普通状态下退出程序 |
+| `Esc` | 关闭详情、全屏预览、搜索或弹窗；总览普通状态不直接退出程序 |
 
 恢复会话弹窗中使用 `↑` / `↓` 或 `1` / `2` 选择恢复方式，`Enter` 确认，`Esc` 取消。
 
+## SETTING 设置
+
+SETTING 当前只配置“新开终端窗口恢复会话”的命令模板，配置保存在 `~/.mfcc/config.json`：
+
+- 配置项为 `terminalTemplate`。
+- `{cwd}` 会替换为会话所属项目目录，`{cmd}` 会替换为 `claude --resume <sessionId>`。
+- 非编辑状态按 `Enter` 开始编辑；编辑时按 `Enter` 保存，按 `Esc` 取消。
+- 留空保存会恢复自动策略：优先使用 Windows Terminal 的 `wt`，不可用时回退到 `cmd /c start`。
+- 自动策略和页面中的示例主要面向 Windows；当前终端恢复不受此模板影响。
+
 ## 数据路径与文件变更
 
-主程序不需要单独的配置文件或环境变量。当前涉及的路径如下：
+主程序会把终端模板配置和扫描缓存保存在 `~/.mfcc/`。当前涉及的路径如下：
 
 | 路径 | 读取 / 写入 | 用途 |
 |---|---|---|
 | `~/.claude/projects/<项目目录>/<sessionId>.jsonl` | 读取；重命名时写入 | Claude Code 原始会话记录 |
+| `~/.mfcc/config.json` | 读取、写入 | SETTING 页保存的终端命令模板 |
+| `~/.mfcc/history-scan-cache.json` | 读取、写入 | 持久化扫描缓存，含标题、路径、问答摘要、计数和 Token 统计 |
 | `~/.claude/backups/mfcc-trash/<sessionId>.jsonl` | 写入 | 执行“删除”后的可恢复文件 |
 | `~/.claude/backups/mfcc-archive/<sessionId>.jsonl` | 写入 | 归档文件 |
 | `~/.claude/backups/mfcc-titles.json` | 读取、写入 | MFCC 用户标题覆盖表 |
@@ -301,6 +356,7 @@ node dist/cli.js
 - 重命名会实际改写原 JSONL 中的 `ai-title` 行，并更新标题覆盖表。
 - 当前没有自动清理回收目录或归档目录的机制。
 - 当前没有备份恢复 UI，也没有操作日志查看页面。
+- 导出文件和扫描缓存可能包含提问、回答、命令、文件路径和工具输出；分享、提交或清理前应先检查敏感信息。
 - 主程序本身不发起网络请求；恢复会话时启动的 Claude Code 进程遵循其自身网络与配置行为。
 
 ## 会话恢复机制
@@ -325,10 +381,11 @@ node dist/cli.js
 
 ### 方式二：新开终端窗口恢复
 
-- Windows Terminal 可用时，通过 `wt -d <cwd> ... claude --resume <sessionId>` 启动。
-- 否则回退到 `cmd /c start`。
-- 新窗口使用 `cmd /k`，Claude Code 退出后保留命令提示符。
+- 默认在 Windows Terminal 可用时，通过 `wt -d <cwd> ... claude --resume <sessionId>` 启动；否则回退到 `cmd /c start`。
+- 可在 SETTING 页配置 `terminalTemplate`，使用 `{cwd}` 和 `{cmd}` 自定义启动命令；留空即恢复上述自动策略。
+- 默认新窗口使用 `cmd /k`，Claude Code 退出后保留命令提示符。
 - 新窗口启动后，原 MFCC 界面继续运行，不会退出。
+- 该模板只影响新窗口恢复，不影响当前终端恢复。
 
 如果会话缺少 `cwd`、最近 3 分钟内有写入，或 `claude` 不在 `PATH`，恢复会被拒绝或失败。
 
@@ -348,6 +405,7 @@ ManagerForClaudeCode/
 ├── src/
 │   ├── cli.tsx                         # 入口：启动页 → Ink 主循环 → 会话恢复接力 → 退出页
 │   ├── App.tsx                         # 通用外壳：Tab、内容区、底栏、全局快捷键与反馈
+│   ├── config.ts                       # ~/.mfcc/config.json 读写（终端命令模板）
 │   ├── types.ts                        # PageMeta / PageProps / PageEntry / ShellValue
 │   ├── components/
 │   │   ├── ScrollableList.tsx          # 单行项目的虚拟滚动列表
@@ -360,20 +418,24 @@ ManagerForClaudeCode/
 │   │   ├── registry.ts                 # 页面注册表
 │   │   ├── HISTORYPage.tsx             # HISTORY 的导出入口
 │   │   ├── PLUGINSPage.tsx             # 占位页
-│   │   ├── SETTINGPage.tsx             # 占位页
+│   │   ├── SETTINGPage.tsx             # 终端恢复命令模板设置
 │   │   └── history/
-│   │       ├── HISTORYPage.tsx         # 三栏 UI、预览、详情、弹窗与键盘交互
+│   │       ├── HISTORYPage.tsx         # 落地页/总览切换、三栏 UI、预览、详情、弹窗与键盘交互
+│   │       ├── LandingView.tsx         # HISTORY 落地数据看板：范围统计与最近对话卡片
+│   │       ├── Mascot.tsx              # 落地页吉祥物动画
 │   │       ├── scan.ts                 # JSONL 扫描、缓存、导出、移动与标题写回
 │   │       ├── resume.ts               # 当前终端 / 新窗口恢复会话
+│   │       ├── fmt.ts                  # 数量、时间、大小与路径格式化
 │   │       └── types.ts                # 项目、会话和对话条目的数据契约
 │   └── shell/
 │       ├── context.ts                  # 页面与外壳之间的反馈、输入模式通道
 │       ├── splash.ts                   # 启动动画
+│       ├── resuming.ts                 # 当前终端恢复前的过渡画面
 │       └── goodbye.ts                  # 退出动画与字符画
 ├── claude-code-router/                 # CCR 定制 fork，git submodule
 ├── ccr-tray/                           # 独立 Electron 托盘程序
 ├── docs/
-│   ├── ARCHITECTURE.md                 # 外壳与页面契约说明
+│   ├── ARCHITECTURE.md                 # 早期外壳与页面契约设计（部分内容已过时）
 │   ├── PATCHES.md                      # CCR 本地补丁说明
 │   └── Yue021130_Notes.md              # 学习笔记
 ├── dist/                               # 主程序编译输出
@@ -401,7 +463,7 @@ ManagerForClaudeCode/
 
 - 外壳负责顶栏 Tab、底栏提示、数字切页、退出和反馈消息。
 - 页面通过 `PageProps` 获取内容区宽高。
-- 页面通过 `useShell()` 调用 `setMessage`、`setError` 和 `setKeysEnabled`。
+- 页面通过 `useShell()` 调用 `setMessage`、`setError`、`setKeysEnabled`、`setEscEnabled` 和 `setHints`。
 - 只有当前页面被挂载，切页后旧页面状态不保留。
 - 搜索、详情或弹窗可暂时关闭外壳数字切页，避免输入冲突。
 
@@ -412,14 +474,15 @@ ManagerForClaudeCode/
 3. 在 `src/pages/registry.ts` 注册唯一的 `key`、数字键、元信息和组件。
 4. 页面自己的按键在组件内通过 `useInput` 处理。
 
-更完整的契约示例见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)；具体行为以当前源码为准。
+早期骨架设计与契约示例见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)（其中“三个页面均为占位页”等描述已经过时，仅作历史参考）；具体行为以当前源码为准。
 
 ### HISTORY 数据与 UI 分层
 
 - `scan.ts` 是无 React 依赖的数据层，负责文件读取、JSONL 解析、缓存和文件操作。
 - `types.ts` 定义 `ProjectInfo`、`SessionMeta` 与 `ChatEntry`。
-- `HISTORYPage.tsx` 负责展示、焦点、弹窗和键盘状态。
-- 元信息缓存和对话缓存均以文件 `mtime` 为失效依据，外部修改后可重新读取。
+- `LandingView.tsx` 负责落地数据看板，`HISTORYPage.tsx` 负责总览三栏、弹窗、键盘状态以及两层视图切换。
+- 元信息缓存按文件 `mtime` 失效，并持久化到 `~/.mfcc/history-scan-cache.json`；文件追加时只解析新增字节，冷启动的大会话解析会分片让出主线程。
+- 对话缓存同样以 `mtime` 失效，外部修改后自动重新读取。
 - 单行项目列表复用 `ScrollableList`；会话卡片和不定高对话块使用各自的窗口计算，避免固定行高假设破坏布局。
 
 ### 常用开发命令
@@ -437,11 +500,12 @@ node dist/cli.js # 直接运行已有构建
 
 ### CCR 定制 fork
 
-`claude-code-router/` 是 [musistudio/claude-code-router](https://github.com/musistudio/claude-code-router) 的 submodule：
+`claude-code-router/` 是 [musistudio/claude-code-router](https://github.com/musistudio/claude-code-router) 的 submodule（Node.js 22+，包含 CLI、网关、Web 管理界面与桌面端的 monorepo）：
 
 - `main` 用于跟踪上游。
 - `custom` 用于维护本地补丁。
 - 本地修改和补丁边界见 [docs/PATCHES.md](./docs/PATCHES.md)。
+- 使用说明见 [claude-code-router/README_zh.md](./claude-code-router/README_zh.md)。
 
 根目录执行 `npm ci` 不会替你安装或构建该子模块的依赖；需要进入其目录后按子项目说明单独操作。
 
@@ -449,22 +513,31 @@ node dist/cli.js # 直接运行已有构建
 
 `ccr-tray/` 是独立 Electron 应用，提供：
 
-- 每 3 秒探测 CCR 服务状态。
-- 绿、黄、红三色托盘状态。
-- 启动、停止和打开管理界面。
-- 管理端口与服务端口设置。
+- 每 3 秒探测 CCR 服务端口状态，绿、黄、红三色托盘图标。
+- 启动、停止 CCR，以及打开带 RPC token 的管理界面。
+- 管理端口与网关端口设置，保存后自动重启服务生效。
 - Windows / Linux 开机自启。
-- 服务异常、恢复与启动缓慢通知。
+- 服务异常、恢复与启动缓慢的应用内通知。
+- 每 5 秒只读轮询 `request-logs.sqlite` 中的新增失败请求并弹窗提醒；同型错误 10 分钟内只提醒一次，可在设置中关闭。
+- 设置页显示托盘进程自身的平均 CPU 与 RSS 内存占用。
+
+端口约定：CCR 管理口默认 `3458`，CCR 自身网关口默认 `3456`；托盘默认注入的网关口为 `40229`（依赖 CCR fork 的 `CCR_GATEWAY_PORT` 补丁）。三者不要混淆。
 
 运行 CCRTray 需要 Node.js 22+，并且目标机器可执行 `ccr`：
 
 ```bash
 cd ccr-tray
-npm install
-npm run dev        # 构建并启动
+npm ci
+npm start          # 构建并启动
+npm run dev        # 构建并以开发模式启动
 npm run typecheck  # 类型检查
-npm run dist       # 构建 Windows NSIS 安装包
+npm run dist       # electron-builder 打包（打包前请确认图标等构建资源齐全）
 ```
+
+配置位置：
+
+- Windows：`%APPDATA%\ccr-tray\settings.json`
+- Linux：`$XDG_CONFIG_HOME/ccr-tray/settings.json`，未设置时使用 `~/.config/ccr-tray/settings.json`
 
 完整说明见 [ccr-tray/README.md](./ccr-tray/README.md)。
 
@@ -536,5 +609,5 @@ npm run build
 - 工具结果和 diff 存在长度上限，极端大的输出会被截断或回退为普通展示。
 - 删除与归档使用文件移动；跨设备、权限不足或目标同名文件等情况可能导致操作失败，错误会显示在底栏。
 - 运行状态不是进程级锁，而是最近 3 分钟文件写入的启发式判断。
-- PLUGINS 与 SETTING 仍是占位页，当前不会修改 `~/.claude.json`、MCP 配置、Skills 或 CCR 配置。
+- PLUGINS 仍是占位页；SETTING 目前只写入 MFCC 自己的终端模板配置，不会修改 `~/.claude.json`、MCP 配置、Skills 或 CCR 配置。
 - 主程序、CCR fork 和 CCRTray 需要分别构建、验证和发布。
